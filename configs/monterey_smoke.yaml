@@ -1,0 +1,69 @@
+# Monterey Peninsula feasibility-spike config.
+#
+# Keep this config small. It is intended for agent-safe development and smoke
+# tests, not full West Coast processing.
+
+data_root: /Volumes/x10pro/kelp_aef
+
+region:
+  name: monterey_peninsula
+  display_name: Monterey Peninsula
+  crs: EPSG:4326
+  bounds:
+    west: -122.15
+    south: 36.45
+    east: -121.75
+    north: 36.85
+
+years:
+  smoke: [2018, 2019, 2020]
+  milestone: [2018, 2019, 2020, 2021, 2022, 2023, 2024]
+
+labels:
+  source: kelpwatch
+  target: kelp_max_y
+  aggregation: annual_max
+  native_resolution_m: 30
+  paths:
+    raw_dir: /Volumes/x10pro/kelp_aef/raw/kelpwatch
+    annual_labels: /Volumes/x10pro/kelp_aef/interim/labels_annual.parquet
+
+features:
+  source: alphaearth
+  bands: A00-A63
+  native_resolution_m: 10
+  target_resolution_m: 30
+  aggregation: mean_to_kelpwatch_grid
+  paths:
+    raw_dir: /Volumes/x10pro/kelp_aef/raw/aef_samples
+    feature_table: /Volumes/x10pro/kelp_aef/interim/aef_samples.parquet
+
+alignment:
+  output_table: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet
+  split_manifest: /Volumes/x10pro/kelp_aef/interim/split_manifest.parquet
+
+splits:
+  primary: year_holdout
+  train_years: [2018, 2019, 2020, 2021]
+  validation_years: [2022]
+  test_years: [2023, 2024]
+
+models:
+  initial:
+    - logistic_regression
+    - random_forest
+  output_dir: /Volumes/x10pro/kelp_aef/models
+
+reports:
+  figures_dir: /Volumes/x10pro/kelp_aef/reports/figures
+  tables_dir: /Volumes/x10pro/kelp_aef/reports/tables
+  outputs:
+    metadata_summary: /Volumes/x10pro/kelp_aef/interim/metadata_summary.json
+    sample_qa_figure: /Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png
+    predicted_map: /Volumes/x10pro/kelp_aef/reports/figures/predicted_map.png
+    residual_map: /Volumes/x10pro/kelp_aef/reports/figures/residual_map.png
+    area_bias_summary: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_summary.csv
+
+runtime:
+  max_cells: 250000
+  fail_if_data_root_missing: true

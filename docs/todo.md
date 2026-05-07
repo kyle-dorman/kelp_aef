@@ -45,7 +45,7 @@ each time.
 
 ## 5. Project Skeleton
 
-- [ ] Create the package structure from the research plan:
+- [x] Create the package structure from the research plan:
   - `src/kelp_aef/io/`
   - `src/kelp_aef/labels/`
   - `src/kelp_aef/alignment/`
@@ -53,10 +53,10 @@ each time.
   - `src/kelp_aef/models/`
   - `src/kelp_aef/evaluation/`
   - `src/kelp_aef/viz/`
-- [ ] Add `scripts/` entry scripts or decide that all commands live under the
+- [x] Add `scripts/` entry scripts or decide that all commands live under the
   package CLI.
-- [ ] Add `configs/monterey_smoke.yaml` before writing data-heavy code.
-- [ ] Add artifact directories or document creation commands for the external
+- [x] Add `configs/monterey_smoke.yaml` before writing data-heavy code.
+- [x] Add artifact directories or document creation commands for the external
   data root:
   - `/Volumes/x10pro/kelp_aef/raw/`
   - `/Volumes/x10pro/kelp_aef/interim/`

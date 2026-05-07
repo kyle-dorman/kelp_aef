@@ -45,6 +45,10 @@ Responsibilities:
 Prefer package-backed CLI commands so code remains testable. Thin scripts are
 acceptable when they only delegate into package functions.
 
+Decision: user-facing workflow commands should live behind the `kelp-aef`
+package CLI. Do not add standalone `scripts/` entrypoints unless they are thin
+wrappers around package functions or there is a specific operational reason.
+
 Likely first commands:
 
 ```text
@@ -118,6 +122,18 @@ Expected artifact roots:
 /Volumes/x10pro/kelp_aef/models/
 /Volumes/x10pro/kelp_aef/reports/figures/
 /Volumes/x10pro/kelp_aef/reports/tables/
+```
+
+Create the external artifact directories with:
+
+```bash
+mkdir -p /Volumes/x10pro/kelp_aef/raw/kelpwatch \
+  /Volumes/x10pro/kelp_aef/raw/aef_samples \
+  /Volumes/x10pro/kelp_aef/interim \
+  /Volumes/x10pro/kelp_aef/processed \
+  /Volumes/x10pro/kelp_aef/models \
+  /Volumes/x10pro/kelp_aef/reports/figures \
+  /Volumes/x10pro/kelp_aef/reports/tables
 ```
 
 Early smoke-test artifacts:
