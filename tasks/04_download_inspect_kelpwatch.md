@@ -12,6 +12,9 @@ record enough metadata to define annual label derivation safely.
   `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson`.
 - Years: 2018-2022.
 - Label source: Kelpwatch.
+- Source package: EDI/SBC LTER package `knb-lter-sbc.74`.
+- Latest-revision discovery endpoint:
+  `https://pasta.lternet.edu/package/eml/knb-lter-sbc/74?filter=newest`.
 
 ## Outputs
 
@@ -32,6 +35,50 @@ Brief implementation plan before editing code. Include the chosen Kelpwatch
 source endpoint or file source, expected file format, and how downloads remain
 limited to the Monterey smoke geometry and 2018-2022 years.
 
+Current source decision from exploration:
+
+- Use the EDI/SBC LTER NetCDF package as the canonical Kelpwatch label source:
+  `knb-lter-sbc.74`.
+- Discover the current revision dynamically instead of hard-coding it. On
+  2026-05-07, the newest revision endpoint resolved to revision `32`.
+- Revision `32` metadata:
+  - Package id: `knb-lter-sbc.74.32`.
+  - DOI: `doi:10.6073/pasta/9e67d5f471f448a966f3d6bd81bc5825`.
+  - Object name: `LandsatKelpBiomass_2025_Q4_withmetadata.nc`.
+  - Entity id: `c2bea785267fa434c40a22e2239bb337`.
+  - Data URL:
+    `https://pasta.lternet.edu/package/data/eml/knb-lter-sbc/74/32/c2bea785267fa434c40a22e2239bb337`.
+  - Size: `2598167830` bytes.
+  - EML MD5: `c9ff4edaa5ba5bb1c893b722bde5474d`.
+  - Temporal coverage: `1984-03-23` through `2025-12-31`.
+  - Spatial coverage: west `-124.77`, east `-114.04`, north `48.40`,
+    south `27.01`.
+  - Format: NetCDF.
+- Package revisions are cumulative quarterly snapshots, not one file per
+  quarter. For example:
+  - `knb-lter-sbc.74.22` is `LandsatKelpBiomass_2023_Q3_withmetadata.nc`
+    covering `1984-03-23` through `2023-09-30`.
+  - `knb-lter-sbc.74.23` is `LandsatKelpBiomass_2023_Q4_withmetadata.nc`
+    covering `1984-03-23` through `2023-12-31`.
+  - `knb-lter-sbc.74.32` is `LandsatKelpBiomass_2025_Q4_withmetadata.nc`
+    covering `1984-03-23` through `2025-12-31`.
+- Download only the latest cumulative NetCDF unless a future task explicitly
+  needs to reproduce an older release.
+- The PASTA data endpoint did not honor HTTP range requests during exploration,
+  so the initial download cannot be restricted to Monterey or 2018-2022 at the
+  source. Limit spatial and temporal scope during the local inspect/subset step.
+- Kelpwatch web-app endpoints are useful for QA but should not be the primary
+  pixel-level label source:
+  - Region API:
+    `https://kelp-production-agg.kelpwatch.org/db/region`.
+  - Aggregate CSV pattern:
+    `https://data-production.kelpwatch.org/aggregates/aggregate-{regionID}-{subregionID}.csv`.
+  - Central California aggregate example: region id `2`, subregion id `7`.
+  - Vector tile metadata:
+    `https://data-production.kelpwatch.org/california/latest.tiles/metadata.json`.
+  - These expose aggregate time series and PBF vector-tile map products, not the
+    original 30 m NetCDF grid needed for training labels.
+
 ## Validation Command
 
 ```bash
@@ -47,17 +94,21 @@ kelp-aef inspect-kelpwatch --config configs/monterey_smoke.yaml
 ## Acceptance Criteria
 
 - Downloader/reader is package-backed and runnable from the `kelp-aef` CLI.
-- Source manifest records source URL or endpoint, local paths, years, seasons or
+- Source manifest records the latest-revision discovery endpoint, resolved
+  package id, entity id, source URL, local paths, checksum, years, seasons or
   dates, variables, units, CRS, bounds, and file sizes.
 - Metadata summary includes CRS, bounds, variables, seasons, years, units, and
   missing-data notes.
-- Downloads are limited to the configured smoke scope where the source allows
-  spatial/temporal filtering.
+- The downloaded NetCDF is inspected locally and the manifest records that
+  spatial/temporal filtering is applied locally because the source endpoint is a
+  single cumulative NetCDF.
 - The task identifies the value field needed for `kelp_max_y`.
 
 ## Known Constraints Or Non-Goals
 
-- The Kelpwatch source endpoint and file format are not decided yet.
+- The selected Kelpwatch source is a single large cumulative NetCDF, not a
+  Monterey-specific file.
+- Do not download all historical package revisions.
 - Do not build `labels_annual.parquet` in this task.
 - Do not define `kelp_present_y` thresholds before inspecting value ranges.
 - Do not claim Kelpwatch labels are independent field truth.

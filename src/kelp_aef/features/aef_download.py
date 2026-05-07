@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import operator
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, SupportsIndex, cast
@@ -24,6 +25,7 @@ SOURCE_COOPERATIVE_BASE_URL = "https://data.source.coop"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_CHUNK_SIZE_BYTES = 16 * 1024 * 1024
 SOURCE_COLLECTION_MARKER = "/v1/annual"
+VRT_SOURCE_ELEMENT_NAMES = frozenset({"SourceDataset", "SourceFilename"})
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,17 @@ class AssetTransferResult:
     local_path: Path | None
     status: str
     remote_info: RemoteAssetInfo | None
+    file_size_bytes: int | None
+    error: str | None
+
+
+@dataclass(frozen=True)
+class LocalVrtResult:
+    """Result of preparing a local-only VRT that points at the downloaded TIFF."""
+
+    source_vrt_path: Path | None
+    local_path: Path | None
+    status: str
     file_size_bytes: int | None
     error: str | None
 
@@ -292,13 +305,20 @@ def process_catalog_asset(
         chunk_size_bytes=chunk_size_bytes,
         force=force,
     )
-    preferred_read_path = choose_preferred_read_path(tiff_transfer, vrt_transfer)
+    local_vrt = ensure_local_read_vrt_available(
+        asset=asset,
+        tiff_transfer=tiff_transfer,
+        vrt_transfer=vrt_transfer,
+        dry_run=dry_run,
+    )
+    preferred_read_path = choose_preferred_read_path(tiff_transfer, local_vrt)
     raster_metadata = raster_metadata_for_manifest(preferred_read_path, dry_run)
 
     return build_asset_manifest_record(
         asset=asset,
         tiff_transfer=tiff_transfer,
         vrt_transfer=vrt_transfer,
+        local_vrt=local_vrt,
         preferred_read_path=preferred_read_path,
         raster_metadata=raster_metadata,
     )
@@ -440,6 +460,94 @@ def ensure_asset_available(
         file_size_bytes=file_size(local_path),
         error=None,
     )
+
+
+def ensure_local_read_vrt_available(
+    *,
+    asset: AefCatalogAsset,
+    tiff_transfer: AssetTransferResult,
+    vrt_transfer: AssetTransferResult,
+    dry_run: bool,
+) -> LocalVrtResult:
+    """Create or plan a VRT whose source dataset is the downloaded local TIFF."""
+    if asset.local_vrt_path is None:
+        return empty_local_vrt_result(None, None, "not_configured")
+
+    local_path = local_read_vrt_path(asset.local_vrt_path)
+    if dry_run:
+        status = "dry_run_existing" if local_path.exists() else "dry_run"
+        return LocalVrtResult(
+            source_vrt_path=asset.local_vrt_path,
+            local_path=local_path,
+            status=status,
+            file_size_bytes=file_size(local_path),
+            error=None,
+        )
+
+    if tiff_transfer.local_path is None or not tiff_transfer.local_path.exists():
+        return empty_local_vrt_result(asset.local_vrt_path, local_path, "missing_tiff")
+    if vrt_transfer.local_path is None or not vrt_transfer.local_path.exists():
+        return empty_local_vrt_result(asset.local_vrt_path, local_path, "missing_source_vrt")
+
+    try:
+        rewrite_vrt_sources_to_local_tiff(
+            source_vrt_path=vrt_transfer.local_path,
+            local_tiff_path=tiff_transfer.local_path,
+            output_path=local_path,
+        )
+    except (OSError, ET.ParseError, ValueError) as exc:
+        LOGGER.warning("Could not prepare local AEF VRT %s: %s", local_path, exc)
+        return LocalVrtResult(
+            source_vrt_path=vrt_transfer.local_path,
+            local_path=local_path,
+            status="error",
+            file_size_bytes=file_size(local_path),
+            error=str(exc),
+        )
+
+    LOGGER.info("Prepared local AEF VRT: %s", local_path)
+    return LocalVrtResult(
+        source_vrt_path=vrt_transfer.local_path,
+        local_path=local_path,
+        status="generated",
+        file_size_bytes=file_size(local_path),
+        error=None,
+    )
+
+
+def local_read_vrt_path(source_vrt_path: Path) -> Path:
+    """Return the generated local-read VRT path for an upstream VRT path."""
+    return source_vrt_path.with_name(f"{source_vrt_path.stem}.local.vrt")
+
+
+def rewrite_vrt_sources_to_local_tiff(
+    *, source_vrt_path: Path, local_tiff_path: Path, output_path: Path
+) -> None:
+    """Rewrite VRT source dataset references to point at the downloaded local TIFF."""
+    tree = ET.parse(source_vrt_path)
+    replaced_count = 0
+    for element in tree.iter():
+        if local_xml_name(element.tag) not in VRT_SOURCE_ELEMENT_NAMES:
+            continue
+        if element.text is None or not element.text.strip():
+            continue
+        element.text = str(local_tiff_path)
+        element.set("relativeToVRT", "0")
+        replaced_count += 1
+
+    if replaced_count == 0:
+        msg = f"VRT contains no source dataset references: {source_vrt_path}"
+        raise ValueError(msg)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tree.write(output_path, encoding="utf-8", xml_declaration=True)
+
+
+def local_xml_name(tag: str) -> str:
+    """Return an XML tag's local name without a namespace prefix."""
+    if "}" in tag:
+        return tag.rsplit("}", maxsplit=1)[1]
+    return tag
 
 
 def download_file(
@@ -589,11 +697,15 @@ def catalog_bounds_from_row(row: dict[str, Any]) -> tuple[float, float, float, f
 
 
 def choose_preferred_read_path(
-    tiff_transfer: AssetTransferResult, vrt_transfer: AssetTransferResult
+    tiff_transfer: AssetTransferResult, local_vrt: LocalVrtResult
 ) -> Path | None:
-    """Prefer a local VRT when it exists, otherwise fall back to the local TIFF."""
-    if vrt_transfer.local_path is not None and vrt_transfer.local_path.exists():
-        return vrt_transfer.local_path
+    """Prefer the generated local-read VRT, otherwise fall back to the local TIFF."""
+    if (
+        local_vrt.status in {"generated", "dry_run_existing"}
+        and local_vrt.local_path is not None
+        and local_vrt.local_path.exists()
+    ):
+        return local_vrt.local_path
     if tiff_transfer.local_path is not None and tiff_transfer.local_path.exists():
         return tiff_transfer.local_path
     return tiff_transfer.local_path
@@ -661,6 +773,7 @@ def build_asset_manifest_record(
     asset: AefCatalogAsset,
     tiff_transfer: AssetTransferResult,
     vrt_transfer: AssetTransferResult,
+    local_vrt: LocalVrtResult,
     preferred_read_path: Path | None,
     raster_metadata: dict[str, Any],
 ) -> dict[str, Any]:
@@ -677,6 +790,7 @@ def build_asset_manifest_record(
         "local_path": str(asset.local_tiff_path),
         "local_tiff_path": str(asset.local_tiff_path),
         "local_vrt_path": str(asset.local_vrt_path) if asset.local_vrt_path else None,
+        "local_read_vrt_path": str(local_vrt.local_path) if local_vrt.local_path else None,
         "preferred_read_path": str(preferred_read_path) if preferred_read_path else None,
         "file_size_bytes": file_size(asset.local_tiff_path),
         "validation_status": raster_metadata["validation_status"],
@@ -684,6 +798,7 @@ def build_asset_manifest_record(
         "transfers": {
             "tiff": transfer_result_to_dict(tiff_transfer),
             "vrt": transfer_result_to_dict(vrt_transfer),
+            "local_vrt": local_vrt_result_to_dict(local_vrt),
         },
     }
 
@@ -697,6 +812,17 @@ def transfer_result_to_dict(result: AssetTransferResult) -> dict[str, Any]:
         "local_path": str(result.local_path) if result.local_path else None,
         "status": result.status,
         "remote": remote_info_to_dict(result.remote_info),
+        "file_size_bytes": result.file_size_bytes,
+        "error": result.error,
+    }
+
+
+def local_vrt_result_to_dict(result: LocalVrtResult) -> dict[str, Any]:
+    """Convert a local VRT preparation result into JSON-serializable fields."""
+    return {
+        "source_vrt_path": str(result.source_vrt_path) if result.source_vrt_path else None,
+        "local_path": str(result.local_path) if result.local_path else None,
+        "status": result.status,
         "file_size_bytes": result.file_size_bytes,
         "error": result.error,
     }
@@ -785,6 +911,19 @@ def empty_transfer_result(kind: str, status: str) -> AssetTransferResult:
         status=status,
         remote_info=None,
         file_size_bytes=None,
+        error=None,
+    )
+
+
+def empty_local_vrt_result(
+    source_vrt_path: Path | None, local_path: Path | None, status: str
+) -> LocalVrtResult:
+    """Build an empty local VRT result for unavailable source inputs."""
+    return LocalVrtResult(
+        source_vrt_path=source_vrt_path,
+        local_path=local_path,
+        status=status,
+        file_size_bytes=file_size(local_path),
         error=None,
     )
 

@@ -107,6 +107,39 @@ def test_download_aef_skips_existing_tiff_and_writes_metadata_summary(
     assert metadata_summary["aef_tiles"]["record_count"] == 1
 
 
+def test_download_aef_generates_local_vrt_for_offline_reads(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    """Rewrite downloaded AEF VRT sources to local TIFF paths before validation."""
+    catalog_path = tmp_path / "catalog.parquet"
+    config_path = write_download_config(tmp_path, catalog_path)
+    write_catalog_query(catalog_path)
+    local_tiff_path = tmp_path / "raw/aef/v1/annual/2018/10N/tile.tiff"
+    source_vrt_path = tmp_path / "raw/aef/v1/annual/2018/10N/tile.vrt"
+    local_read_vrt_path = tmp_path / "raw/aef/v1/annual/2018/10N/tile.local.vrt"
+    write_tiny_tiff(local_tiff_path)
+    write_remote_source_vrt(source_vrt_path)
+
+    def fail_download(*_args: object, **_kwargs: object) -> None:
+        """Fail if existing local AEF files are downloaded again."""
+        raise AssertionError("download_file should not be called for existing files")
+
+    monkeypatch.setattr(aef_download, "download_file", fail_download)
+
+    assert download_aef(config_path, skip_remote_checks=True) == 0
+
+    manifest = json.loads((tmp_path / "interim/aef_manifest.json").read_text())
+    record = manifest["records"][0]
+    local_read_vrt_text = local_read_vrt_path.read_text()
+    assert record["preferred_read_path"] == str(local_read_vrt_path)
+    assert record["local_read_vrt_path"] == str(local_read_vrt_path)
+    assert record["transfers"]["local_vrt"]["status"] == "generated"
+    assert record["validation_status"] == "valid"
+    assert "/vsis3/" not in local_read_vrt_text
+    assert str(local_tiff_path) in local_read_vrt_text
+
+
 def write_catalog_query(path: Path) -> None:
     """Write a one-row GeoParquet catalog query fixture."""
     href = "s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2018/10N/tile.tiff"
@@ -171,3 +204,27 @@ def write_tiny_tiff(path: Path) -> None:
         nodata=0,
     ) as dataset:
         dataset.write(np.array([[1]], dtype=np.uint8), 1)
+
+
+def write_remote_source_vrt(path: Path) -> None:
+    """Write a tiny VRT fixture that mimics upstream S3-backed AEF VRTs."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        """
+<VRTDataset rasterXSize="1" rasterYSize="1">
+  <SRS>EPSG:4326</SRS>
+  <GeoTransform>0.0, 1.0, 0.0, 1.0, 0.0, -1.0</GeoTransform>
+  <VRTRasterBand dataType="Byte" band="1">
+    <NoDataValue>0</NoDataValue>
+    <SimpleSource>
+      <SourceFilename relativeToVRT="0">/vsis3/example-bucket/tile.tiff</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <SourceProperties RasterXSize="1" RasterYSize="1" DataType="Byte"
+        BlockXSize="1" BlockYSize="1"/>
+      <SrcRect xOff="0" yOff="0" xSize="1" ySize="1"/>
+      <DstRect xOff="0" yOff="0" xSize="1" ySize="1"/>
+    </SimpleSource>
+  </VRTRasterBand>
+</VRTDataset>
+""".lstrip()
+    )
