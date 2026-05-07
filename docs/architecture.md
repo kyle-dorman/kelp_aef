@@ -54,6 +54,7 @@ Mapped initial commands:
 ```text
 kelp-aef smoke --config configs/monterey_smoke.yaml
 kelp-aef query-aef-catalog --config configs/monterey_smoke.yaml
+kelp-aef download-aef --config configs/monterey_smoke.yaml
 kelp-aef inspect-kelpwatch --config configs/monterey_smoke.yaml
 kelp-aef fetch-aef-chip --config configs/monterey_smoke.yaml
 kelp-aef build-labels --config configs/monterey_smoke.yaml

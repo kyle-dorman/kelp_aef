@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from kelp_aef.features.aef_catalog import query_aef_catalog
+from kelp_aef.features.aef_download import download_aef
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = PROJECT_ROOT / "configs/monterey_smoke.yaml"
@@ -21,6 +22,7 @@ LOGGER = logging.getLogger(__name__)
 COMMANDS: dict[str, str] = {
     "smoke": "Run the configured smoke workflow.",
     "query-aef-catalog": "Query the AEF STAC catalog for configured assets.",
+    "download-aef": "Download selected AEF tile assets from the catalog query.",
     "inspect-kelpwatch": "Inspect Kelpwatch metadata for the configured region.",
     "fetch-aef-chip": "Fetch or stage AlphaEarth embedding samples for the configured region.",
     "build-labels": "Build derived Kelpwatch labels for the configured target.",
@@ -46,6 +48,15 @@ def configure_logging(level_name: str) -> None:
         datefmt=LOG_DATE_FORMAT,
         force=True,
     )
+
+
+def positive_float(value: str) -> float:
+    """Parse a positive floating-point CLI value."""
+    parsed = float(value)
+    if parsed <= 0:
+        msg = f"value must be positive: {value}"
+        raise argparse.ArgumentTypeError(msg)
+    return parsed
 
 
 def validate_config_path(path: Path) -> Path:
@@ -96,8 +107,41 @@ def build_parser() -> argparse.ArgumentParser:
             help="Path to a workflow config file. Defaults to the repo's "
             "configs/monterey_smoke.yaml.",
         )
+        if command == "download-aef":
+            add_download_aef_arguments(subparser)
 
     return parser
+
+
+def add_download_aef_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add downloader-specific options to the download-aef subcommand."""
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build a download plan without downloading files or updating metadata_summary.json.",
+    )
+    parser.add_argument(
+        "--skip-remote-checks",
+        action="store_true",
+        help="Skip remote HEAD checks; useful with --dry-run for fast local validation.",
+    )
+    parser.add_argument(
+        "--manifest-output",
+        type=Path,
+        default=None,
+        help="Optional manifest output path, useful for dry-run plans.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Download files even when matching local files already exist.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=positive_float,
+        default=30.0,
+        help="HTTP timeout in seconds for remote checks and downloads.",
+    )
 
 
 def run_scaffold_command(command: str, config_path: Path) -> int:
@@ -131,6 +175,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if command == "query-aef-catalog":
             exit_code = query_aef_catalog(config_path)
+        elif command == "download-aef":
+            exit_code = download_aef(
+                config_path,
+                dry_run=bool(args.dry_run),
+                skip_remote_checks=bool(args.skip_remote_checks),
+                manifest_output=args.manifest_output,
+                timeout_seconds=float(args.timeout_seconds),
+                force=bool(args.force),
+            )
         else:
             exit_code = run_scaffold_command(command, config_path)
     except Exception:

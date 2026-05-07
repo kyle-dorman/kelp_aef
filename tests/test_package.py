@@ -13,6 +13,7 @@ def test_cli_imports() -> None:
     assert set(COMMANDS) == {
         "smoke",
         "query-aef-catalog",
+        "download-aef",
         "inspect-kelpwatch",
         "fetch-aef-chip",
         "build-labels",

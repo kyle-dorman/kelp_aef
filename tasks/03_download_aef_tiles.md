@@ -39,10 +39,34 @@ Brief implementation plan before editing code. Include download idempotency,
 resume behavior, checksum or size validation if available, and how local paths
 are derived from catalog asset hrefs.
 
+## Implementation Plan
+
+- Add `kelp-aef download-aef` as a package-backed CLI command under
+  `src/kelp_aef/features/`.
+- Read the selected asset rows from the existing catalog query GeoParquet with
+  GeoPandas. Do not re-query the STAC catalog in this task.
+- Derive local mirror paths by translating Source Cooperative hrefs like
+  `s3://.../tge-labs/aef/v1/annual/...` to
+  `/Volumes/x10pro/kelp_aef/raw/aef/v1/annual/...`.
+- Resolve downloads through `https://data.source.coop/...`, write transfers to a
+  sibling `*.part` file, and replace the final path only after the transfer
+  succeeds.
+- Skip already valid files. Use remote `Content-Length` from HEAD checks when
+  available, and inspect completed raster metadata with Rasterio for TIFF/VRT
+  validation.
+- Include `--dry-run` and `--skip-remote-checks` so the command can be tested
+  quickly without downloading multi-GB rasters or doing network HEAD requests.
+
 ## Validation Command
 
 ```bash
 make check
+kelp-aef download-aef --config configs/monterey_smoke.yaml --dry-run --skip-remote-checks --manifest-output /private/tmp/aef_monterey_tile_manifest_dry_run.json
+```
+
+Full data command, to run only after reviewing the dry-run plan:
+
+```bash
 kelp-aef download-aef --config configs/monterey_smoke.yaml
 ```
 
