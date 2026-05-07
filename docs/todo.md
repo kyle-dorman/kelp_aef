@@ -6,13 +6,13 @@ each time.
 
 ## 1. Project Docs
 
-- [ ] Convert `docs/research_plan.md` into a concise `docs/product.md`.
+- [x] Convert `docs/research_plan.md` into a concise `docs/product.md`.
   - Include project goal, non-goals, first feasibility milestone, and key caveat
     that Kelpwatch is a weak label rather than independent field truth.
-- [ ] Create `docs/architecture.md`.
+- [x] Create `docs/architecture.md`.
   - Define package/module boundaries, canonical data flow, expected artifacts,
     and the smoke-test workflow.
-- [ ] Keep `docs/research_plan.md` as the longer strategy/reference document.
+- [x] Keep `docs/research_plan.md` as the longer strategy/reference document.
 
 ## 2. Agent Instructions
 
@@ -58,11 +58,14 @@ each time.
 - [ ] Add `scripts/` entry scripts or decide that all commands live under the
   package CLI.
 - [ ] Add `configs/monterey_smoke.yaml` before writing data-heavy code.
-- [ ] Add placeholder directories for expected artifacts where useful:
-  - `data/raw/`
-  - `data/interim/`
-  - `reports/figures/`
-  - `reports/tables/`
+- [ ] Add artifact directories or document creation commands for the external
+  data root:
+  - `/Volumes/x10pro/kelp_aef/raw/`
+  - `/Volumes/x10pro/kelp_aef/interim/`
+  - `/Volumes/x10pro/kelp_aef/processed/`
+  - `/Volumes/x10pro/kelp_aef/models/`
+  - `/Volumes/x10pro/kelp_aef/reports/figures/`
+  - `/Volumes/x10pro/kelp_aef/reports/tables/`
 
 ## 6. CLI
 
@@ -79,6 +82,7 @@ each time.
 ## 7. Data And Artifact Contracts
 
 - [ ] Define canonical paths and git-ignore policy for data artifacts.
+  - Canonical data root: `/Volumes/x10pro/kelp_aef`.
 - [ ] Update `.gitignore` for large local outputs:
   - raw data
   - downloaded raster/Zarr artifacts

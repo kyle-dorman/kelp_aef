@@ -53,10 +53,10 @@ Codex tasks:
 Expected artifacts:
 
 ```text
-data/raw/kelpwatch/
-data/raw/aef_samples/
-data/interim/metadata_summary.json
-reports/figures/sample_kelpwatch_vs_aef.png
+/Volumes/x10pro/kelp_aef/raw/kelpwatch/
+/Volumes/x10pro/kelp_aef/raw/aef_samples/
+/Volumes/x10pro/kelp_aef/interim/metadata_summary.json
+/Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png
 ```
 
 ## Phase 2: Derived Labels
@@ -223,9 +223,14 @@ configs/
   monterey_smoke.yaml
   west_coast_full.yaml
 
-reports/
-  figures/
-  tables/
+external artifact root: /Volumes/x10pro/kelp_aef/
+  raw/
+  interim/
+  processed/
+  models/
+  reports/
+    figures/
+    tables/
 ```
 
 Agent-style task breakdown:
@@ -269,4 +274,3 @@ If that works, scale to the full U.S. West Coast.
 - Earth Engine Satellite Embedding V1: https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_SATELLITE_EMBEDDING_V1_ANNUAL
 - Geo-Embeddings xarray tutorial: https://geoembeddings.org/tutorials/xarray_geospatial_embeddings_intro.html
 - Kelpwatch: https://kelpwatch.org/
-
