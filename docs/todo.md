@@ -1,108 +1,82 @@
-# Agentic Workflow Setup TODO
+# First Feasibility Milestone TODO
 
-Work through these in order. The goal is to make the repo easy for agents to
-understand, modify, validate, and hand off without rediscovering project intent
-each time.
+This is the active planning checklist for Phase 0. The basic agentic setup work
+is complete; use `docs/backlog.md` for the durable high-level queue.
 
-## 1. Project Docs
+Do not start data-heavy implementation until this plan is reviewed and the
+smoke-test assumptions are updated.
 
-- [x] Convert `docs/research_plan.md` into a concise `docs/product.md`.
-  - Include project goal, non-goals, first feasibility milestone, and key caveat
-    that Kelpwatch is a weak label rather than independent field truth.
-- [x] Create `docs/architecture.md`.
-  - Define package/module boundaries, canonical data flow, expected artifacts,
-    and the smoke-test workflow.
-- [x] Keep `docs/research_plan.md` as the longer strategy/reference document.
+## Scope Decisions
 
-## 2. Agent Instructions
+- [ ] Choose the first smoke-test region.
+  - Current placeholder: Monterey Peninsula.
+  - Alternatives to consider: Santa Barbara or another region with easier data
+    access/QA.
+- [ ] Define the region geometry.
+  - Decide whether bounds live directly in config, in a small GeoJSON, or in a
+    named region registry.
+  - Review the provisional bounds in `configs/monterey_smoke.yaml`.
+- [ ] Choose the first year window.
+  - Confirm actual overlap between Kelpwatch and AlphaEarth availability.
+  - Decide whether the first smoke test should be 2-3 years or the broader
+    2018-2024 milestone window.
+- [ ] Choose the initial label target.
+  - Candidate from the research plan: `kelp_max_y`.
+  - Decide whether binary `kelp_present_y` is needed for the first model.
+  - Define any thresholds before implementation.
+- [ ] Choose the initial feature product and access path.
+  - Confirm whether AlphaEarth data will come through Earth Engine,
+    Geo-Embeddings/Zarr tooling, exported chips, or another route.
+  - Keep the first pull coastal and small.
+- [ ] Confirm the first alignment policy.
+  - Current research-plan default: aggregate AlphaEarth 10 m embeddings to the
+    Kelpwatch 30 m grid.
+  - Document any alternative before implementation.
+- [ ] Choose the first split policy.
+  - Current placeholder: year holdout.
+  - Decide exact train/validation/test years only after confirming available
+    data.
 
-- [x] Expand `AGENTS.md`.
-  - Add project goal and current milestone.
-  - Document `uv sync` setup and validation commands.
-  - Tell agents not to start with the full West Coast.
-  - Require narrow task contracts: inputs, outputs, validation command, smoke
-    region, and acceptance criteria.
-- [x] Fix the unclosed code fence in `AGENTS.md`.
+## Config And Artifacts
 
-## 3. Verification Workflow
+- [ ] Revise `configs/monterey_smoke.yaml` after the scope decisions above.
+  - Treat the current file as a provisional scaffold, not final science.
+- [ ] Confirm the expected output artifact paths.
+  - Metadata summary.
+  - Annual label table.
+  - AlphaEarth feature/sample table.
+  - Aligned training table.
+  - Split manifest.
+  - Predicted map.
+  - Residual map.
+  - Area-bias summary.
+- [ ] Confirm whether any tiny QA samples should be tracked.
+  - Current policy: none are tracked by default.
 
-- [x] Split mutating and non-mutating checks in `Makefile`.
-  - `make check` should run only non-mutating validation.
-  - `make fix` should run formatting and autofixes.
-- [x] Make `make check` pass on a fresh clone.
-- [x] Add a tiny test so `pytest` does not fail because zero tests are collected.
-- [x] Adjust the `mypy` command so it does not fail on an empty `tests/`
-  directory.
+## Task Contracts
 
-## 4. Toolchain Cleanup
+- [ ] Write the Phase 0 implementation spec or decision note.
+  - Include goal, scope, non-goals, selected config values, artifact paths,
+    validation plan, and open questions.
+- [ ] Create one task file per agent-sized unit of work.
+  - Suggested location: `tasks/`.
+- [ ] For each task file, include:
+  - Goal.
+  - Inputs.
+  - Outputs.
+  - Config file.
+  - Plan/spec requirement.
+  - Validation command.
+  - Smoke-test region and years.
+  - Acceptance criteria.
+  - Known constraints or non-goals.
 
-- [x] Align Python versions across `pyproject.toml`.
-  - Project requires Python 3.12 and remaining tool config now matches it.
-- [x] Simplify formatter/linter configuration.
-  - Prefer Ruff as the formatter/linter path.
-  - Removed stale Black/isort/autopep8/flake8 config.
-- [x] Trim VS Code recommendations to tools that matter for this project.
+## Initial Task Sequence
 
-## 5. Project Skeleton
+- [ ] Inspect Kelpwatch source format and write reader.
+- [ ] Inspect AlphaEarth access path and write sample/chip fetcher.
+- [ ] Build initial annual label derivation.
+- [ ] Align features and labels into the first table.
+- [ ] Train and evaluate first simple baselines.
+- [ ] Make first predicted/residual maps and area-bias table.
 
-- [x] Create the package structure from the research plan:
-  - `src/kelp_aef/io/`
-  - `src/kelp_aef/labels/`
-  - `src/kelp_aef/alignment/`
-  - `src/kelp_aef/features/`
-  - `src/kelp_aef/models/`
-  - `src/kelp_aef/evaluation/`
-  - `src/kelp_aef/viz/`
-- [x] Add `scripts/` entry scripts or decide that all commands live under the
-  package CLI.
-- [x] Add `configs/monterey_smoke.yaml` before writing data-heavy code.
-- [x] Add artifact directories or document creation commands for the external
-  data root:
-  - `/Volumes/x10pro/kelp_aef/raw/`
-  - `/Volumes/x10pro/kelp_aef/interim/`
-  - `/Volumes/x10pro/kelp_aef/processed/`
-  - `/Volumes/x10pro/kelp_aef/models/`
-  - `/Volumes/x10pro/kelp_aef/reports/figures/`
-  - `/Volumes/x10pro/kelp_aef/reports/tables/`
-
-## 6. CLI
-
-- [x] Replace the starter `kelp-aef` CLI with a real entrypoint.
-- [x] Add initial subcommands for the first milestone, likely:
-  - `smoke`
-  - `inspect-kelpwatch`
-  - `fetch-aef-chip`
-  - `build-labels`
-  - `align`
-- [x] Make each subcommand accept a config path.
-- [x] Add tests for CLI import and `--help`.
-
-## 7. Data And Artifact Contracts
-
-- [x] Define canonical paths and git-ignore policy for data artifacts.
-  - Canonical data root: `/Volumes/x10pro/kelp_aef`.
-- [x] Update `.gitignore` for large local outputs:
-  - raw data
-  - downloaded raster/Zarr artifacts
-  - temporary Earth Engine exports
-  - model outputs
-- [x] Decide which tiny sample outputs are intentionally tracked for visual QA.
-- [x] Document expected outputs for the Monterey feasibility spike:
-  - metadata summary
-  - aligned training table
-  - predicted map
-  - residual map
-  - area-bias summary
-
-## 8. First Feasibility Milestone
-
-- [ ] Lock the first smoke-test scope.
-  - Region: Monterey Peninsula unless changed.
-  - Years: small AlphaEarth/Kelpwatch overlap window.
-  - Label: Kelpwatch annual max.
-  - Features: AlphaEarth embeddings aggregated to 30 m.
-  - Models: logistic regression plus random forest.
-  - Split: year holdout.
-- [ ] Create one task file per narrow agent-sized unit of work.
-- [ ] For each task, include input files, output files, validation command, and
-  acceptance criteria.
