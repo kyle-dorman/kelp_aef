@@ -9,15 +9,15 @@ region:
   name: monterey_peninsula
   display_name: Monterey Peninsula
   crs: EPSG:4326
-  bounds:
-    west: -122.15
-    south: 36.45
-    east: -121.75
-    north: 36.85
+  geometry:
+    type: footprint_geojson
+    path: /Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson
+    source: alphaearth_tile_footprint
+    source_tile_uri: s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000008192-0000008192.tiff
 
 years:
-  smoke: [2018, 2019, 2020]
-  milestone: [2018, 2019, 2020, 2021, 2022, 2023, 2024]
+  smoke: [2018, 2019, 2020, 2021, 2022]
+  milestone: [2018, 2019, 2020, 2021, 2022]
 
 labels:
   source: kelpwatch
@@ -26,17 +26,31 @@ labels:
   native_resolution_m: 30
   paths:
     raw_dir: /Volumes/x10pro/kelp_aef/raw/kelpwatch
+    source_manifest: /Volumes/x10pro/kelp_aef/interim/kelpwatch_source_manifest.json
     annual_labels: /Volumes/x10pro/kelp_aef/interim/labels_annual.parquet
 
 features:
   source: alphaearth
+  product: aef_v1_annual
+  provider: source_cooperative
+  bucket: us-west-2.opendata.source.coop
+  s3_prefix: tge-labs/aef/v1/annual
+  utm_grid: 10N
   bands: A00-A63
   native_resolution_m: 10
   target_resolution_m: 30
   aggregation: mean_to_kelpwatch_grid
   paths:
-    raw_dir: /Volumes/x10pro/kelp_aef/raw/aef_samples
+    local_mirror_root: /Volumes/x10pro/kelp_aef/raw/aef
+    tile_manifest: /Volumes/x10pro/kelp_aef/interim/aef_monterey_tile_manifest.json
     feature_table: /Volumes/x10pro/kelp_aef/interim/aef_samples.parquet
+  known_tiles:
+    2018:
+      source_uri: s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2018/10N/xdz8z3a9znk5b1j75-0000008192-0000008192.tiff
+      local_path: /Volumes/x10pro/kelp_aef/raw/aef/v1/annual/2018/10N/xdz8z3a9znk5b1j75-0000008192-0000008192.tiff
+    2022:
+      source_uri: s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000008192-0000008192.tiff
+      local_path: /Volumes/x10pro/kelp_aef/raw/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000008192-0000008192.tiff
 
 alignment:
   output_table: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet
@@ -44,9 +58,9 @@ alignment:
 
 splits:
   primary: year_holdout
-  train_years: [2018, 2019, 2020, 2021]
-  validation_years: [2022]
-  test_years: [2023, 2024]
+  train_years: [2018, 2019, 2020]
+  validation_years: [2021]
+  test_years: [2022]
 
 models:
   initial:

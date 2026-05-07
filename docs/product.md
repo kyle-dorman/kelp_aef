@@ -21,9 +21,7 @@ Kelpwatch label tile + AlphaEarth embedding tile -> aligned training table -> si
 Initial scope:
 
 - Region: Monterey Peninsula, unless the project explicitly changes scope.
-- Years: a small AlphaEarth/Kelpwatch overlap window, expected to be 2-3 years
-  for the first smoke test and 2018-2024 for the first full milestone if
-  coverage allows.
+- Years: 2018-2022 for the first Monterey smoke test, using a year holdout.
 - Label: Kelpwatch annual max canopy.
 - Features: AlphaEarth annual 64-band embeddings aggregated from 10 m to the
   Kelpwatch 30 m grid.
@@ -59,7 +57,9 @@ columns = A00-A63 + lat + lon + year + state + label columns
 Expected early artifacts:
 
 - `/Volumes/x10pro/kelp_aef/raw/kelpwatch/`
+- `/Volumes/x10pro/kelp_aef/raw/aef/`
 - `/Volumes/x10pro/kelp_aef/raw/aef_samples/`
+- `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson`
 - `/Volumes/x10pro/kelp_aef/interim/metadata_summary.json`
 - `/Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet`
 - `/Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png`

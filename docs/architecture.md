@@ -76,7 +76,7 @@ configs/west_coast_full.yaml
 The smoke config should define:
 
 - Data root, currently `/Volumes/x10pro/kelp_aef`.
-- Region name and bounds.
+- Region name and a footprint GeoJSON path.
 - Years.
 - Label target.
 - Feature aggregation choice.
@@ -117,6 +117,7 @@ Expected artifact roots:
 
 ```text
 /Volumes/x10pro/kelp_aef/raw/
+/Volumes/x10pro/kelp_aef/geos/
 /Volumes/x10pro/kelp_aef/interim/
 /Volumes/x10pro/kelp_aef/processed/
 /Volumes/x10pro/kelp_aef/models/
@@ -128,7 +129,9 @@ Create the external artifact directories with:
 
 ```bash
 mkdir -p /Volumes/x10pro/kelp_aef/raw/kelpwatch \
+  /Volumes/x10pro/kelp_aef/raw/aef \
   /Volumes/x10pro/kelp_aef/raw/aef_samples \
+  /Volumes/x10pro/kelp_aef/geos \
   /Volumes/x10pro/kelp_aef/interim \
   /Volumes/x10pro/kelp_aef/processed \
   /Volumes/x10pro/kelp_aef/models \
@@ -138,6 +141,9 @@ mkdir -p /Volumes/x10pro/kelp_aef/raw/kelpwatch \
 
 Early smoke-test artifacts:
 
+- `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson`
+- `/Volumes/x10pro/kelp_aef/interim/aef_monterey_tile_manifest.json`
+- `/Volumes/x10pro/kelp_aef/interim/kelpwatch_source_manifest.json`
 - `/Volumes/x10pro/kelp_aef/interim/metadata_summary.json`
 - `/Volumes/x10pro/kelp_aef/interim/labels_annual.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/aef_samples.parquet`

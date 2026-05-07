@@ -8,40 +8,42 @@ smoke-test assumptions are updated.
 
 ## Scope Decisions
 
-- [ ] Choose the first smoke-test region.
-  - Current placeholder: Monterey Peninsula.
-  - Alternatives to consider: Santa Barbara or another region with easier data
-    access/QA.
-- [ ] Define the region geometry.
-  - Decide whether bounds live directly in config, in a small GeoJSON, or in a
-    named region registry.
-  - Review the provisional bounds in `configs/monterey_smoke.yaml`.
-- [ ] Choose the first year window.
-  - Confirm actual overlap between Kelpwatch and AlphaEarth availability.
-  - Decide whether the first smoke test should be 2-3 years or the broader
-    2018-2024 milestone window.
-- [ ] Choose the initial label target.
-  - Candidate from the research plan: `kelp_max_y`.
-  - Decide whether binary `kelp_present_y` is needed for the first model.
-  - Define any thresholds before implementation.
-- [ ] Choose the initial feature product and access path.
-  - Confirm whether AlphaEarth data will come through Earth Engine,
-    Geo-Embeddings/Zarr tooling, exported chips, or another route.
-  - Keep the first pull coastal and small.
-- [ ] Confirm the first alignment policy.
-  - Current research-plan default: aggregate AlphaEarth 10 m embeddings to the
-    Kelpwatch 30 m grid.
-  - Document any alternative before implementation.
-- [ ] Choose the first split policy.
-  - Current placeholder: year holdout.
-  - Decide exact train/validation/test years only after confirming available
-    data.
+- [x] Choose the first smoke-test region.
+  - Selected: Monterey Peninsula.
+- [x] Define the region geometry.
+  - Use a small GeoJSON footprint extracted from one AlphaEarth tile.
+  - Config path:
+    `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson`.
+  - Do not keep provisional bbox bounds as the active smoke geometry.
+- [x] Choose the first year window.
+  - Use the currently identified AlphaEarth/Kelpwatch overlap window:
+    2018-2022.
+- [x] Choose the initial label target.
+  - Use `kelp_max_y`, Kelpwatch annual max canopy.
+  - Defer binary `kelp_present_y` and thresholds until after source metadata and
+    value ranges are inspected.
+- [x] Choose the initial feature product and access path.
+  - Use Source Cooperative AlphaEarth/AEF v1 annual GeoTIFFs for one `10N` grid
+    tile.
+  - Mirror the S3 key layout under
+    `/Volumes/x10pro/kelp_aef/raw/aef/v1/annual/{year}/10N/`.
+  - Known source examples:
+    `s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2018/10N/xdz8z3a9znk5b1j75-0000008192-0000008192.tiff`
+    and
+    `s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000008192-0000008192.tiff`.
+- [x] Confirm the first alignment policy.
+  - Aggregate AlphaEarth 10 m embeddings to the Kelpwatch 30 m grid.
+- [x] Choose the first split policy.
+  - Year holdout: train 2018-2020, validate 2021, test 2022.
 
 ## Config And Artifacts
 
-- [ ] Revise `configs/monterey_smoke.yaml` after the scope decisions above.
-  - Treat the current file as a provisional scaffold, not final science.
-- [ ] Confirm the expected output artifact paths.
+- [x] Revise `configs/monterey_smoke.yaml` after the scope decisions above.
+  - Config now references the footprint GeoJSON and S3-mirrored AEF raw layout.
+- [x] Confirm the expected output artifact paths.
+  - AEF tile footprint GeoJSON.
+  - AEF tile manifest.
+  - Kelpwatch source manifest.
   - Metadata summary.
   - Annual label table.
   - AlphaEarth feature/sample table.
@@ -50,17 +52,17 @@ smoke-test assumptions are updated.
   - Predicted map.
   - Residual map.
   - Area-bias summary.
-- [ ] Confirm whether any tiny QA samples should be tracked.
+- [x] Confirm whether any tiny QA samples should be tracked.
   - Current policy: none are tracked by default.
 
 ## Task Contracts
 
-- [ ] Write the Phase 0 implementation spec or decision note.
+- [x] Write the Phase 0 implementation spec or decision note.
   - Include goal, scope, non-goals, selected config values, artifact paths,
     validation plan, and open questions.
-- [ ] Create one task file per agent-sized unit of work.
+- [x] Create one task file per agent-sized unit of work.
   - Suggested location: `tasks/`.
-- [ ] For each task file, include:
+- [x] For each task file, include:
   - Goal.
   - Inputs.
   - Outputs.
@@ -73,10 +75,10 @@ smoke-test assumptions are updated.
 
 ## Initial Task Sequence
 
-- [ ] Inspect Kelpwatch source format and write reader.
-- [ ] Inspect AlphaEarth access path and write sample/chip fetcher.
+- [ ] Extract AlphaEarth tile footprint GeoJSON.
+- [ ] Stage and inspect the configured AlphaEarth tile years.
+- [ ] Inspect Kelpwatch source format and write downloader/reader.
 - [ ] Build initial annual label derivation.
 - [ ] Align features and labels into the first table.
 - [ ] Train and evaluate first simple baselines.
 - [ ] Make first predicted/residual maps and area-bias table.
-

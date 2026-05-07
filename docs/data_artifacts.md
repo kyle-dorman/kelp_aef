@@ -23,7 +23,9 @@ Expected directory layout:
 /Volumes/x10pro/kelp_aef/
   raw/
     kelpwatch/
+    aef/
     aef_samples/
+  geos/
   interim/
   processed/
   models/
@@ -36,7 +38,9 @@ Create the directories with:
 
 ```bash
 mkdir -p /Volumes/x10pro/kelp_aef/raw/kelpwatch \
+  /Volumes/x10pro/kelp_aef/raw/aef \
   /Volumes/x10pro/kelp_aef/raw/aef_samples \
+  /Volumes/x10pro/kelp_aef/geos \
   /Volumes/x10pro/kelp_aef/interim \
   /Volumes/x10pro/kelp_aef/processed \
   /Volumes/x10pro/kelp_aef/models \
@@ -58,6 +62,7 @@ Not tracked in git:
 
 - Raw Kelpwatch data.
 - AlphaEarth samples, chips, rasters, Zarr stores, or Earth Engine exports.
+- AlphaEarth tile footprint GeoJSONs under the external artifact root.
 - Derived Parquet/CSV/JSON artifacts from normal pipeline runs.
 - Generated maps, figures, and report tables from normal pipeline runs.
 - Trained model files and serialized estimators.
@@ -96,6 +101,9 @@ artifact root.
 
 | Output | Path | Purpose | Git |
 | --- | --- | --- | --- |
+| AEF tile footprint | `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson` | Single-footprint smoke geometry extracted from the configured AlphaEarth tile. | Not tracked |
+| AEF tile manifest | `/Volumes/x10pro/kelp_aef/interim/aef_monterey_tile_manifest.json` | Local and source URIs for the matching 2018-2022 AEF tiles. | Not tracked |
+| Kelpwatch source manifest | `/Volumes/x10pro/kelp_aef/interim/kelpwatch_source_manifest.json` | Downloaded/source Kelpwatch files used by the smoke config. | Not tracked |
 | Metadata summary | `/Volumes/x10pro/kelp_aef/interim/metadata_summary.json` | CRS, bounds, variables, seasons, years, units, and missing-data notes for source inputs. | Not tracked |
 | Annual labels | `/Volumes/x10pro/kelp_aef/interim/labels_annual.parquet` | Kelpwatch seasonal labels collapsed to the configured annual target. | Not tracked |
 | AEF samples | `/Volumes/x10pro/kelp_aef/interim/aef_samples.parquet` | AlphaEarth features staged for the configured region and years. | Not tracked |
@@ -106,6 +114,6 @@ artifact root.
 | Residual map | `/Volumes/x10pro/kelp_aef/reports/figures/residual_map.png` | Spatial residual check against Kelpwatch-style labels. | Not tracked by default |
 | Area-bias summary | `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_summary.csv` | Region/year area bias and aggregate error summary. | Not tracked |
 
-These paths are provisional contracts. The exact Monterey bounds, year window,
-and label definitions still need review before data-heavy implementation.
-
+These paths are the current Monterey smoke-test contracts. The Kelpwatch source
+format and the matching 2019-2021 AEF object names still need source inspection
+before data-heavy implementation.
