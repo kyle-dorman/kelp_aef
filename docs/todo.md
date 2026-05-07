@@ -26,12 +26,12 @@ each time.
 
 ## 3. Verification Workflow
 
-- [ ] Split mutating and non-mutating checks in `Makefile`.
+- [x] Split mutating and non-mutating checks in `Makefile`.
   - `make check` should run only non-mutating validation.
   - `make fix` should run formatting and autofixes.
-- [ ] Make `make check` pass on a fresh clone.
-- [ ] Add a tiny test so `pytest` does not fail because zero tests are collected.
-- [ ] Adjust the `mypy` command so it does not fail on an empty `tests/`
+- [x] Make `make check` pass on a fresh clone.
+- [x] Add a tiny test so `pytest` does not fail because zero tests are collected.
+- [x] Adjust the `mypy` command so it does not fail on an empty `tests/`
   directory.
 
 ## 4. Toolchain Cleanup
