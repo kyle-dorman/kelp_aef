@@ -36,14 +36,12 @@ each time.
 
 ## 4. Toolchain Cleanup
 
-- [ ] Align Python versions across `pyproject.toml`.
-  - Project currently requires Python 3.12, while some tool config still says
-    3.11.
-- [ ] Simplify formatter/linter configuration.
+- [x] Align Python versions across `pyproject.toml`.
+  - Project requires Python 3.12 and remaining tool config now matches it.
+- [x] Simplify formatter/linter configuration.
   - Prefer Ruff as the formatter/linter path.
-  - Remove or de-emphasize stale Black/isort/autopep8/flake8 config unless we
-    intentionally use it.
-- [ ] Trim VS Code recommendations to tools that matter for this project.
+  - Removed stale Black/isort/autopep8/flake8 config.
+- [x] Trim VS Code recommendations to tools that matter for this project.
 
 ## 5. Project Skeleton
 
