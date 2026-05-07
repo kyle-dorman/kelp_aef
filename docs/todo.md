@@ -16,13 +16,13 @@ each time.
 
 ## 2. Agent Instructions
 
-- [ ] Expand `AGENTS.md`.
+- [x] Expand `AGENTS.md`.
   - Add project goal and current milestone.
   - Document `uv sync` setup and validation commands.
   - Tell agents not to start with the full West Coast.
   - Require narrow task contracts: inputs, outputs, validation command, smoke
     region, and acceptance criteria.
-- [ ] Fix the unclosed code fence in `AGENTS.md`.
+- [x] Fix the unclosed code fence in `AGENTS.md`.
 
 ## 3. Verification Workflow
 
