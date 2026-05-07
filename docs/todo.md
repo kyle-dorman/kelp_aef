@@ -25,6 +25,9 @@ smoke-test assumptions are updated.
 - [x] Choose the initial feature product and access path.
   - Use Source Cooperative AlphaEarth/AEF v1 annual GeoTIFFs for one `10N` grid
     tile.
+  - Query the Source Cooperative AEF STAC GeoParquet catalog to identify the
+    specific assets to download:
+    `https://data.source.coop/tge-labs/aef/v1/annual/aef_index_stac_geoparquet.parquet`.
   - Mirror the S3 key layout under
     `/Volumes/x10pro/kelp_aef/raw/aef/v1/annual/{year}/10N/`.
   - Known source examples:
@@ -42,6 +45,7 @@ smoke-test assumptions are updated.
   - Config now references the footprint GeoJSON and S3-mirrored AEF raw layout.
 - [x] Confirm the expected output artifact paths.
   - AEF tile footprint GeoJSON.
+  - AEF catalog query result.
   - AEF tile manifest.
   - Kelpwatch source manifest.
   - Metadata summary.
@@ -75,8 +79,9 @@ smoke-test assumptions are updated.
 
 ## Initial Task Sequence
 
-- [ ] Extract AlphaEarth tile footprint GeoJSON.
-- [ ] Stage and inspect the configured AlphaEarth tile years.
+- [x] Extract AlphaEarth tile footprint GeoJSON.
+- [ ] Query the AEF STAC GeoParquet catalog for Monterey smoke assets.
+- [ ] Download the selected AEF tile assets from the catalog query.
 - [ ] Inspect Kelpwatch source format and write downloader/reader.
 - [ ] Build initial annual label derivation.
 - [ ] Align features and labels into the first table.

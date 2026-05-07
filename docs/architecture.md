@@ -142,6 +142,8 @@ mkdir -p /Volumes/x10pro/kelp_aef/raw/kelpwatch \
 Early smoke-test artifacts:
 
 - `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson`
+- `/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query.parquet`
+- `/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query_summary.json`
 - `/Volumes/x10pro/kelp_aef/interim/aef_monterey_tile_manifest.json`
 - `/Volumes/x10pro/kelp_aef/interim/kelpwatch_source_manifest.json`
 - `/Volumes/x10pro/kelp_aef/interim/metadata_summary.json`

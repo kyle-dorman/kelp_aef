@@ -23,7 +23,27 @@ Coast or bulk-downloading AlphaEarth/AEF.
 
 ## AEF Access Decision
 
-Mirror the S3 key layout under the external raw artifact root:
+Use the Source Cooperative AEF STAC GeoParquet catalog as the discovery path for
+future AEF asset selection:
+
+```text
+https://data.source.coop/tge-labs/aef/v1/annual/aef_index_stac_geoparquet.parquet
+```
+
+The catalog can be inspected visually with:
+
+```text
+https://developmentseed.org/stac-map/?href=https://data.source.coop/tge-labs/aef/v1/annual/aef_index_stac_geoparquet.parquet
+```
+
+Catalog query output:
+
+```text
+/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query.parquet
+/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query_summary.json
+```
+
+Mirror selected assets from the catalog under the external raw artifact root:
 
 ```text
 /Volumes/x10pro/kelp_aef/raw/aef/v1/annual/{year}/10N/{tile}.tiff
@@ -42,8 +62,8 @@ The smoke config records those known examples and a manifest output path:
 /Volumes/x10pro/kelp_aef/interim/aef_monterey_tile_manifest.json
 ```
 
-The manifest should be filled by the AEF staging/inspection task once the
-matching 2019-2021 tile object names are confirmed.
+The manifest should be filled by the AEF download task using the catalog query
+result rather than hard-coded tile names.
 
 ## Kelpwatch Decision
 
@@ -63,6 +83,10 @@ units, seasons, CRS, and missing-data conventions are inspected.
 - AEF footprint:
   `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson`
 - AEF raw mirror root: `/Volumes/x10pro/kelp_aef/raw/aef`
+- AEF catalog query result:
+  `/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query.parquet`
+- AEF catalog query summary:
+  `/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query_summary.json`
 - AEF tile manifest:
   `/Volumes/x10pro/kelp_aef/interim/aef_monterey_tile_manifest.json`
 - Kelpwatch raw root: `/Volumes/x10pro/kelp_aef/raw/kelpwatch`
@@ -88,14 +112,19 @@ units, seasons, CRS, and missing-data conventions are inspected.
 - Docs/config validation: inspect diffs and run `make check`.
 - AEF footprint task: verify the GeoJSON has one EPSG:4326 polygon feature and
   overlaps the configured local AEF tile bounds.
-- AEF staging task: verify the tile manifest contains one local TIFF per year
-  for 2018-2022 and that each TIFF exposes the expected embedding bands.
+- AEF catalog query task: verify the query result contains the selected
+  intersecting Monterey assets for 2018-2022 and records TIFF/VRT hrefs when
+  available.
+- AEF download task: verify the tile manifest contains one selected local asset
+  per year for 2018-2022 and that each raster exposes the expected embedding
+  bands.
 - Kelpwatch downloader task: verify the source manifest and metadata summary
   include CRS, bounds, variables, seasons, years, units, and missing-data notes.
 
 ## Open Questions
 
-- The exact matching AEF object names for 2019-2021 are not recorded yet.
+- The exact matching AEF object names for 2019-2021 should come from the STAC
+  GeoParquet catalog query.
 - The Kelpwatch download endpoint, file format, and local naming convention still
   need source inspection.
 - The binary label target `kelp_present_y` and any threshold should remain

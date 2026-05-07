@@ -102,6 +102,8 @@ artifact root.
 | Output | Path | Purpose | Git |
 | --- | --- | --- | --- |
 | AEF tile footprint | `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson` | Single-footprint smoke geometry extracted from the configured AlphaEarth tile. | Not tracked |
+| AEF catalog query result | `/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query.parquet` | STAC GeoParquet rows selected for the Monterey footprint and 2018-2022 years. | Not tracked |
+| AEF catalog query summary | `/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query_summary.json` | Human-readable counts, bounds, and selected asset hrefs from the catalog query. | Not tracked |
 | AEF tile manifest | `/Volumes/x10pro/kelp_aef/interim/aef_monterey_tile_manifest.json` | Local and source URIs for the matching 2018-2022 AEF tiles. | Not tracked |
 | Kelpwatch source manifest | `/Volumes/x10pro/kelp_aef/interim/kelpwatch_source_manifest.json` | Downloaded/source Kelpwatch files used by the smoke config. | Not tracked |
 | Metadata summary | `/Volumes/x10pro/kelp_aef/interim/metadata_summary.json` | CRS, bounds, variables, seasons, years, units, and missing-data notes for source inputs. | Not tracked |
@@ -115,5 +117,5 @@ artifact root.
 | Area-bias summary | `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_summary.csv` | Region/year area bias and aggregate error summary. | Not tracked |
 
 These paths are the current Monterey smoke-test contracts. The Kelpwatch source
-format and the matching 2019-2021 AEF object names still need source inspection
-before data-heavy implementation.
+format still needs source inspection before data-heavy implementation. AEF asset
+selection should come from the Source Cooperative STAC GeoParquet catalog query.

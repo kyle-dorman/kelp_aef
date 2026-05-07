@@ -60,6 +60,8 @@ Expected early artifacts:
 - `/Volumes/x10pro/kelp_aef/raw/aef/`
 - `/Volumes/x10pro/kelp_aef/raw/aef_samples/`
 - `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson`
+- `/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query.parquet`
+- `/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query_summary.json`
 - `/Volumes/x10pro/kelp_aef/interim/metadata_summary.json`
 - `/Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet`
 - `/Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png`
