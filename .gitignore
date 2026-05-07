@@ -8,3 +8,31 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local data and generated artifacts
+# Canonical project artifact root is /Volumes/x10pro/kelp_aef. These ignores
+# protect the repo if a local run accidentally writes artifacts into the
+# checkout instead.
+data/
+reports/
+models/
+earthengine-exports/
+gee-exports/
+
+# Large geospatial/data artifacts
+*.tif
+*.tiff
+*.vrt
+*.nc
+*.h5
+*.hdf
+*.hdf5
+*.zarr/
+
+# Model artifacts
+*.joblib
+*.pkl
+*.pickle
+*.pt
+*.pth
+*.onnx

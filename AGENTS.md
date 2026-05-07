@@ -14,6 +14,7 @@ Read these files before making project-shaping changes:
 
 - `docs/product.md`
 - `docs/architecture.md`
+- `docs/data_artifacts.md`
 - `docs/research_plan.md`
 - `docs/todo.md`
 

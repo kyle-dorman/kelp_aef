@@ -107,6 +107,9 @@ upsampled 30 m labels contain 10 m truth.
 
 ## Artifact Conventions
 
+See `docs/data_artifacts.md` for the detailed data/artifact contract and git
+tracking policy.
+
 The canonical data and generated artifact root is outside the code repo:
 
 ```text

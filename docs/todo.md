@@ -79,15 +79,15 @@ each time.
 
 ## 7. Data And Artifact Contracts
 
-- [ ] Define canonical paths and git-ignore policy for data artifacts.
+- [x] Define canonical paths and git-ignore policy for data artifacts.
   - Canonical data root: `/Volumes/x10pro/kelp_aef`.
-- [ ] Update `.gitignore` for large local outputs:
+- [x] Update `.gitignore` for large local outputs:
   - raw data
   - downloaded raster/Zarr artifacts
   - temporary Earth Engine exports
   - model outputs
-- [ ] Decide which tiny sample outputs are intentionally tracked for visual QA.
-- [ ] Document expected outputs for the Monterey feasibility spike:
+- [x] Decide which tiny sample outputs are intentionally tracked for visual QA.
+- [x] Document expected outputs for the Monterey feasibility spike:
   - metadata summary
   - aligned training table
   - predicted map
