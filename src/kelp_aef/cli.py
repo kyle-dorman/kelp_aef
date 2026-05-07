@@ -9,6 +9,7 @@ from pathlib import Path
 
 from kelp_aef.features.aef_catalog import query_aef_catalog
 from kelp_aef.features.aef_download import download_aef
+from kelp_aef.labels.kelpwatch import inspect_kelpwatch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = PROJECT_ROOT / "configs/monterey_smoke.yaml"
@@ -109,6 +110,8 @@ def build_parser() -> argparse.ArgumentParser:
         )
         if command == "download-aef":
             add_download_aef_arguments(subparser)
+        if command == "inspect-kelpwatch":
+            add_inspect_kelpwatch_arguments(subparser)
 
     return parser
 
@@ -141,6 +144,37 @@ def add_download_aef_arguments(parser: argparse.ArgumentParser) -> None:
         type=positive_float,
         default=30.0,
         help="HTTP timeout in seconds for remote checks and downloads.",
+    )
+
+
+def add_inspect_kelpwatch_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add Kelpwatch-specific options to the inspect-kelpwatch subcommand."""
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Resolve source metadata and write a manifest without downloading NetCDF data.",
+    )
+    parser.add_argument(
+        "--manifest-output",
+        type=Path,
+        default=None,
+        help="Optional manifest output path, useful for dry-run plans.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Download the NetCDF even when a matching local file already exists.",
+    )
+    parser.add_argument(
+        "--skip-checksum",
+        action="store_true",
+        help="Skip local MD5 checksum calculation after download or local-file reuse.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=positive_float,
+        default=30.0,
+        help="HTTP timeout in seconds for source metadata requests and downloads.",
     )
 
 
@@ -183,6 +217,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 manifest_output=args.manifest_output,
                 timeout_seconds=float(args.timeout_seconds),
                 force=bool(args.force),
+            )
+        elif command == "inspect-kelpwatch":
+            exit_code = inspect_kelpwatch(
+                config_path,
+                dry_run=bool(args.dry_run),
+                manifest_output=args.manifest_output,
+                force=bool(args.force),
+                skip_checksum=bool(args.skip_checksum),
+                timeout_seconds=float(args.timeout_seconds),
             )
         else:
             exit_code = run_scaffold_command(command, config_path)

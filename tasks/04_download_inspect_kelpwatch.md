@@ -83,8 +83,19 @@ Current source decision from exploration:
 
 ```bash
 make check
+kelp-aef inspect-kelpwatch --config configs/monterey_smoke.yaml --dry-run --skip-checksum --manifest-output /private/tmp/kelpwatch_source_manifest_dry_run.json
+```
+
+Real download/inspection command:
+
+```bash
 kelp-aef inspect-kelpwatch --config configs/monterey_smoke.yaml
 ```
+
+The real command downloads the current cumulative NetCDF if it is not already
+present under `/Volumes/x10pro/kelp_aef/raw/kelpwatch`, validates MD5 unless
+`--skip-checksum` is passed, inspects the local NetCDF metadata, writes the
+configured manifest, and updates the shared metadata summary.
 
 ## Smoke-Test Region And Years
 
@@ -108,6 +119,8 @@ kelp-aef inspect-kelpwatch --config configs/monterey_smoke.yaml
 
 - The selected Kelpwatch source is a single large cumulative NetCDF, not a
   Monterey-specific file.
+- The fast validation path should use `--dry-run`; the default command may
+  download a multi-GB NetCDF.
 - Do not download all historical package revisions.
 - Do not build `labels_annual.parquet` in this task.
 - Do not define `kelp_present_y` thresholds before inspecting value ranges.

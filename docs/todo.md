@@ -81,8 +81,8 @@ smoke-test assumptions are updated.
 
 - [x] Extract AlphaEarth tile footprint GeoJSON.
 - [x] Query the AEF STAC GeoParquet catalog for Monterey smoke assets.
-- [ ] Download the selected AEF tile assets from the catalog query.
-- [ ] Inspect Kelpwatch source format and write downloader/reader.
+- [x] Download the selected AEF tile assets from the catalog query.
+- [x] Inspect Kelpwatch source format and write downloader/reader.
 - [ ] Build initial annual label derivation.
 - [ ] Align features and labels into the first table.
 - [ ] Train and evaluate first simple baselines.
