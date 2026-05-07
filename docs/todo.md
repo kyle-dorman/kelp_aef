@@ -67,15 +67,15 @@ each time.
 
 ## 6. CLI
 
-- [ ] Replace the starter `kelp-aef` CLI with a real entrypoint.
-- [ ] Add initial subcommands for the first milestone, likely:
+- [x] Replace the starter `kelp-aef` CLI with a real entrypoint.
+- [x] Add initial subcommands for the first milestone, likely:
   - `smoke`
   - `inspect-kelpwatch`
   - `fetch-aef-chip`
   - `build-labels`
   - `align`
-- [ ] Make each subcommand accept a config path.
-- [ ] Add tests for CLI import and `--help`.
+- [x] Make each subcommand accept a config path.
+- [x] Add tests for CLI import and `--help`.
 
 ## 7. Data And Artifact Contracts
 
