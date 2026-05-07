@@ -80,7 +80,7 @@ smoke-test assumptions are updated.
 ## Initial Task Sequence
 
 - [x] Extract AlphaEarth tile footprint GeoJSON.
-- [ ] Query the AEF STAC GeoParquet catalog for Monterey smoke assets.
+- [x] Query the AEF STAC GeoParquet catalog for Monterey smoke assets.
 - [ ] Download the selected AEF tile assets from the catalog query.
 - [ ] Inspect Kelpwatch source format and write downloader/reader.
 - [ ] Build initial annual label derivation.

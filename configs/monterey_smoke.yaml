@@ -40,8 +40,16 @@ features:
   native_resolution_m: 10
   target_resolution_m: 30
   aggregation: mean_to_kelpwatch_grid
+  catalog:
+    url: https://data.source.coop/tge-labs/aef/v1/annual/aef_index_stac_geoparquet.parquet
+    visual_qa_url: https://developmentseed.org/stac-map/?href=https://data.source.coop/tge-labs/aef/v1/annual/aef_index_stac_geoparquet.parquet
+    layer_name: aef_index_stac_geoparquet
+    selection_policy: max_overlap_per_year
+    min_footprint_overlap_fraction: 0.5
   paths:
     local_mirror_root: /Volumes/x10pro/kelp_aef/raw/aef
+    catalog_query: /Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query.parquet
+    catalog_query_summary: /Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query_summary.json
     tile_manifest: /Volumes/x10pro/kelp_aef/interim/aef_monterey_tile_manifest.json
     feature_table: /Volumes/x10pro/kelp_aef/interim/aef_samples.parquet
   known_tiles:

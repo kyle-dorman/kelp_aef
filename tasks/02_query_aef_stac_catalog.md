@@ -15,7 +15,7 @@ footprint and years.
   `https://developmentseed.org/stac-map/?href=https://data.source.coop/tge-labs/aef/v1/annual/aef_index_stac_geoparquet.parquet`.
 - Region footprint:
   `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson`.
-- Years: 2018-2024.
+- Years: 2018-2022.
 
 ## Outputs
 

@@ -96,6 +96,14 @@ but the Makefile cleanup is tracked separately in `docs/todo.md`.
 - Do not rely on hidden notebook state for pipeline behavior.
 - Keep heavy geospatial downloads, model outputs, and generated reports out of
   git unless explicitly requested.
+- Use structured Python logging for CLI progress, decisions, artifact paths,
+  and recoverable diagnostics. Prefer `logging` over `print` for workflow
+  commands, with concise `INFO` messages for normal progress.
+- Add a docstring or short explanatory comment to every function, including
+  private helpers and test helpers.
+- Prefer established external libraries for standard geospatial, tabular,
+  raster, and scientific operations. Do not hand-roll geometry, raster,
+  projection, table, or model logic when a maintained library can do it clearly.
 
 ## Agent Task Contract
 
