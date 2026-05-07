@@ -15,6 +15,7 @@ def test_cli_imports() -> None:
         "query-aef-catalog",
         "download-aef",
         "inspect-kelpwatch",
+        "visualize-kelpwatch",
         "fetch-aef-chip",
         "build-labels",
         "align",
@@ -30,6 +31,7 @@ def test_main_help(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert "usage: kelp-aef" in captured.out
     assert "inspect-kelpwatch" in captured.out
+    assert "visualize-kelpwatch" in captured.out
 
 
 def test_subcommand_accepts_config(capsys: pytest.CaptureFixture[str]) -> None:

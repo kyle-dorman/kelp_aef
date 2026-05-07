@@ -9,6 +9,7 @@ import xarray as xr  # type: ignore[import-untyped]
 
 from kelp_aef.labels import kelpwatch
 from kelp_aef.labels.kelpwatch import (
+    identify_label_source_variable,
     inspect_kelpwatch,
     parse_eml_source_metadata,
     parse_entity_id,
@@ -98,6 +99,34 @@ def test_inspect_kelpwatch_existing_netcdf_updates_metadata_summary(
     assert manifest["netcdf"]["validation_status"] == "valid"
     assert manifest["label_source"]["selected_variable"] == "kelp_area"
     assert metadata_summary["kelpwatch"]["label_source"]["selected_variable"] == "kelp_area"
+
+
+def test_identify_label_source_prefers_area_over_standard_error() -> None:
+    """Prefer the canopy-area variable when standard-error metadata has similar text."""
+    label_source = identify_label_source_variable(
+        netcdf_metadata={
+            "variables": [
+                {
+                    "name": "area_se",
+                    "attrs": {
+                        "units": "m^2 canopy/900m^2 pixel",
+                        "long_name": "standard error of kelp area",
+                    },
+                },
+                {
+                    "name": "area",
+                    "attrs": {
+                        "units": "m^2 canopy/900m^2 pixel",
+                        "long_name": "kelp area",
+                    },
+                },
+            ]
+        },
+        target="kelp_max_y",
+        aggregation="annual_max",
+    )
+
+    assert label_source["selected_variable"] == "area"
 
 
 def test_download_file_resumes_partial_after_stream_failure(tmp_path: Path) -> None:

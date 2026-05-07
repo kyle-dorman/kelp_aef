@@ -772,6 +772,8 @@ def variable_candidate_record(
         score += 1
     if "biomass" in searchable:
         score -= 2
+    if name.endswith("_se") or "standard error" in searchable:
+        score -= 6
     if target == "kelp_max_y" and aggregation == "annual_max":
         score += 1
     return {

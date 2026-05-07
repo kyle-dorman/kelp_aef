@@ -10,6 +10,7 @@ from pathlib import Path
 from kelp_aef.features.aef_catalog import query_aef_catalog
 from kelp_aef.features.aef_download import download_aef
 from kelp_aef.labels.kelpwatch import inspect_kelpwatch
+from kelp_aef.labels.kelpwatch_visualize import visualize_kelpwatch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = PROJECT_ROOT / "configs/monterey_smoke.yaml"
@@ -25,6 +26,7 @@ COMMANDS: dict[str, str] = {
     "query-aef-catalog": "Query the AEF STAC catalog for configured assets.",
     "download-aef": "Download selected AEF tile assets from the catalog query.",
     "inspect-kelpwatch": "Inspect Kelpwatch metadata for the configured region.",
+    "visualize-kelpwatch": "Visualize downloaded Kelpwatch source data for QA.",
     "fetch-aef-chip": "Fetch or stage AlphaEarth embedding samples for the configured region.",
     "build-labels": "Build derived Kelpwatch labels for the configured target.",
     "align": "Align AlphaEarth features and Kelpwatch labels into a training table.",
@@ -54,6 +56,15 @@ def configure_logging(level_name: str) -> None:
 def positive_float(value: str) -> float:
     """Parse a positive floating-point CLI value."""
     parsed = float(value)
+    if parsed <= 0:
+        msg = f"value must be positive: {value}"
+        raise argparse.ArgumentTypeError(msg)
+    return parsed
+
+
+def positive_int(value: str) -> int:
+    """Parse a positive integer CLI value."""
+    parsed = int(value)
     if parsed <= 0:
         msg = f"value must be positive: {value}"
         raise argparse.ArgumentTypeError(msg)
@@ -112,6 +123,8 @@ def build_parser() -> argparse.ArgumentParser:
             add_download_aef_arguments(subparser)
         if command == "inspect-kelpwatch":
             add_inspect_kelpwatch_arguments(subparser)
+        if command == "visualize-kelpwatch":
+            add_visualize_kelpwatch_arguments(subparser)
 
     return parser
 
@@ -178,6 +191,21 @@ def add_inspect_kelpwatch_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_visualize_kelpwatch_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add Kelpwatch-specific options to the visualize-kelpwatch subcommand."""
+    parser.add_argument(
+        "--variable",
+        default=None,
+        help="Optional NetCDF variable name to visualize instead of the manifest-selected label.",
+    )
+    parser.add_argument(
+        "--preview-max-pixels",
+        type=positive_int,
+        default=500_000,
+        help="Maximum pixels per layer in the self-contained HTML preview.",
+    )
+
+
 def run_scaffold_command(command: str, config_path: Path) -> int:
     """Run a CLI command scaffold until the pipeline step is implemented."""
     LOGGER.info("%s: using config %s", command, config_path)
@@ -226,6 +254,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 force=bool(args.force),
                 skip_checksum=bool(args.skip_checksum),
                 timeout_seconds=float(args.timeout_seconds),
+            )
+        elif command == "visualize-kelpwatch":
+            exit_code = visualize_kelpwatch(
+                config_path,
+                variable=args.variable,
+                preview_max_pixels=int(args.preview_max_pixels),
             )
         else:
             exit_code = run_scaffold_command(command, config_path)
