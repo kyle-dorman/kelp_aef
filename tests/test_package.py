@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from kelp_aef import main
-from kelp_aef.cli import COMMANDS, build_parser
+from kelp_aef.cli import COMMANDS, DEFAULT_CONFIG, build_parser
 
 
 def test_cli_imports() -> None:
@@ -35,3 +35,17 @@ def test_subcommand_accepts_config(capsys: pytest.CaptureFixture[str]) -> None:
 
     captured = capsys.readouterr()
     assert f"smoke: using config {config_path}" in captured.out
+
+
+def test_default_config_resolves_outside_repo(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["smoke"]) == 0
+
+    captured = capsys.readouterr()
+    assert DEFAULT_CONFIG.is_absolute()
+    assert f"smoke: using config {DEFAULT_CONFIG}" in captured.out

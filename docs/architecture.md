@@ -49,7 +49,7 @@ Decision: user-facing workflow commands should live behind the `kelp-aef`
 package CLI. Do not add standalone `scripts/` entrypoints unless they are thin
 wrappers around package functions or there is a specific operational reason.
 
-Likely first commands:
+Mapped initial commands:
 
 ```text
 kelp-aef smoke --config configs/monterey_smoke.yaml
@@ -57,9 +57,6 @@ kelp-aef inspect-kelpwatch --config configs/monterey_smoke.yaml
 kelp-aef fetch-aef-chip --config configs/monterey_smoke.yaml
 kelp-aef build-labels --config configs/monterey_smoke.yaml
 kelp-aef align --config configs/monterey_smoke.yaml
-kelp-aef train --config configs/monterey_smoke.yaml
-kelp-aef evaluate --config configs/monterey_smoke.yaml
-kelp-aef make-maps --config configs/monterey_smoke.yaml
 ```
 
 Each command should accept a config path and write deterministic artifact paths

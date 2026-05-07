@@ -6,7 +6,8 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-DEFAULT_CONFIG = Path("configs/monterey_smoke.yaml")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG = PROJECT_ROOT / "configs/monterey_smoke.yaml"
 
 COMMANDS: dict[str, str] = {
     "smoke": "Run the configured smoke workflow.",
@@ -17,9 +18,8 @@ COMMANDS: dict[str, str] = {
 }
 
 
-def existing_config_path(value: str) -> Path:
-    """Parse and validate a config path argument."""
-    path = Path(value)
+def validate_config_path(path: Path) -> Path:
+    """Validate a parsed config path."""
     if not path.exists():
         msg = f"config path does not exist: {path}"
         raise argparse.ArgumentTypeError(msg)
@@ -27,6 +27,11 @@ def existing_config_path(value: str) -> Path:
         msg = f"config path is not a file: {path}"
         raise argparse.ArgumentTypeError(msg)
     return path
+
+
+def existing_config_path(value: str) -> Path:
+    """Parse and validate a config path argument."""
+    return validate_config_path(Path(value))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,7 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
             "--config",
             type=existing_config_path,
             default=DEFAULT_CONFIG,
-            help=f"Path to a workflow config file. Default: {DEFAULT_CONFIG}",
+            help="Path to a workflow config file. Defaults to the repo's "
+            "configs/monterey_smoke.yaml.",
         )
 
     return parser
@@ -68,5 +74,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise TypeError("parsed command must be a string")
     if not isinstance(config_path, Path):
         raise TypeError("parsed config path must be a pathlib.Path")
+
+    config_path = validate_config_path(config_path)
 
     return run_scaffold_command(command, config_path)
