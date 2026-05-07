@@ -1,0 +1,1 @@
+- convert search plan into proudct.md and architecture.md

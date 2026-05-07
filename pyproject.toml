@@ -1,0 +1,72 @@
+[project]
+name = "kelp-aef"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "kyle-dorman", email = "kyle.e.dorman@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+kelp-aef = "kelp_aef:main"
+
+[build-system]
+requires = ["uv_build>=0.11.3,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.0.0",
+    "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
+    "ruff>=0.15.12",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pyright]
+include = ["."]
+
+typeCheckingMode = "basic"
+useLibraryCodeForTypes = true
+pythonPlatform = "Linux"
+pythonVersion = "3.11"
+verboseOutput = true
+
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportGeneralTypeIssues = "warning"
+reportPrivateImportUsage = "none"
+reportUnboundVariable = "warning"
+
+[tool.autopep8]
+max_line_length = 100
+ignore = ["W503", "W690"]
+in-place = true
+recursive = true
+experimental = true
+aggressive = 3
+verbose = false
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
