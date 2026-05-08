@@ -84,7 +84,7 @@ smoke-test assumptions are updated.
 - [x] Download the selected AEF tile assets from the catalog query.
 - [x] Inspect Kelpwatch source format and write downloader/reader.
 - [x] Visualize downloaded Kelpwatch source data for Monterey QA.
-- [ ] Build initial annual label derivation.
+- [x] Build initial annual label derivation.
   - Plan: `tasks/06_build_annual_labels.md`.
 - [ ] Align features and labels into the first table.
 - [ ] Train and evaluate first simple baselines.

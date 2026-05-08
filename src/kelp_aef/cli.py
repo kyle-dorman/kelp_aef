@@ -10,6 +10,7 @@ from pathlib import Path
 from kelp_aef.features.aef_catalog import query_aef_catalog
 from kelp_aef.features.aef_download import download_aef
 from kelp_aef.labels.kelpwatch import inspect_kelpwatch
+from kelp_aef.labels.kelpwatch_labels import build_annual_labels
 from kelp_aef.labels.kelpwatch_visualize import visualize_kelpwatch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -261,6 +262,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 variable=args.variable,
                 preview_max_pixels=int(args.preview_max_pixels),
             )
+        elif command == "build-labels":
+            exit_code = build_annual_labels(config_path)
         else:
             exit_code = run_scaffold_command(command, config_path)
     except Exception:
