@@ -58,6 +58,24 @@ start.
     mainly reproduce peak-season canopy.
   - Keep this as backlog until the initial annual-max label derivation,
     alignment table, and baseline evaluation exist.
+- [ ] Evaluate binary Kelpwatch label thresholds after the continuous
+  annual-max baseline.
+  - Use Bell et al. 2019/2020 and Kelpwatch method notes as motivation for
+    caution around low canopy area values and detection limits.
+  - Compare `kelp_max_y > 0` with fractional canopy thresholds such as 1%, 5%,
+    and 10% of a 30 m Landsat pixel.
+  - Report threshold sensitivity in area totals, class balance, maps, and model
+    metrics before choosing a production binary target.
+- [ ] Evaluate higher-resolution label and prediction strategies after the
+  Kelpwatch-native 30 m baseline.
+  - Keep the first alignment path as AEF 10 m embeddings aggregated to
+    Kelpwatch 30 m labels.
+  - Later compare 10 m prediction workflows that either replicate parent
+    Kelpwatch fractional cover to child cells or resample the 30 m fractional
+    cover surface to 10 m with cubic interpolation.
+  - For any 10 m label experiment, validate predictions by aggregating them back
+    to 30 m and comparing against the original Kelpwatch area labels.
+  - Treat 10 m labels as weak/interpolated targets, not independent 10 m truth.
 
 ## Engineering
 
