@@ -59,10 +59,14 @@ station-sample products.
 - Optional background-sample manifest and summary:
   `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table_manifest.json`.
   `/Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table_summary.csv`.
+- Streamed full-grid prediction dataset:
+  `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet`.
+- Streamed full-grid prediction manifest:
+  `/Volumes/x10pro/kelp_aef/interim/baseline_full_grid_prediction_manifest.json`.
 - Rerun baseline artifacts from Task 08, using the corrected configured training
   table.
-- Rerun residual-map and area-bias artifacts from Task 09, using corrected
-  predictions.
+- Rerun residual-map and area-bias artifacts from Task 09, using streamed
+  full-grid predictions.
 - Rerun model-analysis report artifacts from Task 10, with explicit discussion
   of the station-only error and corrected background coverage.
 
@@ -78,6 +82,8 @@ Expected config changes should cover:
 - Fast-path window or row/column bounds for local testing.
 - Downstream model input path, so Task 08 no longer silently consumes the
   station-only table.
+- Full-grid inference input and prediction output paths, so Task 09 and Task 10
+  consume streamed full-grid predictions instead of sample-only predictions.
 
 ## Plan/Spec Requirement
 
@@ -85,6 +91,8 @@ Write a short implementation spec before editing code. The spec must state:
 
 - Whether the corrected default model input is the full-grid table or a
   documented background-inclusive sample derived from it.
+- How the trained model will be applied back to the full-grid table through
+  streamed inference.
 - How Kelpwatch station labels are mapped onto the AEF-aligned 30 m grid.
 - How cells outside Kelpwatch station support are labeled and flagged.
 - Expected row counts for the full and fast paths.
@@ -104,6 +112,7 @@ package-backed and restartable. A reasonable starting point is:
 uv run kelp-aef align-full-grid --config configs/monterey_smoke.yaml --fast
 uv run kelp-aef align-full-grid --config configs/monterey_smoke.yaml
 uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml
+uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
 uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml
 uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
 ```
@@ -124,6 +133,8 @@ uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
 - Preserve Kelpwatch station labels exactly where they match the target grid.
 - Add explicit label provenance columns so downstream metrics can distinguish
   observed Kelpwatch support from assumed background.
+- Train simple baselines on a documented background-inclusive sample, then apply
+  the trained model to the full-grid artifact with streamed inference.
 - Keep a fast path that exercises the same logic on a small spatial window that
   contains positive Kelpwatch labels, Kelpwatch zero labels, and outside-support
   background cells.
@@ -187,6 +198,8 @@ The sample must include:
 - Kelpwatch-station zero rows.
 - Assumed-background land/open-ocean rows.
 - Stable random seed and sampling fractions/counts in the manifest.
+- Sample weights or expansion factors so the sampled background can be related
+  back to the full-grid population.
 
 Do not silently train only on Kelpwatch-station rows.
 
@@ -202,6 +215,7 @@ After the full run is implemented and reviewed:
 ```bash
 uv run kelp-aef align-full-grid --config configs/monterey_smoke.yaml
 uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml
+uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
 uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml
 uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
 ```
@@ -215,6 +229,9 @@ Add focused unit tests with tiny synthetic rasters and labels to verify:
   background rows.
 - The manifest reports full-grid row counts, label-source counts, and sampling
   policy.
+- Streamed full-grid prediction reads and writes the expected row counts.
+- Maps and area-bias summaries consume full-grid predictions, not only sampled
+  training predictions.
 
 ## Smoke-Test Region And Years
 
@@ -232,10 +249,14 @@ Add focused unit tests with tiny synthetic rasters and labels to verify:
 - The old station-only row count of 30,232 rows/year is no longer presented as
   the complete training universe.
 - Task 08 baselines are rerun from the corrected configured model input.
-- Task 09 maps and area-bias summaries are rerun from corrected predictions.
+- The trained model is applied to the full-grid artifact through streamed
+  inference.
+- Task 09 maps and area-bias summaries are rerun from full-grid predictions.
 - Task 10 report is regenerated and explicitly states:
   - the original Phase 0 table was station-only;
   - the corrected artifact includes assumed-background rows;
+  - training used a sampled background-inclusive table;
+  - inference used streamed full-grid prediction;
   - metrics are reported overall and on Kelpwatch-observed rows separately.
 - `make check` passes.
 
