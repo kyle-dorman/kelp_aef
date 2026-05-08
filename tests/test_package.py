@@ -21,6 +21,7 @@ def test_cli_imports() -> None:
         "align",
         "train-baselines",
         "map-residuals",
+        "analyze-model",
     }
 
 

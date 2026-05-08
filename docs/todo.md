@@ -92,5 +92,5 @@ reviewed.
   - Plan: `tasks/08_train_evaluate_baselines.md`.
 - [x] Make first predicted/residual maps and area-bias table.
   - Plan: `tasks/09_map_residuals_area_bias.md`.
-- [ ] Analyze smoke-test model behavior and write the Phase 0 report.
+- [x] Analyze smoke-test model behavior and write the Phase 0 report.
   - Plan: `tasks/10_model_analysis_report.md`.

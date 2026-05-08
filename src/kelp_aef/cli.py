@@ -9,6 +9,7 @@ from pathlib import Path
 
 from kelp_aef.alignment.feature_label_table import align_features_labels
 from kelp_aef.evaluation.baselines import train_baselines
+from kelp_aef.evaluation.model_analysis import analyze_model
 from kelp_aef.features.aef_catalog import query_aef_catalog
 from kelp_aef.features.aef_download import download_aef
 from kelp_aef.labels.kelpwatch import inspect_kelpwatch
@@ -36,6 +37,7 @@ COMMANDS: dict[str, str] = {
     "align": "Align AlphaEarth features and Kelpwatch labels into a training table.",
     "train-baselines": "Train and evaluate first simple tabular baselines.",
     "map-residuals": "Map baseline predictions, residuals, and area bias.",
+    "analyze-model": "Analyze smoke-test model behavior and write the Phase 0 report.",
 }
 
 
@@ -332,6 +334,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_code = train_baselines(config_path)
         elif command == "map-residuals":
             exit_code = map_residuals(config_path)
+        elif command == "analyze-model":
+            exit_code = analyze_model(config_path)
         else:
             exit_code = run_scaffold_command(command, config_path)
     except Exception:

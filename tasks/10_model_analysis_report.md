@@ -29,6 +29,7 @@ This task keeps Phase 0 open until the report is written and reviewed.
 - Residual QA artifacts from Task 09:
   - `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png`.
   - `/Volumes/x10pro/kelp_aef/reports/figures/ridge_observed_vs_predicted.png`.
+  - `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.html`.
   - `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv`.
   - `/Volumes/x10pro/kelp_aef/reports/tables/top_residual_stations.csv`.
 - Optional source-level Kelpwatch NetCDF from the source manifest, if needed to
@@ -38,6 +39,8 @@ This task keeps Phase 0 open until the report is written and reviewed.
 
 - Final Phase 0 model-analysis report:
   `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`.
+- Standalone HTML Phase 0 model-analysis report with embedded figures:
+  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.html`.
 - Report manifest:
   `/Volumes/x10pro/kelp_aef/interim/model_analysis_manifest.json`.
 - Label and target distribution summary tables:
@@ -369,20 +372,26 @@ The final Markdown report should include:
 - Data and label distribution findings.
 - Alignment and retained-row findings.
 - Ridge baseline performance recap.
+- Observed, predicted, and error map for the primary smoke-test split/year.
 - Residual and saturation findings.
 - Binary threshold-sensitivity findings.
 - Alternative target-framing findings.
 - Feature separability findings.
 - Spatial split and scale-up readiness.
 - Baseline completeness and missing reference baselines.
-- Interpretation: most likely explanations for the observed failure mode.
+- Baseline comparison against no-skill, including pixel skill and total-area
+  calibration.
+- Interpretation: most likely explanations for the observed failure mode,
+  including shrinkage/calibration, target framing, missing baselines, and model
+  capacity.
 - Phase 1 decision matrix and recommended next branch.
 - Appendix with artifact paths and validation commands.
 - Appendix with implemented vs missing backlog/research-plan items.
 
-Use inline Markdown images for key figures so the report can be read as a
-single document. Keep detailed tables as linked CSV artifacts and summarize the
-important rows in prose.
+Use inline Markdown images for key figures and also write a standalone HTML
+copy with embedded image data so the report can be read outside the workspace
+and without local image-path issues. Keep detailed tables as linked CSV
+artifacts and summarize the important rows in prose.
 
 ## Validation Command
 
@@ -419,6 +428,8 @@ Add focused tests with small synthetic inputs to verify:
   manifest.
 - The report includes inline plots for the core label, prediction, residual,
   and alternative-target diagnostics.
+- The report includes the Task 09 observed/predicted/residual map and links the
+  interactive residual HTML map.
 - The report explicitly states whether zero labels were retained through
   alignment and modeling.
 - The report explicitly states how many `900 m2` labels exist by year and split.
@@ -427,6 +438,13 @@ Add focused tests with small synthetic inputs to verify:
   broader model-capacity issue.
 - The report states which baselines are implemented and which reference
   baselines remain missing.
+- The report compares ridge against no-skill on both pixel metrics and total
+  area bias.
+- Residual-by-observed-canopy-bin outputs are sorted by numeric canopy order,
+  not string order.
+- The report explains that target-framing Spearman values are rank-agreement
+  diagnostics for the existing annual-max ridge model, not retrained target
+  comparisons.
 - The report states whether Monterey is sufficient for spatial holdout analysis
   or whether Phase 1 should expand geography.
 - The report includes a Phase 1 decision matrix with evidence-linked branches.

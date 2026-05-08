@@ -106,6 +106,17 @@ reports:
     year: 2022
     latitude_band_count: 12
     top_residual_count: 50
+  model_analysis:
+    model_name: ridge_regression
+    split: test
+    year: 2022
+    report_dir: /Volumes/x10pro/kelp_aef/reports/model_analysis
+    observed_area_bins: [0, 1, 90, 225, 450, 810, 900]
+    threshold_fractions: [0, 0.01, 0.05, 0.10, 0.50, 0.90]
+    latitude_band_count: 12
+    max_projection_rows: 50000
+    fall_quarter: 4
+    winter_quarter: 1
   outputs:
     metadata_summary: /Volumes/x10pro/kelp_aef/interim/metadata_summary.json
     sample_qa_figure: /Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png
@@ -119,6 +130,27 @@ reports:
     area_bias_by_latitude_band: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_latitude_band.csv
     top_residual_stations: /Volumes/x10pro/kelp_aef/reports/tables/top_residual_stations.csv
     map_residuals_manifest: /Volumes/x10pro/kelp_aef/interim/map_residuals_manifest.json
+    model_analysis_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md
+    model_analysis_html_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.html
+    model_analysis_manifest: /Volumes/x10pro/kelp_aef/interim/model_analysis_manifest.json
+    model_analysis_label_distribution_by_stage: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_label_distribution_by_stage.csv
+    model_analysis_target_framing_summary: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_target_framing_summary.csv
+    model_analysis_residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_residual_by_observed_bin.csv
+    model_analysis_residual_by_persistence: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_residual_by_persistence.csv
+    model_analysis_prediction_distribution: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_prediction_distribution.csv
+    model_analysis_threshold_sensitivity: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_threshold_sensitivity.csv
+    model_analysis_spatial_holdout_readiness: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_spatial_holdout_readiness.csv
+    model_analysis_feature_separability: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_feature_separability.csv
+    model_analysis_phase1_decision_matrix: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_phase1_decision_matrix.csv
+    model_analysis_quarter_mapping: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_quarter_mapping.csv
+    model_analysis_label_distribution_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_label_distribution_by_stage.png
+    model_analysis_observed_predicted_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_observed_vs_predicted_distribution.png
+    model_analysis_residual_by_bin_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_residual_by_observed_bin.png
+    model_analysis_observed_900_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_observed_900_predictions.png
+    model_analysis_residual_by_persistence_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_residual_by_persistence.png
+    model_analysis_alternative_targets_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_alternative_target_framings.png
+    model_analysis_feature_projection_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_feature_projection.png
+    model_analysis_spatial_readiness_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_spatial_holdout_readiness.png
 
 runtime:
   max_cells: 250000
