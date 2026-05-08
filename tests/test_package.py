@@ -20,6 +20,7 @@ def test_cli_imports() -> None:
         "build-labels",
         "align",
         "train-baselines",
+        "map-residuals",
     }
 
 

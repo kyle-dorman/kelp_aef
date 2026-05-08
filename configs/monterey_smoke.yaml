@@ -100,12 +100,25 @@ models:
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures
   tables_dir: /Volumes/x10pro/kelp_aef/reports/tables
+  map_residuals:
+    model_name: ridge_regression
+    split: test
+    year: 2022
+    latitude_band_count: 12
+    top_residual_count: 50
   outputs:
     metadata_summary: /Volumes/x10pro/kelp_aef/interim/metadata_summary.json
     sample_qa_figure: /Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png
     predicted_map: /Volumes/x10pro/kelp_aef/reports/figures/predicted_map.png
     residual_map: /Volumes/x10pro/kelp_aef/reports/figures/residual_map.png
     area_bias_summary: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_summary.csv
+    ridge_observed_predicted_residual_map: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png
+    ridge_observed_vs_predicted: /Volumes/x10pro/kelp_aef/reports/figures/ridge_observed_vs_predicted.png
+    ridge_residual_interactive: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.html
+    area_bias_by_year: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv
+    area_bias_by_latitude_band: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_latitude_band.csv
+    top_residual_stations: /Volumes/x10pro/kelp_aef/reports/tables/top_residual_stations.csv
+    map_residuals_manifest: /Volumes/x10pro/kelp_aef/interim/map_residuals_manifest.json
 
 runtime:
   max_cells: 250000

@@ -14,6 +14,7 @@ from kelp_aef.features.aef_download import download_aef
 from kelp_aef.labels.kelpwatch import inspect_kelpwatch
 from kelp_aef.labels.kelpwatch_labels import build_annual_labels
 from kelp_aef.labels.kelpwatch_visualize import visualize_kelpwatch
+from kelp_aef.viz.residual_maps import map_residuals
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = PROJECT_ROOT / "configs/monterey_smoke.yaml"
@@ -34,6 +35,7 @@ COMMANDS: dict[str, str] = {
     "build-labels": "Build derived Kelpwatch labels for the configured target.",
     "align": "Align AlphaEarth features and Kelpwatch labels into a training table.",
     "train-baselines": "Train and evaluate first simple tabular baselines.",
+    "map-residuals": "Map baseline predictions, residuals, and area bias.",
 }
 
 
@@ -328,6 +330,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif command == "train-baselines":
             exit_code = train_baselines(config_path)
+        elif command == "map-residuals":
+            exit_code = map_residuals(config_path)
         else:
             exit_code = run_scaffold_command(command, config_path)
     except Exception:
