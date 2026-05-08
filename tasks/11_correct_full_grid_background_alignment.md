@@ -93,6 +93,8 @@ Write a short implementation spec before editing code. The spec must state:
 
 Do not start implementation until this spec is reviewed.
 
+Draft spec: `tasks/11_full_grid_background_alignment_spec.md`.
+
 ## Proposed CLI
 
 The exact command shape can change in the implementation spec, but it should be
