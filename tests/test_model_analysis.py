@@ -65,8 +65,9 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert manifest["row_counts"]["model_predictions"] == 6
     assert manifest["outputs"]["html_report"] == str(fixture["html_report"])
     assert "Phase 1 Decision Matrix" in report
-    assert "shrinkage/calibration pattern" in report
-    assert "Ridge improves per-pixel skill substantially" in report
+    assert "failed ridge objective" in report
+    assert "Sampling/objective calibration Phase 1" in report
+    assert "sampling/objective calibration problem" in report
     assert "The Spearman target-framing plot is a rank-agreement diagnostic" in report
     assert "Observed, Predicted, And Error Map" in report
     assert "![Observed, predicted, and residual map]" in report

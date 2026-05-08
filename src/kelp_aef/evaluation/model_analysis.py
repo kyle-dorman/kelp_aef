@@ -806,7 +806,7 @@ def build_stage_distribution(data: AnalysisData) -> list[dict[str, object]]:
     """Build label distribution rows for each pipeline stage."""
     rows: list[dict[str, object]] = []
     rows.extend(distribution_rows("annual_labels", data.labels, split_column=None))
-    rows.extend(distribution_rows("aligned_labels", data.aligned, split_column=None))
+    rows.extend(distribution_rows("model_input_sample", data.aligned, split_column=None))
     split_rows = split_manifest_with_area(data.split_manifest)
     rows.extend(distribution_rows("split_manifest_all", split_rows, split_column="split"))
     retained = split_rows.loc[split_rows["used_for_training_eval"]].copy()
@@ -1364,10 +1364,24 @@ def build_phase1_decision_matrix(
         np.isfinite(saturated_mean_prediction)
         and saturated_mean_prediction < KELPWATCH_PIXEL_AREA_M2 * 0.75
     )
+    station_ridge = station_metric_row(data.metrics, DEFAULT_MODEL_NAME, "test")
+    sample_ridge = background_sample_overall_metric_row(data.metrics, DEFAULT_MODEL_NAME, "test")
     missing_drop_fraction = missing_feature_drop_fraction(data.split_manifest)
     enough_spatial_bands = sum(bool(row["enough_for_holdout"]) for row in spatial_readiness)
     feature_distance = max_feature_distance(feature_separability)
     rows: list[dict[str, object]] = [
+        {
+            "branch": "Sampling/objective calibration Phase 1",
+            "evidence_status": "strong",
+            "triggering_evidence": (
+                f"Kelpwatch-station ridge area bias is {format_percent(row_float(station_ridge, 'area_pct_bias'), 1)}, "
+                f"while background-inclusive sample area bias is {format_percent(row_float(sample_ridge, 'area_pct_bias'), 1)}; "
+                "the same model can underpredict observed canopy support while leaking positives across background."
+            ),
+            "proposed_next_tasks": "Separate training objective weights from population-calibration metrics; test capped background weights, stratified losses, and post-fit calibration.",
+            "expected_artifacts": "Sampling policy comparison table, calibrated predictions, station-vs-background metric summary.",
+            "decision_unlocked": "Choose a defensible background sampling and calibration policy before scaling.",
+        },
         {
             "branch": "Derived-label Phase 1",
             "evidence_status": "strong" if saturated_underprediction else "moderate",
@@ -1808,7 +1822,7 @@ def write_report(
         row
         for row in tables.stage_distribution
         if row["year"] == analysis_config.analysis_year
-        and row["stage"] in {"annual_labels", "aligned_labels", "retained_model_rows"}
+        and row["stage"] in {"annual_labels", "model_input_sample", "retained_model_rows"}
     ]
     recommended_branch = recommended_phase1_branch(tables.phase1_decision)
     report = [
@@ -1826,7 +1840,7 @@ def write_report(
         "",
         f"- Config: `{analysis_config.config_path}`",
         f"- Annual labels: `{analysis_config.label_path}`",
-        f"- Aligned table: `{analysis_config.aligned_table_path}`",
+        f"- Model input sample: `{analysis_config.aligned_table_path}`",
         f"- Predictions: `{analysis_config.predictions_path}`",
         f"- Metrics: `{analysis_config.metrics_path}`",
         "",
@@ -1994,15 +2008,22 @@ def shrinkage_summary_markdown(
     highest_row = highest_observed_bin_row(residual_rows, analysis_config)
     zero_prediction = -row_float(zero_row, "mean_residual")
     high_residual = row_float(highest_row, "mean_residual")
-    ridge_row = metric_row(metrics, analysis_config.model_name, analysis_config.analysis_split)
+    station_row = station_metric_row(
+        metrics, analysis_config.model_name, analysis_config.analysis_split
+    )
+    sample_row = background_sample_overall_metric_row(
+        metrics, analysis_config.model_name, analysis_config.analysis_split
+    )
     return (
-        "The strongest current model finding is a shrinkage/calibration pattern, not simply "
-        f"a refusal to predict saturated canopy. In the configured {analysis_config.analysis_split} "
-        f"{analysis_config.analysis_year} split, ridge RMSE is "
-        f"`{format_decimal(row_float(ridge_row, 'rmse'), 4)}`, zero-canopy rows receive "
-        f"mean predicted area `{format_decimal(zero_prediction, 1)} m2`, and the highest "
-        f"observed canopy bin has mean residual `{format_decimal(high_residual, 1)} m2` "
-        "(positive residual means observed minus predicted)."
+        "The strongest current finding is that the corrected background-inclusive setup exposes "
+        "a failed ridge objective, not a successful baseline. On Kelpwatch-station rows in the "
+        f"configured {analysis_config.analysis_split} {analysis_config.analysis_year} split, ridge "
+        f"RMSE is `{format_decimal(row_float(station_row, 'rmse'), 4)}` and station-area bias is "
+        f"`{format_percent(row_float(station_row, 'area_pct_bias'), 1)}`. On the background-inclusive "
+        f"sample, area bias is `{format_percent(row_float(sample_row, 'area_pct_bias'), 1)}`, "
+        "which is tracked separately from full-grid map calibration. "
+        f"Zero-canopy rows receive mean predicted area `{format_decimal(zero_prediction, 1)} m2`, "
+        f"while the highest observed canopy bin has mean residual `{format_decimal(high_residual, 1)} m2`."
     )
 
 
@@ -2030,24 +2051,67 @@ def highest_observed_bin_row(
     return max(primary, key=lambda row: row_float(row, "observed_mean", default=-math.inf))
 
 
-def metric_row(metrics: pd.DataFrame, model_name: str, split: str) -> dict[str, object]:
+def metric_row(
+    metrics: pd.DataFrame,
+    model_name: str,
+    split: str,
+    *,
+    metric_group: str = "overall",
+    metric_group_value: str = "all",
+    weighted: bool | None = None,
+) -> dict[str, object]:
     """Return one metric row as a generic dictionary."""
-    rows = report_metric_rows(metrics, split)
-    rows = rows.loc[rows["model_name"] == model_name]
+    rows = metrics.loc[(metrics["model_name"] == model_name) & (metrics["split"] == split)].copy()
+    if "metric_group" in rows.columns:
+        rows = rows.loc[rows["metric_group"] == metric_group]
+    if "metric_group_value" in rows.columns:
+        rows = rows.loc[rows["metric_group_value"] == metric_group_value]
+    if weighted is not None and "weighted" in rows.columns:
+        rows = rows.loc[metric_weight_mask(rows) == weighted]
     if rows.empty:
         return {}
     return cast(dict[str, object], rows.iloc[0].to_dict())
 
 
+def station_metric_row(metrics: pd.DataFrame, model_name: str, split: str) -> dict[str, object]:
+    """Return the Kelpwatch-station metric row used for label-learning skill."""
+    row = metric_row(
+        metrics,
+        model_name,
+        split,
+        metric_group="label_source",
+        metric_group_value="kelpwatch_station",
+        weighted=False,
+    )
+    if row:
+        return row
+    return metric_row(metrics, model_name, split, weighted=False)
+
+
+def background_sample_overall_metric_row(
+    metrics: pd.DataFrame, model_name: str, split: str
+) -> dict[str, object]:
+    """Return the overall row used for background-inclusive sample metrics."""
+    row = metric_row(metrics, model_name, split, weighted=True)
+    if row:
+        return row
+    return metric_row(metrics, model_name, split, weighted=False)
+
+
 def report_metric_rows(metrics: pd.DataFrame, split: str) -> pd.DataFrame:
-    """Return primary overall metric rows for report prose."""
+    """Return Kelpwatch-station rows for the primary report comparison table."""
     rows = metrics.loc[metrics["split"] == split].copy()
     if "metric_group" in rows.columns:
-        rows = rows.loc[rows["metric_group"] == "overall"]
+        station_rows = rows.loc[
+            (rows["metric_group"] == "label_source")
+            & (rows["metric_group_value"] == "kelpwatch_station")
+        ]
+        if not station_rows.empty:
+            rows = station_rows
+        else:
+            rows = rows.loc[rows["metric_group"] == "overall"]
     if "weighted" in rows.columns:
-        weighted = metric_weight_mask(rows)
-        if bool(weighted.any()):
-            rows = rows.loc[weighted]
+        rows = rows.loc[~metric_weight_mask(rows)]
     return rows
 
 
@@ -2334,24 +2398,21 @@ def label_source_counts(dataframe: pd.DataFrame) -> dict[str, int]:
 
 def metric_summary_markdown(metrics: pd.DataFrame, analysis_config: ModelAnalysisConfig) -> str:
     """Build Markdown text for primary ridge metrics."""
-    metric_rows = report_metric_rows(metrics, analysis_config.analysis_split)
-    metric_rows = metric_rows.loc[metric_rows["model_name"] == analysis_config.model_name]
-    if metric_rows.empty:
-        return "Primary metric row was not found."
-    row = metric_rows.iloc[0]
-    weighting = "weighted overall" if metric_row_is_weighted(row) else "unweighted overall"
-    return (
-        f"For the primary `{analysis_config.analysis_split}` split, using the `{weighting}` metric row, ridge RMSE is "
-        f"`{float(row['rmse']):.4f}`, R2 is `{float(row['r2']):.4f}`, and area percent "
-        f"bias is `{float(row['area_pct_bias']):.2%}`."
+    station_row = station_metric_row(
+        metrics, analysis_config.model_name, analysis_config.analysis_split
     )
-
-
-def metric_row_is_weighted(row: pd.Series) -> bool:
-    """Return whether one metrics row is marked as weighted."""
-    if "weighted" not in row.index:
-        return False
-    return str(row["weighted"]).lower() in {"true", "1"}
+    sample_row = background_sample_overall_metric_row(
+        metrics, analysis_config.model_name, analysis_config.analysis_split
+    )
+    if not station_row:
+        return "Primary metric row was not found."
+    return (
+        f"For the primary `{analysis_config.analysis_split}` split, the Kelpwatch-station "
+        f"ridge row has RMSE `{format_decimal(row_float(station_row, 'rmse'), 4)}`, R2 "
+        f"`{format_decimal(row_float(station_row, 'r2'), 4)}`, and area percent bias "
+        f"`{format_percent(row_float(station_row, 'area_pct_bias'), 2)}`. The background-inclusive "
+        f"sample area percent bias is `{format_percent(row_float(sample_row, 'area_pct_bias'), 2)}`."
+    )
 
 
 def baseline_comparison_markdown(
@@ -2383,22 +2444,34 @@ def baseline_calibration_markdown(
     metrics: pd.DataFrame, analysis_config: ModelAnalysisConfig
 ) -> str:
     """Build prose comparing ridge skill against no-skill area calibration."""
-    ridge = metric_row(metrics, analysis_config.model_name, analysis_config.analysis_split)
-    no_skill = metric_row(metrics, "no_skill_train_mean", analysis_config.analysis_split)
-    if not ridge or not no_skill:
+    ridge_station = station_metric_row(
+        metrics, analysis_config.model_name, analysis_config.analysis_split
+    )
+    no_skill_station = station_metric_row(
+        metrics, "no_skill_train_mean", analysis_config.analysis_split
+    )
+    ridge_sample = background_sample_overall_metric_row(
+        metrics, analysis_config.model_name, analysis_config.analysis_split
+    )
+    no_skill_sample = background_sample_overall_metric_row(
+        metrics, "no_skill_train_mean", analysis_config.analysis_split
+    )
+    if not ridge_station or not no_skill_station:
         return (
             "Baseline comparison is incomplete because at least one implemented reference "
             "metric row is missing for the primary split."
         )
-    no_skill_rmse = row_float(no_skill, "rmse")
-    ridge_rmse = row_float(ridge, "rmse")
+    no_skill_rmse = row_float(no_skill_station, "rmse")
+    ridge_rmse = row_float(ridge_station, "rmse")
     rmse_reduction = safe_ratio(no_skill_rmse - ridge_rmse, no_skill_rmse)
     return (
-        f"Ridge improves per-pixel skill substantially relative to the train-mean baseline "
-        f"(RMSE reduction `{format_percent(rmse_reduction, 1)}`). The total-area calibration "
-        f"still needs work: no-skill area bias is `{format_percent(row_float(no_skill, 'area_pct_bias'), 2)}` "
-        f"and ridge area bias is `{format_percent(row_float(ridge, 'area_pct_bias'), 2)}`. "
-        "This makes calibration and target framing first-order Phase 1 questions."
+        "On Kelpwatch-station rows, ridge only modestly improves over the train-mean baseline "
+        f"(RMSE reduction `{format_percent(rmse_reduction, 1)}`) and still misses most canopy "
+        f"area: station area bias is `{format_percent(row_float(ridge_station, 'area_pct_bias'), 2)}`. "
+        "The background-inclusive sample shows the calibration tradeoff: no-skill area "
+        f"bias is `{format_percent(row_float(no_skill_sample, 'area_pct_bias'), 2)}` and ridge "
+        f"area bias is `{format_percent(row_float(ridge_sample, 'area_pct_bias'), 2)}`. "
+        "This is still a sampling/objective calibration problem to revisit, but it is a more useful smoke baseline than the population-expanded weighted ridge."
     )
 
 
@@ -2552,16 +2625,18 @@ def interpretation_markdown(
     metrics: pd.DataFrame, tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> str:
     """Build the report-level interpretation of Phase 0 evidence."""
-    ridge = metric_row(metrics, analysis_config.model_name, analysis_config.analysis_split)
+    ridge_station = station_metric_row(
+        metrics, analysis_config.model_name, analysis_config.analysis_split
+    )
     return (
-        "Phase 0 demonstrates that the end-to-end artifact path works and that AEF features "
-        f"contain useful Kelpwatch-style signal: the primary ridge test R2 is "
-        f"`{format_decimal(row_float(ridge, 'r2'), 3)}`. The unresolved issue is interpretation, "
-        "not basic feasibility. The current evidence cannot yet separate four explanations: "
-        "annual-max target definition, area calibration bias, missing reference baselines, and "
-        "linear-model capacity. Phase 1 should therefore harden baselines, retrain on explicit "
-        "target variants, and add calibration diagnostics before treating stronger nonlinear "
-        "models or 10 m spatial models as the main answer."
+        "Phase 0 now demonstrates that the end-to-end artifact path works, but the corrected "
+        "background-inclusive ridge result should be treated as a failed first baseline. The "
+        f"Kelpwatch-station test R2 is `{format_decimal(row_float(ridge_station, 'r2'), 3)}` "
+        "and the model still severely underpredicts canopy-support rows while leaking small "
+        "positive predictions over a large assumed-background population. The next work should "
+        "therefore focus on the learning objective, sampling/weighting policy, calibration, and "
+        "reference baselines before interpreting stronger nonlinear models or 10 m spatial models "
+        "as the main answer."
     )
 
 

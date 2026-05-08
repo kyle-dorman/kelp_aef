@@ -118,7 +118,7 @@ models:
     features: A00-A63
     alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
     drop_missing_features: true
-    use_sample_weight: true
+    use_sample_weight: false
     sample_weight_column: sample_weight
     ridge_model: /Volumes/x10pro/kelp_aef/models/baselines/ridge_kelp_fraction.joblib
     sample_predictions: /Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet

@@ -1014,6 +1014,8 @@ def model_weights(dataframe: pd.DataFrame, baseline_config: BaselineConfig) -> n
 
 def metric_weights(dataframe: pd.DataFrame, baseline_config: BaselineConfig) -> np.ndarray | None:
     """Return sample weights for metric reporting when available."""
+    if not baseline_config.use_sample_weight:
+        return None
     if baseline_config.sample_weight_column not in dataframe.columns:
         return None
     return cast(np.ndarray, dataframe[baseline_config.sample_weight_column].to_numpy(dtype=float))
