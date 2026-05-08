@@ -19,7 +19,9 @@ def test_cli_imports() -> None:
         "fetch-aef-chip",
         "build-labels",
         "align",
+        "align-full-grid",
         "train-baselines",
+        "predict-full-grid",
         "map-residuals",
         "analyze-model",
     }

@@ -238,6 +238,30 @@ Add focused unit tests with tiny synthetic rasters and labels to verify:
 - Region: Monterey Peninsula footprint GeoJSON from the selected AEF tile.
 - Years: 2018-2022.
 
+## Completion Notes
+
+Implemented and reran on the Monterey smoke config.
+
+- Full-grid aligned table: 37,291,805 rows across 2018-2022.
+- Per year: 7,428,207 `assumed_background` rows and 30,154
+  `kelpwatch_station` rows.
+- Background-inclusive model input sample: 1,400,809 rows.
+- Full-grid prediction dataset: 37,291,805 rows in 430 Parquet parts.
+- Refreshed map residuals on the 2022 test grid: 7,458,361 rows.
+- Refreshed model-analysis report:
+  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`.
+
+Commands rerun:
+
+```bash
+uv run kelp-aef align-full-grid --config configs/monterey_smoke.yaml
+uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml
+uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
+uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
+make check
+```
+
 ## Acceptance Criteria
 
 - The task produces a corrected full-grid or explicitly background-inclusive

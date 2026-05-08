@@ -7,6 +7,7 @@ import csv
 import html
 import json
 import logging
+import math
 import operator
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ import geopandas as gpd  # type: ignore[import-untyped]
 import matplotlib
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
+import pyarrow.dataset as ds
 from shapely.geometry import MultiPolygon, Polygon
 
 from kelp_aef.config import load_yaml_config, require_mapping, require_string
@@ -36,6 +38,7 @@ DEFAULT_MAP_SPLIT = "test"
 DEFAULT_MAP_YEAR = 2022
 DEFAULT_LATITUDE_BAND_COUNT = 12
 DEFAULT_TOP_RESIDUAL_COUNT = 50
+DEFAULT_INTERACTIVE_MAX_ROWS = 50_000
 REQUIRED_PREDICTION_COLUMNS = (
     "year",
     "split",
@@ -50,6 +53,14 @@ REQUIRED_PREDICTION_COLUMNS = (
     "pred_kelp_max_y",
     "residual_kelp_fraction_y",
     "residual_kelp_max_y",
+)
+OPTIONAL_PREDICTION_COLUMNS = (
+    "aef_grid_cell_id",
+    "aef_grid_row",
+    "aef_grid_col",
+    "label_source",
+    "is_kelpwatch_observed",
+    "kelpwatch_station_count",
 )
 AREA_BIAS_YEAR_FIELDS = (
     "model_name",
@@ -117,24 +128,36 @@ class ResidualMapConfig:
     manifest_path: Path
 
 
+@dataclass
+class AreaAccumulator:
+    """Streaming sums for one model/split/year area-bias row."""
+
+    row_count: int = 0
+    metric_count: int = 0
+    observed_canopy_area: float = 0.0
+    predicted_canopy_area: float = 0.0
+    absolute_error_sum: float = 0.0
+    squared_error_sum: float = 0.0
+    observed_fraction_sum: float = 0.0
+    observed_fraction_squared_sum: float = 0.0
+
+
 def map_residuals(config_path: Path) -> int:
     """Write prediction maps, residual figures, and area-bias QA tables."""
     map_config = load_residual_map_config(config_path)
     LOGGER.info("Loading baseline predictions: %s", map_config.predictions_path)
-    predictions = pd.read_parquet(map_config.predictions_path)
-    validate_predictions(predictions)
-    model_predictions = predictions.loc[predictions["model_name"] == map_config.model_name].copy()
-    if model_predictions.empty:
+    map_rows = read_selected_prediction_rows(map_config)
+    validate_predictions(map_rows)
+    if map_rows.empty:
         msg = f"no predictions found for model: {map_config.model_name}"
         raise ValueError(msg)
-    map_rows = selected_map_rows(model_predictions, map_config)
     footprint = read_footprint(map_config.footprint_path)
-    area_by_year = area_bias_by_year(model_predictions)
-    area_by_latitude = area_bias_by_latitude_band(model_predictions, map_config.latitude_band_count)
+    area_by_year = area_bias_by_year_from_predictions(map_config)
+    area_by_latitude = area_bias_by_latitude_band(map_rows, map_config.latitude_band_count)
     top_residuals = top_residual_stations(map_rows, map_config.top_residual_count)
 
     write_static_map(map_rows, footprint, map_config.static_map_path, map_config)
-    write_observed_vs_predicted(model_predictions, map_config.scatter_path, map_config)
+    write_observed_vs_predicted(map_rows, map_config.scatter_path, map_config)
     write_interactive_html(map_rows, footprint, map_config.interactive_html_path, map_config)
     write_csv(area_by_year, map_config.area_bias_by_year_path, AREA_BIAS_YEAR_FIELDS)
     write_csv(area_by_latitude, map_config.area_bias_by_latitude_path, AREA_BIAS_LATITUDE_FIELDS)
@@ -154,6 +177,48 @@ def map_residuals(config_path: Path) -> int:
     LOGGER.info("Wrote top residual stations: %s", map_config.top_residuals_path)
     LOGGER.info("Wrote map residuals manifest: %s", map_config.manifest_path)
     return 0
+
+
+def read_selected_prediction_rows(map_config: ResidualMapConfig) -> pd.DataFrame:
+    """Read prediction rows for the configured model, split, and year."""
+    columns = prediction_columns(map_config.predictions_path)
+    if not map_config.predictions_path.is_dir():
+        predictions = pd.read_parquet(map_config.predictions_path, columns=columns)
+        model_predictions = predictions.loc[
+            predictions["model_name"] == map_config.model_name
+        ].copy()
+        return selected_map_rows(model_predictions, map_config)
+    dataset = ds.dataset(map_config.predictions_path, format="parquet")  # type: ignore[no-untyped-call]
+    available_columns = set(dataset.schema.names)
+    selected_columns = [column for column in columns if column in available_columns]
+    expression = (
+        (dataset_field("model_name") == map_config.model_name)
+        & (dataset_field("split") == map_config.map_split)
+        & (dataset_field("year") == map_config.map_year)
+    )
+    table = dataset.to_table(columns=selected_columns, filter=expression)
+    selected = table.to_pandas()
+    LOGGER.info(
+        "Selected %s map rows for model=%s split=%s year=%s",
+        len(selected),
+        map_config.model_name,
+        map_config.map_split,
+        map_config.map_year,
+    )
+    return cast(pd.DataFrame, selected)
+
+
+def prediction_columns(path: Path) -> list[str]:
+    """Return required and optional prediction columns available at a path."""
+    columns = [*REQUIRED_PREDICTION_COLUMNS, *OPTIONAL_PREDICTION_COLUMNS]
+    dataset = ds.dataset(path, format="parquet")  # type: ignore[no-untyped-call]
+    available_columns = set(dataset.schema.names)
+    return [column for column in columns if column in available_columns]
+
+
+def dataset_field(name: str) -> Any:
+    """Return a PyArrow dataset field expression with a typed wrapper."""
+    return cast(Any, ds).field(name)
 
 
 def load_residual_map_config(config_path: Path) -> ResidualMapConfig:
@@ -307,6 +372,123 @@ def area_bias_by_year(dataframe: pd.DataFrame) -> list[dict[str, object]]:
     return rows
 
 
+def area_bias_by_year_from_predictions(
+    map_config: ResidualMapConfig,
+) -> list[dict[str, object]]:
+    """Build year-level area-bias rows, streaming directory datasets when needed."""
+    if not map_config.predictions_path.is_dir():
+        predictions = pd.read_parquet(
+            map_config.predictions_path,
+            columns=prediction_columns(map_config.predictions_path),
+        )
+        model_predictions = predictions.loc[
+            predictions["model_name"] == map_config.model_name
+        ].copy()
+        return area_bias_by_year(model_predictions)
+    dataset = ds.dataset(map_config.predictions_path, format="parquet")  # type: ignore[no-untyped-call]
+    columns = [
+        "model_name",
+        "split",
+        "year",
+        "kelp_fraction_y",
+        "pred_kelp_fraction_y_clipped",
+        "kelp_max_y",
+        "pred_kelp_max_y",
+    ]
+    available_columns = set(dataset.schema.names)
+    missing = [column for column in columns if column not in available_columns]
+    if missing:
+        msg = f"prediction dataset is missing required area-bias columns: {missing}"
+        raise ValueError(msg)
+    expression = dataset_field("model_name") == map_config.model_name
+    accumulators: dict[tuple[str, str, int], AreaAccumulator] = {}
+    for batch in dataset.to_batches(columns=columns, filter=expression, batch_size=100_000):
+        batch_frame = batch.to_pandas()
+        update_area_accumulators(accumulators, batch_frame)
+    rows = [
+        area_metric_row_from_accumulator(model_name, split, year, accumulator)
+        for (model_name, split, year), accumulator in sorted(accumulators.items())
+    ]
+    LOGGER.info("Built %s streamed area-bias-by-year rows", len(rows))
+    return rows
+
+
+def update_area_accumulators(
+    accumulators: dict[tuple[str, str, int], AreaAccumulator],
+    dataframe: pd.DataFrame,
+) -> None:
+    """Update streaming area-bias sums from one prediction batch."""
+    for keys, group in dataframe.groupby(["model_name", "split", "year"], sort=True):
+        model_name, split, year = cast(tuple[str, str, int], keys)
+        key = (str(model_name), str(split), int(year))
+        accumulator = accumulators.setdefault(key, AreaAccumulator())
+        observed_fraction = group["kelp_fraction_y"].to_numpy(dtype=float)
+        predicted_fraction = group["pred_kelp_fraction_y_clipped"].to_numpy(dtype=float)
+        observed_area = group["kelp_max_y"].to_numpy(dtype=float)
+        predicted_area = group["pred_kelp_max_y"].to_numpy(dtype=float)
+        finite_mask = np.isfinite(observed_fraction) & np.isfinite(predicted_fraction)
+        residual = observed_fraction[finite_mask] - predicted_fraction[finite_mask]
+        accumulator.row_count += int(len(group))
+        accumulator.metric_count += int(np.count_nonzero(finite_mask))
+        accumulator.observed_canopy_area += float(np.nansum(observed_area))
+        accumulator.predicted_canopy_area += float(np.nansum(predicted_area))
+        accumulator.absolute_error_sum += float(np.nansum(np.abs(residual)))
+        accumulator.squared_error_sum += float(np.nansum(residual**2))
+        accumulator.observed_fraction_sum += float(np.nansum(observed_fraction[finite_mask]))
+        accumulator.observed_fraction_squared_sum += float(
+            np.nansum(observed_fraction[finite_mask] ** 2)
+        )
+
+
+def area_metric_row_from_accumulator(
+    model_name: str,
+    split: str,
+    year: int,
+    accumulator: AreaAccumulator,
+) -> dict[str, object]:
+    """Build one area-bias row from streaming accumulator state."""
+    return {
+        "model_name": model_name,
+        "split": split,
+        "year": year,
+        "row_count": accumulator.row_count,
+        "observed_canopy_area": accumulator.observed_canopy_area,
+        "predicted_canopy_area": accumulator.predicted_canopy_area,
+        "area_bias": accumulator.predicted_canopy_area - accumulator.observed_canopy_area,
+        "area_pct_bias": percent_bias(
+            accumulator.predicted_canopy_area,
+            accumulator.observed_canopy_area,
+        ),
+        "mae_fraction": safe_divide(
+            accumulator.absolute_error_sum,
+            accumulator.metric_count,
+        ),
+        "rmse_fraction": math.sqrt(
+            safe_divide(accumulator.squared_error_sum, accumulator.metric_count)
+        ),
+        "r2_fraction": r2_from_accumulator(accumulator),
+    }
+
+
+def safe_divide(numerator: float, denominator: int) -> float:
+    """Divide two values, returning NaN for zero denominators."""
+    if denominator == 0:
+        return math.nan
+    return numerator / denominator
+
+
+def r2_from_accumulator(accumulator: AreaAccumulator) -> float:
+    """Compute R2 from streaming sufficient statistics."""
+    if accumulator.metric_count == 0:
+        return math.nan
+    total_sum_squares = accumulator.observed_fraction_squared_sum - (
+        accumulator.observed_fraction_sum**2 / accumulator.metric_count
+    )
+    if total_sum_squares == 0:
+        return math.nan
+    return 1.0 - accumulator.squared_error_sum / total_sum_squares
+
+
 def area_bias_by_latitude_band(
     dataframe: pd.DataFrame, latitude_band_count: int
 ) -> list[dict[str, object]]:
@@ -413,7 +595,7 @@ def residual_rows(
                 "model_name": row["model_name"],
                 "split": row["split"],
                 "year": int(row["year"]),
-                "kelpwatch_station_id": int(row["kelpwatch_station_id"]),
+                "kelpwatch_station_id": nullable_int(row.get("kelpwatch_station_id")),
                 "longitude": float(row["longitude"]),
                 "latitude": float(row["latitude"]),
                 "kelp_max_y": float(row["kelp_max_y"]),
@@ -423,6 +605,15 @@ def residual_rows(
             }
         )
     return rows
+
+
+def nullable_int(value: object) -> int | None:
+    """Convert a nullable numeric value to int or None."""
+    if pd.isna(value):
+        return None
+    if not isinstance(value, int | float | np.integer | np.floating):
+        return None
+    return int(value)
 
 
 def write_static_map(
@@ -484,6 +675,17 @@ def plot_point_map(
     footprint: Polygon | MultiPolygon | None,
 ) -> None:
     """Draw one lon/lat point map panel."""
+    if {"aef_grid_row", "aef_grid_col"}.issubset(dataframe.columns):
+        plot_grid_map(
+            axis,
+            dataframe,
+            values,
+            title=title,
+            cmap=cmap,
+            norm=norm,
+            footprint=footprint,
+        )
+        return
     scatter = axis.scatter(
         dataframe["longitude"],
         dataframe["latitude"],
@@ -504,6 +706,54 @@ def plot_point_map(
     axis.ticklabel_format(style="plain", useOffset=False)
     axis.set_aspect("equal", adjustable="box")
     plt.colorbar(scatter, ax=axis, shrink=0.8)
+
+
+def plot_grid_map(
+    axis: Any,
+    dataframe: pd.DataFrame,
+    values: np.ndarray,
+    *,
+    title: str,
+    cmap: str,
+    norm: Normalize | TwoSlopeNorm,
+    footprint: Polygon | MultiPolygon | None,
+) -> None:
+    """Draw one rasterized target-grid map panel from row/column ids."""
+    rows = dataframe["aef_grid_row"].to_numpy(dtype=int)
+    cols = dataframe["aef_grid_col"].to_numpy(dtype=int)
+    row_min, row_max = int(rows.min()), int(rows.max())
+    col_min, col_max = int(cols.min()), int(cols.max())
+    image = np.full((row_max - row_min + 1, col_max - col_min + 1), np.nan, dtype=float)
+    image[rows - row_min, cols - col_min] = values
+    extent = grid_extent(dataframe)
+    artist = axis.imshow(
+        image,
+        origin="upper",
+        extent=extent,
+        cmap=cmap,
+        norm=norm,
+        interpolation="nearest",
+    )
+    if footprint is not None:
+        plot_geometry_outline(axis, footprint)
+    axis.set_title(title)
+    axis.set_xlabel("Longitude")
+    axis.set_ylabel("Latitude")
+    axis.ticklabel_format(style="plain", useOffset=False)
+    axis.set_aspect("equal", adjustable="box")
+    plt.colorbar(artist, ax=axis, shrink=0.8)
+
+
+def grid_extent(dataframe: pd.DataFrame) -> tuple[float, float, float, float]:
+    """Return approximate lon/lat extent for a regular mapped grid."""
+    longitudes = dataframe["longitude"].to_numpy(dtype=float)
+    latitudes = dataframe["latitude"].to_numpy(dtype=float)
+    return (
+        float(np.nanmin(longitudes)),
+        float(np.nanmax(longitudes)),
+        float(np.nanmin(latitudes)),
+        float(np.nanmax(latitudes)),
+    )
 
 
 def set_point_bounds(axis: Any, dataframe: pd.DataFrame) -> None:
@@ -768,11 +1018,13 @@ redraw();
 
 def interactive_records(dataframe: pd.DataFrame) -> list[dict[str, object]]:
     """Convert selected prediction rows into compact HTML JSON records."""
+    if len(dataframe) > DEFAULT_INTERACTIVE_MAX_ROWS:
+        dataframe = dataframe.sample(DEFAULT_INTERACTIVE_MAX_ROWS, random_state=13)
     records: list[dict[str, object]] = []
     for row in dataframe.to_dict("records"):
         records.append(
             {
-                "id": int(row["kelpwatch_station_id"]),
+                "id": row_identifier(row),
                 "lon": float(row["longitude"]),
                 "lat": float(row["latitude"]),
                 "observed": float(row["kelp_max_y"]),
@@ -783,6 +1035,17 @@ def interactive_records(dataframe: pd.DataFrame) -> list[dict[str, object]]:
             }
         )
     return records
+
+
+def row_identifier(row: dict[str, object]) -> str:
+    """Return a display identifier for station or full-grid prediction rows."""
+    station_id = row.get("kelpwatch_station_id")
+    if not pd.isna(station_id):
+        return str(int(cast(float, station_id)))
+    cell_id = row.get("aef_grid_cell_id")
+    if cell_id is not None and not pd.isna(cell_id):
+        return f"cell {int(cast(float, cell_id))}"
+    return "background"
 
 
 def footprint_coordinate_records(

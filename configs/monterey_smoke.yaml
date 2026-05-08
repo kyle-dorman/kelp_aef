@@ -67,6 +67,30 @@ alignment:
   output_table: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet
   output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_training_table_manifest.json
   summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table_summary.csv
+  station_sample:
+    output_table: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet
+    output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_training_table_manifest.json
+    summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table_summary.csv
+  full_grid:
+    output_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
+    output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table_manifest.json
+    summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_full_grid_training_table_summary.csv
+    target_row_chunk_size: 128
+    fast:
+      years: [2022]
+      row_window: [2560, 2688]
+      col_window: [512, 640]
+      output_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.fast.parquet
+      output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.fast_manifest.json
+      summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_full_grid_training_table.fast_summary.csv
+  background_sample:
+    output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet
+    output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table_manifest.json
+    summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table_summary.csv
+    random_seed: 13
+    background_rows_per_year: 250000
+    include_all_kelpwatch_observed: true
+    sample_weight_column: sample_weight
   fast:
     years: [2022]
     max_stations: 500
@@ -88,12 +112,18 @@ models:
     - ridge_regression
   output_dir: /Volumes/x10pro/kelp_aef/models
   baselines:
+    input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet
+    inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
     target: kelp_fraction_y
     features: A00-A63
     alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
     drop_missing_features: true
+    use_sample_weight: true
+    sample_weight_column: sample_weight
     ridge_model: /Volumes/x10pro/kelp_aef/models/baselines/ridge_kelp_fraction.joblib
-    predictions: /Volumes/x10pro/kelp_aef/processed/baseline_predictions.parquet
+    sample_predictions: /Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet
+    predictions: /Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet
+    prediction_manifest: /Volumes/x10pro/kelp_aef/interim/baseline_full_grid_prediction_manifest.json
     metrics: /Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.csv
     manifest: /Volumes/x10pro/kelp_aef/interim/baseline_eval_manifest.json
 

@@ -34,16 +34,40 @@ def test_train_baselines_writes_artifacts_and_selects_alpha(tmp_path: Path) -> N
     assert np.allclose(no_skill["pred_kelp_fraction_y"], train_mean)
 
 
-def write_baseline_fixture(tmp_path: Path) -> dict[str, Path]:
+def test_predict_full_grid_streams_trained_ridge_predictions(tmp_path: Path) -> None:
+    """Verify predict-full-grid writes streamed ridge predictions with provenance."""
+    fixture = write_baseline_fixture(tmp_path, include_full_grid=True)
+
+    assert main(["train-baselines", "--config", str(fixture["config_path"])]) == 0
+    assert main(["predict-full-grid", "--config", str(fixture["config_path"])]) == 0
+
+    predictions = pd.read_parquet(fixture["full_predictions"])
+    manifest = json.loads(fixture["prediction_manifest"].read_text())
+
+    assert len(predictions) == 9
+    assert set(predictions["model_name"]) == {"ridge_regression"}
+    assert {"aef_grid_cell_id", "label_source", "is_kelpwatch_observed"}.issubset(
+        predictions.columns
+    )
+    assert manifest["row_count"] == 9
+    assert manifest["part_count"] >= 1
+
+
+def write_baseline_fixture(tmp_path: Path, *, include_full_grid: bool = False) -> dict[str, Path]:
     """Write a synthetic aligned table and minimal baseline training config."""
     aligned_table = tmp_path / "interim/aligned_training_table.parquet"
+    full_grid_table = tmp_path / "interim/aligned_full_grid_training_table.parquet"
     split_manifest = tmp_path / "interim/split_manifest.parquet"
     model = tmp_path / "models/baselines/ridge_kelp_fraction.joblib"
+    sample_predictions = tmp_path / "processed/baseline_sample_predictions.parquet"
     predictions = tmp_path / "processed/baseline_predictions.parquet"
+    prediction_manifest = tmp_path / "interim/baseline_prediction_manifest.json"
     metrics = tmp_path / "reports/tables/baseline_metrics.csv"
     manifest = tmp_path / "interim/baseline_eval_manifest.json"
     config_path = tmp_path / "config.yaml"
-    write_aligned_table(aligned_table)
+    write_aligned_table(aligned_table, include_provenance=include_full_grid)
+    if include_full_grid:
+        write_aligned_table(full_grid_table, include_provenance=True)
     config_path.write_text(
         f"""
 alignment:
@@ -58,12 +82,18 @@ splits:
 models:
   output_dir: {tmp_path / "models"}
   baselines:
+    input_table: {aligned_table if include_full_grid else ""}
+    inference_table: {full_grid_table if include_full_grid else ""}
     target: kelp_fraction_y
     features: A00-A01
     alpha_grid: [0.01, 100.0]
     drop_missing_features: true
+    use_sample_weight: {str(include_full_grid).lower()}
+    sample_weight_column: sample_weight
     ridge_model: {model}
+    sample_predictions: {sample_predictions}
     predictions: {predictions}
+    prediction_manifest: {prediction_manifest}
     metrics: {metrics}
     manifest: {manifest}
 """.lstrip()
@@ -72,13 +102,15 @@ models:
         "config_path": config_path,
         "split_manifest": split_manifest,
         "model": model,
-        "predictions": predictions,
+        "predictions": sample_predictions,
+        "full_predictions": predictions,
+        "prediction_manifest": prediction_manifest,
         "metrics": metrics,
         "manifest": manifest,
     }
 
 
-def write_aligned_table(path: Path) -> None:
+def write_aligned_table(path: Path, *, include_provenance: bool = False) -> None:
     """Write a tiny aligned feature/label table with one missing test feature row."""
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -97,5 +129,17 @@ def write_aligned_table(path: Path) -> None:
                     "A01": feature_value * 2.0,
                 }
             )
+            if include_provenance:
+                rows[-1].update(
+                    {
+                        "aef_grid_cell_id": year * 100 + index,
+                        "aef_grid_row": index,
+                        "aef_grid_col": index,
+                        "label_source": "kelpwatch_station" if index == 0 else "assumed_background",
+                        "is_kelpwatch_observed": index == 0,
+                        "kelpwatch_station_count": 1 if index == 0 else 0,
+                        "sample_weight": 1.0 if index == 0 else 5.0,
+                    }
+                )
     rows[-1]["A00"] = np.nan
     pd.DataFrame(rows).to_parquet(path, index=False)

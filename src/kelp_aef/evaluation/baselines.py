@@ -8,6 +8,7 @@ import logging
 import math
 import operator
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, SupportsIndex, cast
@@ -15,6 +16,7 @@ from typing import Any, SupportsIndex, cast
 import joblib  # type: ignore[import-untyped]
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
+import pyarrow.dataset as ds
 from sklearn.linear_model import Ridge  # type: ignore[import-untyped]
 from sklearn.pipeline import Pipeline  # type: ignore[import-untyped]
 from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
@@ -39,6 +41,9 @@ REQUIRED_ID_COLUMNS = (
 METRIC_FIELDS = (
     "model_name",
     "split",
+    "metric_group",
+    "metric_group_value",
+    "weighted",
     "target",
     "alpha",
     "row_count",
@@ -70,6 +75,16 @@ METRIC_FIELDS = (
     "recall_ge_10pct",
     "f1_ge_10pct",
 )
+OPTIONAL_PROVENANCE_COLUMNS = (
+    "aef_grid_cell_id",
+    "aef_grid_row",
+    "aef_grid_col",
+    "label_source",
+    "is_kelpwatch_observed",
+    "kelpwatch_station_count",
+    "sample_weight",
+)
+FULL_GRID_PREDICTION_BATCH_SIZE = 100_000
 
 
 @dataclass(frozen=True)
@@ -80,7 +95,10 @@ class BaselineConfig:
     aligned_table_path: Path
     split_manifest_path: Path
     model_output_path: Path
+    sample_predictions_path: Path
     predictions_path: Path
+    prediction_manifest_path: Path
+    inference_table_path: Path | None
     metrics_path: Path
     eval_manifest_path: Path
     target_column: str
@@ -90,6 +108,8 @@ class BaselineConfig:
     test_years: tuple[int, ...]
     alpha_grid: tuple[float, ...]
     drop_missing_features: bool
+    use_sample_weight: bool
+    sample_weight_column: str
 
 
 @dataclass(frozen=True)
@@ -121,7 +141,11 @@ def train_baselines(config_path: Path) -> int:
     train_rows = rows_for_split(prepared.retained_rows, "train")
     validation_rows = rows_for_split(prepared.retained_rows, "validation")
 
-    train_mean = float(train_rows[baseline_config.target_column].mean())
+    train_weights = model_weights(train_rows, baseline_config)
+    train_mean = weighted_mean(
+        train_rows[baseline_config.target_column].to_numpy(dtype=float),
+        train_weights,
+    )
     ridge_selection = fit_select_ridge(train_rows, validation_rows, baseline_config)
     predictions = build_prediction_rows(
         prepared.retained_rows,
@@ -131,7 +155,7 @@ def train_baselines(config_path: Path) -> int:
         selected_alpha=ridge_selection.selected_alpha,
     )
     metrics = build_metric_rows(predictions, baseline_config, ridge_selection.selected_alpha)
-    write_predictions(predictions, baseline_config.predictions_path)
+    write_predictions(predictions, baseline_config.sample_predictions_path)
     write_metrics(metrics, baseline_config.metrics_path)
     write_ridge_model(
         ridge_selection,
@@ -146,10 +170,77 @@ def train_baselines(config_path: Path) -> int:
         predictions=predictions,
     )
     LOGGER.info("Wrote split manifest: %s", baseline_config.split_manifest_path)
-    LOGGER.info("Wrote baseline predictions: %s", baseline_config.predictions_path)
+    LOGGER.info("Wrote baseline sample predictions: %s", baseline_config.sample_predictions_path)
     LOGGER.info("Wrote baseline metrics: %s", baseline_config.metrics_path)
     LOGGER.info("Wrote ridge model: %s", baseline_config.model_output_path)
     LOGGER.info("Wrote baseline evaluation manifest: %s", baseline_config.eval_manifest_path)
+    return 0
+
+
+def predict_full_grid(config_path: Path, *, fast: bool = False) -> int:
+    """Apply the trained ridge model to the full-grid inference table in chunks."""
+    baseline_config = load_baseline_config(config_path)
+    if baseline_config.inference_table_path is None:
+        msg = "models.baselines.inference_table is required for predict-full-grid"
+        raise ValueError(msg)
+    inference_path = (
+        suffix_path(baseline_config.inference_table_path, ".fast")
+        if fast
+        else baseline_config.inference_table_path
+    )
+    model_payload = load_model_payload(baseline_config.model_output_path)
+    model = model_payload["model"]
+    output_path = (
+        suffix_path(baseline_config.predictions_path, ".fast")
+        if fast
+        else baseline_config.predictions_path
+    )
+    manifest_path = (
+        suffix_path(baseline_config.prediction_manifest_path, ".fast")
+        if fast
+        else baseline_config.prediction_manifest_path
+    )
+    reset_output_path(output_path)
+    row_count = 0
+    part_count = 0
+    label_source_counts: dict[str, int] = {}
+    columns = prediction_input_columns(baseline_config)
+    LOGGER.info("Streaming full-grid inference from %s", inference_path)
+    for batch in iter_parquet_batches(
+        inference_path,
+        columns,
+        FULL_GRID_PREDICTION_BATCH_SIZE,
+    ):
+        batch["split"] = assign_splits(batch["year"], baseline_config)
+        predictions = predict_with_missing_features(batch, baseline_config, model)
+        prediction_rows = prediction_frame(
+            batch,
+            baseline_config,
+            model_name=RIDGE_MODEL_NAME,
+            alpha=float(model_payload.get("selected_alpha", math.nan)),
+            predictions=predictions,
+        )
+        write_prediction_part(prediction_rows, output_path, part_count)
+        row_count += len(prediction_rows)
+        part_count += 1
+        if "label_source" in prediction_rows.columns:
+            for label_source, count in prediction_rows["label_source"].value_counts().items():
+                label_source_counts[str(label_source)] = label_source_counts.get(
+                    str(label_source), 0
+                ) + int(count)
+        LOGGER.info("Wrote full-grid prediction part %s with %s rows", part_count, len(batch))
+    write_prediction_manifest(
+        baseline_config=baseline_config,
+        inference_path=inference_path,
+        output_path=output_path,
+        manifest_path=manifest_path,
+        row_count=row_count,
+        part_count=part_count,
+        label_source_counts=label_source_counts,
+        fast=fast,
+    )
+    LOGGER.info("Wrote full-grid predictions: %s", output_path)
+    LOGGER.info("Wrote full-grid prediction manifest: %s", manifest_path)
     return 0
 
 
@@ -161,10 +252,19 @@ def load_baseline_config(config_path: Path) -> BaselineConfig:
     features = require_mapping(config.get("features"), "features")
     models = require_mapping(config.get("models"), "models")
     baseline = require_mapping(models.get("baselines"), "models.baselines")
+    predictions_path = Path(
+        require_string(baseline.get("predictions"), "models.baselines.predictions")
+    )
+    sample_predictions_value = baseline.get("sample_predictions")
+    inference_table_value = baseline.get("inference_table")
+    prediction_manifest_value = baseline.get("prediction_manifest")
     return BaselineConfig(
         config_path=config_path,
         aligned_table_path=Path(
-            require_string(alignment.get("output_table"), "alignment.output_table")
+            require_string(
+                baseline.get("input_table") or alignment.get("output_table"),
+                "models.baselines.input_table or alignment.output_table",
+            )
         ),
         split_manifest_path=Path(
             require_string(splits.get("output_manifest"), "splits.output_manifest")
@@ -172,8 +272,31 @@ def load_baseline_config(config_path: Path) -> BaselineConfig:
         model_output_path=Path(
             require_string(baseline.get("ridge_model"), "models.baselines.ridge_model")
         ),
-        predictions_path=Path(
-            require_string(baseline.get("predictions"), "models.baselines.predictions")
+        sample_predictions_path=(
+            Path(
+                require_string(
+                    sample_predictions_value,
+                    "models.baselines.sample_predictions",
+                )
+            )
+            if sample_predictions_value is not None
+            else predictions_path
+        ),
+        predictions_path=predictions_path,
+        prediction_manifest_path=(
+            Path(
+                require_string(
+                    prediction_manifest_value,
+                    "models.baselines.prediction_manifest",
+                )
+            )
+            if prediction_manifest_value is not None
+            else predictions_path.parent / "baseline_full_grid_prediction_manifest.json"
+        ),
+        inference_table_path=(
+            Path(require_string(inference_table_value, "models.baselines.inference_table"))
+            if inference_table_value is not None
+            else None
         ),
         metrics_path=Path(require_string(baseline.get("metrics"), "models.baselines.metrics")),
         eval_manifest_path=Path(
@@ -190,6 +313,12 @@ def load_baseline_config(config_path: Path) -> BaselineConfig:
             "models.baselines.drop_missing_features",
             default=True,
         ),
+        use_sample_weight=read_bool(
+            baseline.get("use_sample_weight"),
+            "models.baselines.use_sample_weight",
+            default=False,
+        ),
+        sample_weight_column=str(baseline.get("sample_weight_column", "sample_weight")),
     )
 
 
@@ -269,9 +398,8 @@ def validate_aligned_table(dataframe: pd.DataFrame, baseline_config: BaselineCon
 
 def prepare_model_frame(dataframe: pd.DataFrame, baseline_config: BaselineConfig) -> PreparedData:
     """Assign splits, mark dropped rows, and return retained modeling rows."""
-    split_manifest = dataframe[
-        ["year", "kelpwatch_station_id", "longitude", "latitude", baseline_config.target_column]
-    ].copy()
+    split_columns = split_manifest_columns(dataframe, baseline_config)
+    split_manifest = dataframe[split_columns].copy()
     split_manifest["split"] = assign_splits(split_manifest["year"], baseline_config)
     feature_complete = dataframe.loc[:, list(baseline_config.feature_columns)].notna().all(axis=1)
     target_complete = dataframe[baseline_config.target_column].notna()
@@ -297,6 +425,21 @@ def prepare_model_frame(dataframe: pd.DataFrame, baseline_config: BaselineConfig
         retained_rows=retained,
         dropped_counts_by_split=dropped_counts,
     )
+
+
+def split_manifest_columns(dataframe: pd.DataFrame, baseline_config: BaselineConfig) -> list[str]:
+    """Return stable split-manifest identity and target columns."""
+    columns = [
+        "year",
+        "kelpwatch_station_id",
+        "longitude",
+        "latitude",
+        baseline_config.target_column,
+    ]
+    for column in OPTIONAL_PROVENANCE_COLUMNS:
+        if column in dataframe.columns and column not in columns:
+            columns.append(column)
+    return columns
 
 
 def assign_splits(years: pd.Series, baseline_config: BaselineConfig) -> pd.Series:
@@ -367,13 +510,14 @@ def fit_select_ridge(
     """Fit ridge candidates on train rows and select alpha by validation RMSE."""
     x_train = feature_matrix(train_rows, baseline_config.feature_columns)
     y_train = target_vector(train_rows, baseline_config.target_column)
+    train_weights = model_weights(train_rows, baseline_config)
     x_validation = feature_matrix(validation_rows, baseline_config.feature_columns)
     y_validation = target_vector(validation_rows, baseline_config.target_column)
     validation_rows_for_grid: list[dict[str, object]] = []
     candidates: list[tuple[float, float, Any]] = []
     for alpha in baseline_config.alpha_grid:
         model = make_ridge_pipeline(alpha)
-        model.fit(x_train, y_train)
+        fit_ridge_model(model, x_train, y_train, train_weights)
         predictions = np.asarray(model.predict(x_validation), dtype=float)
         rmse = root_mean_squared_error(y_validation, predictions)
         validation_rows_for_grid.append(
@@ -394,6 +538,16 @@ def fit_select_ridge(
         selected_alpha=selected_alpha,
         validation_rows=validation_rows_for_grid,
     )
+
+
+def fit_ridge_model(
+    model: Any, features: np.ndarray, target: np.ndarray, weights: np.ndarray | None
+) -> None:
+    """Fit the ridge pipeline with optional sample weights."""
+    if weights is None:
+        model.fit(features, target)
+        return
+    model.fit(features, target, ridge__sample_weight=weights)
 
 
 def make_ridge_pipeline(alpha: float) -> Any:
@@ -456,17 +610,7 @@ def prediction_frame(
     predictions: np.ndarray,
 ) -> pd.DataFrame:
     """Build the standard prediction schema for one model."""
-    frame = retained_rows[
-        [
-            "year",
-            "split",
-            "kelpwatch_station_id",
-            "longitude",
-            "latitude",
-            baseline_config.target_column,
-            "kelp_max_y",
-        ]
-    ].copy()
+    frame = retained_rows[prediction_identity_columns(retained_rows, baseline_config)].copy()
     clipped = np.clip(predictions, 0.0, 1.0)
     frame["model_name"] = model_name
     frame["alpha"] = alpha
@@ -477,6 +621,25 @@ def prediction_frame(
     frame["residual_kelp_fraction_y_clipped"] = frame[baseline_config.target_column] - clipped
     frame["residual_kelp_max_y"] = frame["kelp_max_y"] - frame["pred_kelp_max_y"]
     return frame
+
+
+def prediction_identity_columns(
+    dataframe: pd.DataFrame, baseline_config: BaselineConfig
+) -> list[str]:
+    """Return identity, provenance, and target columns for prediction outputs."""
+    columns = [
+        "year",
+        "split",
+        "kelpwatch_station_id",
+        "longitude",
+        "latitude",
+        baseline_config.target_column,
+        "kelp_max_y",
+    ]
+    for column in OPTIONAL_PROVENANCE_COLUMNS:
+        if column in dataframe.columns and column not in columns:
+            columns.append(column)
+    return columns
 
 
 def build_metric_rows(
@@ -493,8 +656,74 @@ def build_metric_rows(
             if split_rows.empty:
                 continue
             alpha = selected_alpha if model_name == RIDGE_MODEL_NAME else math.nan
+            rows.extend(
+                metric_rows_for_split(split_rows, baseline_config, model_name, split, alpha)
+            )
+    return rows
+
+
+def metric_rows_for_split(
+    dataframe: pd.DataFrame,
+    baseline_config: BaselineConfig,
+    model_name: str,
+    split: str,
+    alpha: float,
+) -> list[dict[str, object]]:
+    """Build metric rows for overall and label-source groups."""
+    rows = [
+        metric_row(
+            dataframe,
+            baseline_config.target_column,
+            model_name,
+            split,
+            alpha,
+            metric_group="overall",
+            metric_group_value="all",
+            weights=None,
+        )
+    ]
+    weights = metric_weights(dataframe, baseline_config)
+    if weights is not None:
+        rows.append(
+            metric_row(
+                dataframe,
+                baseline_config.target_column,
+                model_name,
+                split,
+                alpha,
+                metric_group="overall",
+                metric_group_value="all",
+                weights=weights,
+            )
+        )
+    if "label_source" not in dataframe.columns:
+        return rows
+    for label_source, group in dataframe.groupby("label_source", sort=True):
+        rows.append(
+            metric_row(
+                group,
+                baseline_config.target_column,
+                model_name,
+                split,
+                alpha,
+                metric_group="label_source",
+                metric_group_value=str(label_source),
+                weights=None,
+            )
+        )
+        group_weights = metric_weights(group, baseline_config)
+        if group_weights is not None:
             rows.append(
-                metric_row(split_rows, baseline_config.target_column, model_name, split, alpha)
+                metric_row(
+                    group,
+                    baseline_config.target_column,
+                    model_name,
+                    split,
+                    alpha,
+                    metric_group="label_source",
+                    metric_group_value=str(label_source),
+                    weights=group_weights,
+                )
             )
     return rows
 
@@ -505,45 +734,60 @@ def metric_row(
     model_name: str,
     split: str,
     alpha: float,
+    *,
+    metric_group: str,
+    metric_group_value: str,
+    weights: np.ndarray | None,
 ) -> dict[str, object]:
     """Build one metric row for a model and split."""
     observed = dataframe[target_column].to_numpy(dtype=float)
     predicted = dataframe["pred_kelp_fraction_y"].to_numpy(dtype=float)
     predicted_clipped = dataframe["pred_kelp_fraction_y_clipped"].to_numpy(dtype=float)
-    observed_area = float(np.nansum(dataframe["kelp_max_y"].to_numpy(dtype=float)))
-    predicted_area = float(np.nansum(dataframe["pred_kelp_max_y"].to_numpy(dtype=float)))
+    observed_area = weighted_sum(dataframe["kelp_max_y"].to_numpy(dtype=float), weights)
+    predicted_area = weighted_sum(dataframe["pred_kelp_max_y"].to_numpy(dtype=float), weights)
     row: dict[str, object] = {
         "model_name": model_name,
         "split": split,
+        "metric_group": metric_group,
+        "metric_group_value": metric_group_value,
+        "weighted": weights is not None,
         "target": target_column,
         "alpha": alpha,
         "row_count": int(len(dataframe)),
-        "mae": mean_absolute_error(observed, predicted),
-        "rmse": root_mean_squared_error(observed, predicted),
-        "r2": r2_score(observed, predicted),
+        "mae": mean_absolute_error(observed, predicted, weights=weights),
+        "rmse": root_mean_squared_error(observed, predicted, weights=weights),
+        "r2": r2_score(observed, predicted, weights=weights),
         "pearson": correlation(observed, predicted, method="pearson"),
         "spearman": correlation(observed, predicted, method="spearman"),
-        "observed_mean_fraction": safe_mean(observed),
-        "predicted_mean_fraction": safe_mean(predicted),
-        "predicted_mean_fraction_clipped": safe_mean(predicted_clipped),
+        "observed_mean_fraction": weighted_mean(observed, weights),
+        "predicted_mean_fraction": weighted_mean(predicted, weights),
+        "predicted_mean_fraction_clipped": weighted_mean(predicted_clipped, weights),
         "observed_canopy_area": observed_area,
         "predicted_canopy_area": predicted_area,
         "area_bias": predicted_area - observed_area,
         "area_pct_bias": percent_bias(predicted_area, observed_area),
     }
-    row.update(threshold_metrics(observed, predicted_clipped))
+    row.update(threshold_metrics(observed, predicted_clipped, weights=weights))
     return row
 
 
-def threshold_metrics(observed: np.ndarray, predicted_clipped: np.ndarray) -> dict[str, float]:
+def threshold_metrics(
+    observed: np.ndarray, predicted_clipped: np.ndarray, *, weights: np.ndarray | None
+) -> dict[str, float]:
     """Build threshold diagnostics for clipped fraction predictions."""
     metrics: dict[str, float] = {}
     for threshold, label in THRESHOLDS:
         observed_positive = observed >= threshold
         predicted_positive = predicted_clipped >= threshold
-        precision, recall, f1 = precision_recall_f1(observed_positive, predicted_positive)
-        metrics[f"observed_positive_rate_ge_{label}"] = safe_bool_rate(observed_positive)
-        metrics[f"predicted_positive_rate_ge_{label}"] = safe_bool_rate(predicted_positive)
+        precision, recall, f1 = precision_recall_f1(
+            observed_positive, predicted_positive, weights=weights
+        )
+        metrics[f"observed_positive_rate_ge_{label}"] = safe_bool_rate(
+            observed_positive, weights=weights
+        )
+        metrics[f"predicted_positive_rate_ge_{label}"] = safe_bool_rate(
+            predicted_positive, weights=weights
+        )
         metrics[f"precision_ge_{label}"] = precision
         metrics[f"recall_ge_{label}"] = recall
         metrics[f"f1_ge_{label}"] = f1
@@ -553,31 +797,40 @@ def threshold_metrics(observed: np.ndarray, predicted_clipped: np.ndarray) -> di
 def precision_recall_f1(
     observed_positive: np.ndarray,
     predicted_positive: np.ndarray,
+    *,
+    weights: np.ndarray | None = None,
 ) -> tuple[float, float, float]:
     """Compute precision, recall, and F1 with NaN for undefined ratios."""
-    true_positive = int(np.count_nonzero(observed_positive & predicted_positive))
-    false_positive = int(np.count_nonzero(~observed_positive & predicted_positive))
-    false_negative = int(np.count_nonzero(observed_positive & ~predicted_positive))
+    true_positive = weighted_sum_bool(observed_positive & predicted_positive, weights)
+    false_positive = weighted_sum_bool(~observed_positive & predicted_positive, weights)
+    false_negative = weighted_sum_bool(observed_positive & ~predicted_positive, weights)
     precision = safe_ratio(true_positive, true_positive + false_positive)
     recall = safe_ratio(true_positive, true_positive + false_negative)
     f1 = safe_ratio(2 * precision * recall, precision + recall)
     return precision, recall, f1
 
 
-def mean_absolute_error(observed: np.ndarray, predicted: np.ndarray) -> float:
+def mean_absolute_error(
+    observed: np.ndarray, predicted: np.ndarray, *, weights: np.ndarray | None = None
+) -> float:
     """Compute mean absolute error."""
-    return float(np.nanmean(np.abs(observed - predicted)))
+    return weighted_mean(np.abs(observed - predicted), weights)
 
 
-def root_mean_squared_error(observed: np.ndarray, predicted: np.ndarray) -> float:
+def root_mean_squared_error(
+    observed: np.ndarray, predicted: np.ndarray, *, weights: np.ndarray | None = None
+) -> float:
     """Compute root mean squared error."""
-    return float(np.sqrt(np.nanmean((observed - predicted) ** 2)))
+    return float(np.sqrt(weighted_mean((observed - predicted) ** 2, weights)))
 
 
-def r2_score(observed: np.ndarray, predicted: np.ndarray) -> float:
+def r2_score(
+    observed: np.ndarray, predicted: np.ndarray, *, weights: np.ndarray | None = None
+) -> float:
     """Compute R2 or NaN when the observed target is constant."""
-    residual_sum_squares = float(np.nansum((observed - predicted) ** 2))
-    total_sum_squares = float(np.nansum((observed - np.nanmean(observed)) ** 2))
+    observed_mean = weighted_mean(observed, weights)
+    residual_sum_squares = weighted_sum((observed - predicted) ** 2, weights)
+    total_sum_squares = weighted_sum((observed - observed_mean) ** 2, weights)
     if total_sum_squares == 0:
         return math.nan
     return 1.0 - residual_sum_squares / total_sum_squares
@@ -598,6 +851,30 @@ def safe_mean(values: np.ndarray) -> float:
     return float(np.nanmean(values))
 
 
+def weighted_mean(values: np.ndarray, weights: np.ndarray | None) -> float:
+    """Compute an optionally weighted finite mean."""
+    valid_mask = np.isfinite(values)
+    if weights is not None:
+        valid_mask &= np.isfinite(weights)
+    if not np.any(valid_mask):
+        return math.nan
+    if weights is None:
+        return float(np.nanmean(values[valid_mask]))
+    return float(np.average(values[valid_mask], weights=weights[valid_mask]))
+
+
+def weighted_sum(values: np.ndarray, weights: np.ndarray | None) -> float:
+    """Compute an optionally weighted finite sum."""
+    valid_mask = np.isfinite(values)
+    if weights is not None:
+        valid_mask &= np.isfinite(weights)
+    if not np.any(valid_mask):
+        return 0.0
+    if weights is None:
+        return float(np.nansum(values[valid_mask]))
+    return float(np.nansum(values[valid_mask] * weights[valid_mask]))
+
+
 def percent_bias(predicted_area: float, observed_area: float) -> float:
     """Compute area percent bias or NaN when observed area is zero."""
     if observed_area == 0:
@@ -605,11 +882,20 @@ def percent_bias(predicted_area: float, observed_area: float) -> float:
     return (predicted_area - observed_area) / observed_area
 
 
-def safe_bool_rate(values: np.ndarray) -> float:
+def safe_bool_rate(values: np.ndarray, *, weights: np.ndarray | None = None) -> float:
     """Compute the mean of a boolean vector or NaN for an empty vector."""
     if values.size == 0:
         return math.nan
-    return float(np.mean(values))
+    if weights is None:
+        return float(np.mean(values))
+    return safe_ratio(weighted_sum_bool(values, weights), float(np.nansum(weights)))
+
+
+def weighted_sum_bool(values: np.ndarray, weights: np.ndarray | None) -> float:
+    """Compute an optionally weighted boolean count."""
+    if weights is None:
+        return float(np.count_nonzero(values))
+    return float(np.nansum(weights[values]))
 
 
 def safe_ratio(numerator: float, denominator: float) -> float:
@@ -629,6 +915,12 @@ def write_predictions(predictions: pd.DataFrame, output_path: Path) -> None:
     """Write baseline predictions to parquet."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     predictions.to_parquet(output_path, index=False)
+
+
+def write_prediction_part(predictions: pd.DataFrame, output_path: Path, part_index: int) -> None:
+    """Write one streamed prediction part to a Parquet dataset directory."""
+    output_path.mkdir(parents=True, exist_ok=True)
+    predictions.to_parquet(output_path / f"part-{part_index:05d}.parquet", index=False)
 
 
 def write_metrics(rows: list[dict[str, object]], output_path: Path) -> None:
@@ -674,7 +966,13 @@ def write_eval_manifest(
         "aligned_table": str(baseline_config.aligned_table_path),
         "split_manifest": str(baseline_config.split_manifest_path),
         "model_output": str(baseline_config.model_output_path),
-        "predictions": str(baseline_config.predictions_path),
+        "sample_predictions": str(baseline_config.sample_predictions_path),
+        "full_grid_predictions": str(baseline_config.predictions_path),
+        "inference_table": (
+            str(baseline_config.inference_table_path)
+            if baseline_config.inference_table_path is not None
+            else None
+        ),
         "metrics": str(baseline_config.metrics_path),
         "manifest": str(baseline_config.eval_manifest_path),
         "target_column": baseline_config.target_column,
@@ -690,8 +988,118 @@ def write_eval_manifest(
         "prediction_row_count": int(len(predictions)),
         "validation_alpha_metrics": ridge_selection.validation_rows,
         "prediction_models": sorted(predictions["model_name"].unique().tolist()),
+        "use_sample_weight": baseline_config.use_sample_weight,
+        "sample_weight_column": baseline_config.sample_weight_column,
     }
     write_json(baseline_config.eval_manifest_path, payload)
+
+
+def load_model_payload(path: Path) -> dict[str, Any]:
+    """Load a trained baseline model payload from disk."""
+    payload = joblib.load(path)
+    if not isinstance(payload, dict):
+        msg = f"model payload is not a dictionary: {path}"
+        raise ValueError(msg)
+    return cast(dict[str, Any], payload)
+
+
+def model_weights(dataframe: pd.DataFrame, baseline_config: BaselineConfig) -> np.ndarray | None:
+    """Return sample weights for model fitting when configured and available."""
+    if not baseline_config.use_sample_weight:
+        return None
+    if baseline_config.sample_weight_column not in dataframe.columns:
+        return None
+    return cast(np.ndarray, dataframe[baseline_config.sample_weight_column].to_numpy(dtype=float))
+
+
+def metric_weights(dataframe: pd.DataFrame, baseline_config: BaselineConfig) -> np.ndarray | None:
+    """Return sample weights for metric reporting when available."""
+    if baseline_config.sample_weight_column not in dataframe.columns:
+        return None
+    return cast(np.ndarray, dataframe[baseline_config.sample_weight_column].to_numpy(dtype=float))
+
+
+def prediction_input_columns(baseline_config: BaselineConfig) -> list[str]:
+    """Return columns needed for streamed full-grid prediction."""
+    columns = [
+        "year",
+        "kelpwatch_station_id",
+        "longitude",
+        "latitude",
+        baseline_config.target_column,
+        "kelp_max_y",
+        *baseline_config.feature_columns,
+    ]
+    for column in OPTIONAL_PROVENANCE_COLUMNS:
+        if column not in columns:
+            columns.append(column)
+    return columns
+
+
+def predict_with_missing_features(
+    dataframe: pd.DataFrame, baseline_config: BaselineConfig, model: Any
+) -> np.ndarray:
+    """Predict rows with complete features and leave missing-feature rows as NaN."""
+    feature_complete = dataframe.loc[:, list(baseline_config.feature_columns)].notna().all(axis=1)
+    predictions = np.full(len(dataframe), np.nan, dtype=float)
+    if feature_complete.any():
+        complete_rows = dataframe.loc[feature_complete]
+        predictions[feature_complete.to_numpy(dtype=bool)] = np.asarray(
+            model.predict(feature_matrix(complete_rows, baseline_config.feature_columns)),
+            dtype=float,
+        )
+    return predictions
+
+
+def iter_parquet_batches(path: Path, columns: list[str], batch_size: int) -> Any:
+    """Yield pandas DataFrames from a Parquet dataset in row batches."""
+    dataset = ds.dataset(path, format="parquet")  # type: ignore[no-untyped-call]
+    available_columns = set(dataset.schema.names)
+    selected_columns = [column for column in columns if column in available_columns]
+    for batch in dataset.to_batches(columns=selected_columns, batch_size=batch_size):
+        yield batch.to_pandas()
+
+
+def reset_output_path(path: Path) -> None:
+    """Remove and recreate a Parquet dataset directory."""
+    if path.exists() and path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def suffix_path(path: Path, suffix: str) -> Path:
+    """Insert a suffix before a path's final extension."""
+    return path.with_name(f"{path.stem}{suffix}{path.suffix}")
+
+
+def write_prediction_manifest(
+    *,
+    baseline_config: BaselineConfig,
+    inference_path: Path,
+    output_path: Path,
+    manifest_path: Path,
+    row_count: int,
+    part_count: int,
+    label_source_counts: dict[str, int],
+    fast: bool,
+) -> None:
+    """Write a manifest for streamed full-grid prediction."""
+    payload = {
+        "command": "predict-full-grid",
+        "config_path": str(baseline_config.config_path),
+        "fast": fast,
+        "inference_table": str(inference_path),
+        "predictions": str(output_path),
+        "model_output": str(baseline_config.model_output_path),
+        "row_count": row_count,
+        "part_count": part_count,
+        "label_source_counts": label_source_counts,
+        "feature_columns": list(baseline_config.feature_columns),
+        "target_column": baseline_config.target_column,
+    }
+    write_json(manifest_path, payload)
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:

@@ -8,7 +8,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from kelp_aef.alignment.feature_label_table import align_features_labels
-from kelp_aef.evaluation.baselines import train_baselines
+from kelp_aef.alignment.full_grid import align_full_grid
+from kelp_aef.evaluation.baselines import predict_full_grid, train_baselines
 from kelp_aef.evaluation.model_analysis import analyze_model
 from kelp_aef.features.aef_catalog import query_aef_catalog
 from kelp_aef.features.aef_download import download_aef
@@ -35,7 +36,9 @@ COMMANDS: dict[str, str] = {
     "fetch-aef-chip": "Fetch or stage AlphaEarth embedding samples for the configured region.",
     "build-labels": "Build derived Kelpwatch labels for the configured target.",
     "align": "Align AlphaEarth features and Kelpwatch labels into a training table.",
+    "align-full-grid": "Align AlphaEarth features with full-grid background labels.",
     "train-baselines": "Train and evaluate first simple tabular baselines.",
+    "predict-full-grid": "Stream baseline predictions over the full-grid feature table.",
     "map-residuals": "Map baseline predictions, residuals, and area bias.",
     "analyze-model": "Analyze smoke-test model behavior and write the Phase 0 report.",
 }
@@ -135,6 +138,10 @@ def build_parser() -> argparse.ArgumentParser:
             add_visualize_kelpwatch_arguments(subparser)
         if command == "align":
             add_align_arguments(subparser)
+        if command == "align-full-grid":
+            add_align_full_grid_arguments(subparser)
+        if command == "predict-full-grid":
+            add_predict_full_grid_arguments(subparser)
 
     return parser
 
@@ -262,6 +269,24 @@ def add_align_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_align_full_grid_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add full-grid alignment options to the align-full-grid subcommand."""
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Run the configured small full-grid window and fast-path artifacts.",
+    )
+
+
+def add_predict_full_grid_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add full-grid prediction options to the predict-full-grid subcommand."""
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Write full-grid predictions for the configured fast inference artifact.",
+    )
+
+
 def run_scaffold_command(command: str, config_path: Path) -> int:
     """Run a CLI command scaffold until the pipeline step is implemented."""
     LOGGER.info("%s: using config %s", command, config_path)
@@ -330,8 +355,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 manifest_output=args.manifest_output,
                 comparison_output=args.comparison_output,
             )
+        elif command == "align-full-grid":
+            exit_code = align_full_grid(config_path, fast=bool(args.fast))
         elif command == "train-baselines":
             exit_code = train_baselines(config_path)
+        elif command == "predict-full-grid":
+            exit_code = predict_full_grid(config_path, fast=bool(args.fast))
         elif command == "map-residuals":
             exit_code = map_residuals(config_path)
         elif command == "analyze-model":

@@ -19,6 +19,7 @@ from typing import Any, SupportsIndex, cast
 import matplotlib
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
+import pyarrow.dataset as ds
 import xarray as xr
 from sklearn.decomposition import PCA  # type: ignore[import-untyped]
 from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
@@ -72,6 +73,14 @@ REQUIRED_PREDICTION_COLUMNS = (
     "pred_kelp_fraction_y_clipped",
     "pred_kelp_max_y",
     "residual_kelp_max_y",
+)
+OPTIONAL_PREDICTION_COLUMNS = (
+    "aef_grid_cell_id",
+    "aef_grid_row",
+    "aef_grid_col",
+    "label_source",
+    "is_kelpwatch_observed",
+    "kelpwatch_station_count",
 )
 STAGE_DISTRIBUTION_FIELDS = (
     "stage",
@@ -347,7 +356,10 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
         ),
         source_manifest_path=optional_path(label_paths.get("source_manifest")),
         aligned_table_path=Path(
-            require_string(alignment.get("output_table"), "alignment.output_table")
+            require_string(
+                baselines.get("input_table") or alignment.get("output_table"),
+                "models.baselines.input_table or alignment.output_table",
+            )
         ),
         split_manifest_path=Path(
             require_string(splits.get("output_manifest"), "splits.output_manifest")
@@ -583,7 +595,7 @@ def load_analysis_data(analysis_config: ModelAnalysisConfig) -> AnalysisData:
     labels = pd.read_parquet(analysis_config.label_path)
     aligned = pd.read_parquet(analysis_config.aligned_table_path)
     split_manifest = pd.read_parquet(analysis_config.split_manifest_path)
-    predictions = pd.read_parquet(analysis_config.predictions_path)
+    predictions = read_model_prediction_rows(analysis_config)
     metrics = pd.read_csv(analysis_config.metrics_path)
     validate_columns(labels, REQUIRED_LABEL_COLUMNS, "annual labels")
     validate_columns(aligned, REQUIRED_LABEL_COLUMNS, "aligned table")
@@ -595,7 +607,10 @@ def load_analysis_data(analysis_config: ModelAnalysisConfig) -> AnalysisData:
         msg = f"no prediction rows found for model: {analysis_config.model_name}"
         raise ValueError(msg)
     labels_with_targets = add_target_framings(labels, analysis_config)
-    prediction_targets = attach_target_framings(model_predictions, labels_with_targets)
+    prediction_targets = attach_target_framings(
+        kelpwatch_supported_prediction_rows(model_predictions),
+        labels_with_targets,
+    )
     LOGGER.info(
         "Loaded %s labels, %s aligned rows, %s split rows, and %s %s prediction rows",
         len(labels),
@@ -614,6 +629,51 @@ def load_analysis_data(analysis_config: ModelAnalysisConfig) -> AnalysisData:
         labels_with_targets=labels_with_targets,
         prediction_targets=prediction_targets,
     )
+
+
+def read_model_prediction_rows(analysis_config: ModelAnalysisConfig) -> pd.DataFrame:
+    """Read prediction rows needed for model analysis without loading all partitions."""
+    columns = available_prediction_columns(analysis_config.predictions_path)
+    dataset = ds.dataset(analysis_config.predictions_path, format="parquet")  # type: ignore[no-untyped-call]
+    expression = dataset_field("model_name") == analysis_config.model_name
+    if analysis_config.predictions_path.is_dir():
+        LOGGER.info(
+            "Prediction path is a dataset directory; loading primary split/year only: split=%s year=%s",
+            analysis_config.analysis_split,
+            analysis_config.analysis_year,
+        )
+        expression = (
+            expression
+            & (dataset_field("split") == analysis_config.analysis_split)
+            & (dataset_field("year") == analysis_config.analysis_year)
+        )
+    table = dataset.to_table(columns=columns, filter=expression)
+    frame = table.to_pandas()
+    LOGGER.info("Loaded %s prediction rows from %s", len(frame), analysis_config.predictions_path)
+    return cast(pd.DataFrame, frame)
+
+
+def available_prediction_columns(path: Path) -> list[str]:
+    """Return required and optional prediction columns available in a Parquet path."""
+    columns = [*REQUIRED_PREDICTION_COLUMNS, *OPTIONAL_PREDICTION_COLUMNS]
+    dataset = ds.dataset(path, format="parquet")  # type: ignore[no-untyped-call]
+    available_columns = set(dataset.schema.names)
+    return [column for column in columns if column in available_columns]
+
+
+def dataset_field(name: str) -> Any:
+    """Return a PyArrow dataset field expression with a typed wrapper."""
+    return cast(Any, ds).field(name)
+
+
+def kelpwatch_supported_prediction_rows(predictions: pd.DataFrame) -> pd.DataFrame:
+    """Select prediction rows that have true Kelpwatch station-label support."""
+    if "label_source" in predictions.columns:
+        return predictions.loc[predictions["label_source"] == "kelpwatch_station"].copy()
+    if "is_kelpwatch_observed" in predictions.columns:
+        observed = predictions["is_kelpwatch_observed"].fillna(False).astype(bool)
+        return predictions.loc[observed].copy()
+    return predictions.loc[predictions["kelpwatch_station_id"].notna()].copy()
 
 
 def validate_columns(dataframe: pd.DataFrame, required: tuple[str, ...], name: str) -> None:
@@ -1775,9 +1835,14 @@ def write_report(
         "- Downloaded and inspected Kelpwatch source data.",
         "- Queried and downloaded the Monterey AEF annual tiles.",
         "- Built annual Kelpwatch max labels for 2018-2022.",
-        "- Aligned AEF 10 m embeddings to Kelpwatch 30 m label rows.",
-        "- Trained no-skill and ridge baselines with a year holdout.",
-        "- Wrote residual maps, area-bias tables, and this model-analysis report.",
+        "- Corrected the initial station-center-only alignment by writing a full AEF-aligned 30 m grid artifact and a documented background-inclusive training sample.",
+        "- Trained no-skill and ridge baselines on the background-inclusive sample with a year holdout.",
+        "- Applied the trained ridge model back to the full-grid table with streamed inference.",
+        "- Wrote residual maps, area-bias tables, and this model-analysis report from the corrected artifacts.",
+        "",
+        "## Full-Grid Background Correction",
+        "",
+        background_correction_markdown(data),
         "",
         "## Data And Label Distribution Findings",
         "",
@@ -1967,10 +2032,28 @@ def highest_observed_bin_row(
 
 def metric_row(metrics: pd.DataFrame, model_name: str, split: str) -> dict[str, object]:
     """Return one metric row as a generic dictionary."""
-    rows = metrics.loc[(metrics["model_name"] == model_name) & (metrics["split"] == split)]
+    rows = report_metric_rows(metrics, split)
+    rows = rows.loc[rows["model_name"] == model_name]
     if rows.empty:
         return {}
     return cast(dict[str, object], rows.iloc[0].to_dict())
+
+
+def report_metric_rows(metrics: pd.DataFrame, split: str) -> pd.DataFrame:
+    """Return primary overall metric rows for report prose."""
+    rows = metrics.loc[metrics["split"] == split].copy()
+    if "metric_group" in rows.columns:
+        rows = rows.loc[rows["metric_group"] == "overall"]
+    if "weighted" in rows.columns:
+        weighted = metric_weight_mask(rows)
+        if bool(weighted.any()):
+            rows = rows.loc[weighted]
+    return rows
+
+
+def metric_weight_mask(metrics: pd.DataFrame) -> pd.Series:
+    """Return a boolean mask for metric rows marked as weighted."""
+    return metrics["weighted"].astype(str).str.lower().isin({"true", "1"})
 
 
 def format_decimal(value: float, digits: int) -> str:
@@ -2207,27 +2290,75 @@ def stage_distribution_markdown(rows: list[dict[str, object]]) -> str:
     return "\n".join(lines)
 
 
+def background_correction_markdown(data: AnalysisData) -> str:
+    """Build report text describing the corrected full-grid/background contract."""
+    aligned_counts = label_source_counts(data.aligned)
+    prediction_counts = label_source_counts(data.model_predictions)
+    return "\n".join(
+        [
+            "The first Phase 0 alignment only sampled AEF values at Kelpwatch station centers. Task 11 corrects that data contract: non-station cells are retained as weak-label `assumed_background` rows, and station-supported rows are flagged as `kelpwatch_station`.",
+            "",
+            "| Artifact | Loaded rows | Kelpwatch station rows | Assumed background rows |",
+            "|---|---:|---:|---:|",
+            (
+                f"| Model input sample | {len(data.aligned)} | "
+                f"{aligned_counts.get('kelpwatch_station', 0)} | "
+                f"{aligned_counts.get('assumed_background', 0)} |"
+            ),
+            (
+                f"| Prediction rows in this report | {len(data.model_predictions)} | "
+                f"{prediction_counts.get('kelpwatch_station', 0)} | "
+                f"{prediction_counts.get('assumed_background', 0)} |"
+            ),
+            "",
+            "Overall full-grid metrics are useful for calibration and map QA, but quarterly target-framing and persistence diagnostics are computed only on Kelpwatch-station rows because background cells do not have quarterly Kelpwatch support.",
+        ]
+    )
+
+
+def label_source_counts(dataframe: pd.DataFrame) -> dict[str, int]:
+    """Count label-source provenance values with a fallback for older fixtures."""
+    if "label_source" in dataframe.columns:
+        return {
+            str(label_source): int(count)
+            for label_source, count in dataframe["label_source"].value_counts().items()
+        }
+    if "is_kelpwatch_observed" in dataframe.columns:
+        observed = dataframe["is_kelpwatch_observed"].fillna(False).astype(bool)
+        return {
+            "kelpwatch_station": int(observed.sum()),
+            "assumed_background": int((~observed).sum()),
+        }
+    return {"kelpwatch_station": int(dataframe["kelpwatch_station_id"].notna().sum())}
+
+
 def metric_summary_markdown(metrics: pd.DataFrame, analysis_config: ModelAnalysisConfig) -> str:
     """Build Markdown text for primary ridge metrics."""
-    metric_rows = metrics.loc[
-        (metrics["model_name"] == analysis_config.model_name)
-        & (metrics["split"] == analysis_config.analysis_split)
-    ]
+    metric_rows = report_metric_rows(metrics, analysis_config.analysis_split)
+    metric_rows = metric_rows.loc[metric_rows["model_name"] == analysis_config.model_name]
     if metric_rows.empty:
         return "Primary metric row was not found."
     row = metric_rows.iloc[0]
+    weighting = "weighted overall" if metric_row_is_weighted(row) else "unweighted overall"
     return (
-        f"For the primary `{analysis_config.analysis_split}` split, ridge RMSE is "
+        f"For the primary `{analysis_config.analysis_split}` split, using the `{weighting}` metric row, ridge RMSE is "
         f"`{float(row['rmse']):.4f}`, R2 is `{float(row['r2']):.4f}`, and area percent "
         f"bias is `{float(row['area_pct_bias']):.2%}`."
     )
+
+
+def metric_row_is_weighted(row: pd.Series) -> bool:
+    """Return whether one metrics row is marked as weighted."""
+    if "weighted" not in row.index:
+        return False
+    return str(row["weighted"]).lower() in {"true", "1"}
 
 
 def baseline_comparison_markdown(
     metrics: pd.DataFrame, analysis_config: ModelAnalysisConfig
 ) -> str:
     """Build a compact implemented-baseline comparison table."""
-    rows = metrics.loc[metrics["split"] == analysis_config.analysis_split].copy()
+    rows = report_metric_rows(metrics, analysis_config.analysis_split)
     if rows.empty:
         return "No baseline metric rows were available for the primary split."
     lines = [
@@ -2264,8 +2395,8 @@ def baseline_calibration_markdown(
     rmse_reduction = safe_ratio(no_skill_rmse - ridge_rmse, no_skill_rmse)
     return (
         f"Ridge improves per-pixel skill substantially relative to the train-mean baseline "
-        f"(RMSE reduction `{format_percent(rmse_reduction, 1)}`), but the total-area bias "
-        f"barely changes: no-skill area bias is `{format_percent(row_float(no_skill, 'area_pct_bias'), 2)}` "
+        f"(RMSE reduction `{format_percent(rmse_reduction, 1)}`). The total-area calibration "
+        f"still needs work: no-skill area bias is `{format_percent(row_float(no_skill, 'area_pct_bias'), 2)}` "
         f"and ridge area bias is `{format_percent(row_float(ridge, 'area_pct_bias'), 2)}`. "
         "This makes calibration and target framing first-order Phase 1 questions."
     )

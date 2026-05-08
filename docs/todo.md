@@ -95,7 +95,7 @@ Phase 0 report is reviewed.
   - Plan: `tasks/09_map_residuals_area_bias.md`.
 - [x] Analyze smoke-test model behavior and write the Phase 0 report.
   - Plan: `tasks/10_model_analysis_report.md`.
-- [ ] Correct the aligned training table to include full-grid/background rows,
+- [x] Correct the aligned training table to include full-grid/background rows,
   then rerun the downstream Phase 0 workflow.
   - Plan: `tasks/11_correct_full_grid_background_alignment.md`.
   - This reopens Phase 0 after Task 10 because the first aligned table sampled
