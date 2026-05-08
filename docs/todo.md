@@ -86,6 +86,7 @@ smoke-test assumptions are updated.
 - [x] Visualize downloaded Kelpwatch source data for Monterey QA.
 - [x] Build initial annual label derivation.
   - Plan: `tasks/06_build_annual_labels.md`.
-- [ ] Align features and labels into the first table.
+- [ ] Align features and labels into the first parquet table.
+  - Plan: `tasks/07_align_features_labels.md`.
 - [ ] Train and evaluate first simple baselines.
 - [ ] Make first predicted/residual maps and area-bias table.

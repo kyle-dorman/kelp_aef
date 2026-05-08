@@ -25,8 +25,11 @@ start.
   - Label QA maps for known kelp regions.
 - [ ] Phase 3: implement feature/label alignment.
   - AlphaEarth aggregation to the Kelpwatch 30 m grid for the first pass.
-  - Grid-cell-by-year aligned table.
-  - Later chip product for spatial models.
+  - Grid-cell-by-year aligned parquet table for tabular baselines.
+  - Treat parquet as the first end-to-end artifact, not the final data shape for
+    every model family.
+  - Later chip, tensor, or other spatial artifact for CNNs and neighborhood-aware
+    models that need to preserve the 10 m spatial context.
 - [ ] Phase 4: implement split manifests.
   - Year holdout.
   - Latitude or spatial holdout.
@@ -73,6 +76,9 @@ start.
   - Later compare 10 m prediction workflows that either replicate parent
     Kelpwatch fractional cover to child cells or resample the 30 m fractional
     cover surface to 10 m with cubic interpolation.
+  - Do not force CNN or other spatial model experiments through the flat parquet
+    table; design a chip or tensor product when those models become a near-term
+    task.
   - For any 10 m label experiment, validate predictions by aggregating them back
     to 30 m and comparing against the original Kelpwatch area labels.
   - Treat 10 m labels as weak/interpolated targets, not independent 10 m truth.
