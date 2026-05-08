@@ -89,4 +89,5 @@ smoke-test assumptions are updated.
 - [x] Align features and labels into the first parquet table.
   - Plan: `tasks/07_align_features_labels.md`.
 - [ ] Train and evaluate first simple baselines.
+  - Plan: `tasks/08_train_evaluate_baselines.md`.
 - [ ] Make first predicted/residual maps and area-bias table.
