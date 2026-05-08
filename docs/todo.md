@@ -91,3 +91,4 @@ smoke-test assumptions are updated.
 - [x] Train and evaluate first simple baselines.
   - Plan: `tasks/08_train_evaluate_baselines.md`.
 - [ ] Make first predicted/residual maps and area-bias table.
+  - Plan: `tasks/09_map_residuals_area_bias.md`.
