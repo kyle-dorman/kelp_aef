@@ -28,6 +28,7 @@ labels:
     raw_dir: /Volumes/x10pro/kelp_aef/raw/kelpwatch
     source_manifest: /Volumes/x10pro/kelp_aef/interim/kelpwatch_source_manifest.json
     annual_labels: /Volumes/x10pro/kelp_aef/interim/labels_annual.parquet
+    annual_label_manifest: /Volumes/x10pro/kelp_aef/interim/labels_annual_manifest.json
 
 features:
   source: alphaearth
@@ -61,7 +62,18 @@ features:
       local_path: /Volumes/x10pro/kelp_aef/raw/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000008192-0000008192.tiff
 
 alignment:
+  method: rasterio_average_10m_to_30m
+  target_row_chunk_size: 256
   output_table: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet
+  output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_training_table_manifest.json
+  summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table_summary.csv
+  fast:
+    years: [2022]
+    max_stations: 500
+    output_table: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.fast.parquet
+    output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.fast_manifest.json
+    summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table.fast_summary.csv
+    comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table.fast_method_comparison.csv
   split_manifest: /Volumes/x10pro/kelp_aef/interim/split_manifest.parquet
 
 splits:

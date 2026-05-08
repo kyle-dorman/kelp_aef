@@ -7,6 +7,7 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 
+from kelp_aef.alignment.feature_label_table import align_features_labels
 from kelp_aef.features.aef_catalog import query_aef_catalog
 from kelp_aef.features.aef_download import download_aef
 from kelp_aef.labels.kelpwatch import inspect_kelpwatch
@@ -126,6 +127,8 @@ def build_parser() -> argparse.ArgumentParser:
             add_inspect_kelpwatch_arguments(subparser)
         if command == "visualize-kelpwatch":
             add_visualize_kelpwatch_arguments(subparser)
+        if command == "align":
+            add_align_arguments(subparser)
 
     return parser
 
@@ -207,6 +210,52 @@ def add_visualize_kelpwatch_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_align_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add feature/label alignment-specific options to the align subcommand."""
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Run a small spatial subset and write configured fast-path artifacts.",
+    )
+    parser.add_argument(
+        "--years",
+        type=positive_int,
+        nargs="+",
+        default=None,
+        help="Optional year override, for example: --years 2022.",
+    )
+    parser.add_argument(
+        "--max-stations",
+        type=positive_int,
+        default=None,
+        help="Optional cap on spatially selected Kelpwatch stations.",
+    )
+    parser.add_argument(
+        "--output-table",
+        type=Path,
+        default=None,
+        help="Optional parquet output path override.",
+    )
+    parser.add_argument(
+        "--summary-output",
+        type=Path,
+        default=None,
+        help="Optional summary CSV output path override.",
+    )
+    parser.add_argument(
+        "--manifest-output",
+        type=Path,
+        default=None,
+        help="Optional manifest JSON output path override.",
+    )
+    parser.add_argument(
+        "--comparison-output",
+        type=Path,
+        default=None,
+        help="Optional fast-path method comparison CSV output path override.",
+    )
+
+
 def run_scaffold_command(command: str, config_path: Path) -> int:
     """Run a CLI command scaffold until the pipeline step is implemented."""
     LOGGER.info("%s: using config %s", command, config_path)
@@ -264,6 +313,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif command == "build-labels":
             exit_code = build_annual_labels(config_path)
+        elif command == "align":
+            exit_code = align_features_labels(
+                config_path,
+                fast=bool(args.fast),
+                years=tuple(args.years) if args.years is not None else None,
+                max_stations=args.max_stations,
+                output_table=args.output_table,
+                summary_output=args.summary_output,
+                manifest_output=args.manifest_output,
+                comparison_output=args.comparison_output,
+            )
         else:
             exit_code = run_scaffold_command(command, config_path)
     except Exception:

@@ -41,7 +41,8 @@ Expected config entries should cover:
 - Output table, manifest, and summary paths.
 - Years to align.
 - AEF bands to retain.
-- Alignment method name, initially `mean_10m_to_kelpwatch_30m`.
+- Alignment method name, initially `rasterio_average_10m_to_30m`.
+- Target row chunk size for Rasterio reads, initially `256`.
 
 ## Plan/Spec Requirement
 
@@ -53,6 +54,7 @@ about Kelpwatch station coordinates and the 30 m support window.
 
 ```bash
 uv run kelp-aef align --config configs/monterey_smoke.yaml
+uv run kelp-aef align --config configs/monterey_smoke.yaml --fast
 ```
 
 ## Implementation Notes
@@ -64,17 +66,25 @@ uv run kelp-aef align --config configs/monterey_smoke.yaml
   reads, because raw upstream TIFFs may have orientation and codec issues.
 - Transform Kelpwatch station coordinates into the AEF raster CRS with standard
   geospatial libraries such as GeoPandas, pyproj, rasterio, or rioxarray.
-- Aggregate the 10 m AEF pixels that fall within each Kelpwatch 30 m station
-  support to one feature vector per station-year.
+- Aggregate 10 m AEF pixels to an AEF-aligned 30 m grid with Rasterio/GDAL
+  average resampling, then sample that grid at Kelpwatch station centers.
+- Keep the older station-centered 3x3 mean method as a reference/QA path for
+  fast comparisons.
 - Start with the mean of valid AEF values for each band, ignoring the AEF NoData
-  value.
+  value according to Rasterio/GDAL average resampling.
 - Keep diagnostic columns for the number of expected, valid, and missing AEF
   pixels used per station-year.
+- Read the averaged target grid in spatial chunks so full-year alignment does
+  not force one large raster window across the full Monterey label extent.
 - Preserve the annual label columns needed by the first tabular baselines,
   including `kelp_max_y`, `kelp_fraction_y`, threshold diagnostics, year,
   station id, longitude, and latitude.
 - Use structured logging for year-level progress, raster paths, row counts,
   missing-feature counts, output paths, and recoverable diagnostics.
+- Support a fast path that uses a small spatially coherent subset of stations
+  and separate `.fast` output artifacts while exercising the same alignment
+  logic. In fast mode, write a method-comparison summary when the Rasterio
+  average method is used.
 
 ## Expected Output Schema
 
@@ -112,6 +122,7 @@ labels to verify:
 - AEF NoData values are excluded from means and counted.
 - Output parquet columns and manifest fields are stable.
 - Missing or out-of-footprint stations are reported clearly.
+- The `--fast` path writes separate fast artifacts and limits stations.
 
 ## Smoke-Test Region And Years
 
