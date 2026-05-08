@@ -10,34 +10,54 @@ Kelpwatch-derived labels from AlphaEarth embeddings. Kelpwatch is a
 Landsat-derived product, not independent field truth, so this project should not
 claim to prove true kelp biomass.
 
-## First Milestone
+## Phase 0 Status
 
-Start with a tiny feasibility spike before scaling.
+Phase 0, the Monterey Peninsula feasibility spike, is complete for now as of
+2026-05-08. The spike produced an end-to-end weak-label pipeline, not a final
+modeling answer.
 
 ```text
 Kelpwatch label tile + AlphaEarth embedding tile -> aligned training table -> simple model -> map
 ```
 
-Initial scope:
+Implemented scope:
 
-- Region: Monterey Peninsula, unless the project explicitly changes scope.
+- Region: Monterey Peninsula.
 - Years: 2018-2022 for the first Monterey smoke test, using a year holdout.
 - Label: Kelpwatch annual max canopy.
 - Features: AlphaEarth annual 64-band embeddings aggregated from 10 m to the
-  Kelpwatch 30 m grid.
-- Models: logistic or ridge regression plus a tree model such as random forest.
-- Split: year holdout.
-- Outputs: predicted map, residual map, and area-bias summary.
+  30 m target grid.
+- Model: simple ridge baseline trained on a background-inclusive sample without
+  background expansion weights.
+- Split: train 2018-2020, validate 2021, test 2022.
+- Outputs: full-grid predictions, residual maps, area-bias tables, and a Phase 0
+  report.
+
+Phase 0 closed with a useful but imperfect smoke result:
+
+- The end-to-end data path works from source discovery through report.
+- The original station-center-only alignment mistake was corrected with a
+  full-grid artifact that includes assumed-background rows.
+- The ridge baseline has some station-row signal, but it still underpredicts
+  canopy magnitude on Kelpwatch-supported rows.
+- Full-grid calibration remains poor because small positive predictions over a
+  very large assumed-background area accumulate into large area overprediction.
+- No Phase 1 direction has been selected yet.
 
 ## Success Criteria
 
-The feasibility spike is useful when:
+The feasibility spike is considered useful enough to pause when:
 
 - AlphaEarth embeddings load for the selected region and years.
 - Kelpwatch labels load for the same spatial/temporal scope.
-- Coordinate alignment works and produces a grid-cell-by-year training table.
-- A simple embedding model beats no-skill and geographic baselines.
-- Maps and diagnostics look spatially plausible.
+- Coordinate alignment produces both Kelpwatch-supported rows and
+  assumed-background grid rows.
+- A simple embedding model and no-skill baseline run end to end.
+- Maps, diagnostics, and a report make model limitations visible.
+
+Phase 0 does not establish that the current model is production-ready. It only
+establishes that the project has enough plumbing and diagnostics to make the
+next research decision deliberately.
 
 ## Primary Data Products
 
@@ -54,20 +74,23 @@ one row = grid cell x year
 columns = A00-A63 + lat + lon + year + state + label columns
 ```
 
-Expected early artifacts:
+Key Phase 0 artifacts:
 
 - `/Volumes/x10pro/kelp_aef/raw/kelpwatch/`
 - `/Volumes/x10pro/kelp_aef/raw/aef/`
-- `/Volumes/x10pro/kelp_aef/raw/aef_samples/`
 - `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson`
 - `/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query_summary.json`
 - `/Volumes/x10pro/kelp_aef/interim/metadata_summary.json`
+- `/Volumes/x10pro/kelp_aef/interim/labels_annual.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet`
-- `/Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png`
-- `/Volumes/x10pro/kelp_aef/reports/figures/predicted_map.png`
-- `/Volumes/x10pro/kelp_aef/reports/figures/residual_map.png`
-- `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_summary.csv`
+- `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet`
+- `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet`
+- `/Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png`
+- `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv`
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`
 
 ## Non-Goals
 
@@ -77,6 +100,9 @@ Expected early artifacts:
 - Do not jump to spatial deep learning before simple tabular baselines work.
 - Do not let one random-pixel split stand in for temporal or spatial
   generalization.
+- Do not treat the current Phase 0 ridge model as a production target.
+- Do not assume the Phase 1 direction before reviewing the Phase 0 report and
+  choosing the next question.
 
 ## Evaluation Priorities
 
@@ -98,3 +124,7 @@ Useful metrics:
   region/year correlations.
 - Ecological products: annual max area error, fall persistence agreement,
   two-year fall change error, and collapse/recovery classification.
+
+Phase 1 evaluation priorities remain undecided. Candidate directions include
+target framing, sampling and calibration, stronger baselines, spatial holdouts,
+and nonlinear tabular models, but none is committed as the next phase here.

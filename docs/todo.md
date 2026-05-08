@@ -1,11 +1,23 @@
 # First Feasibility Milestone TODO
 
-This is the active planning checklist for Phase 0. The basic agentic setup work
-is complete; use `docs/backlog.md` for the durable high-level queue.
+Status: Phase 0 is complete for now as of 2026-05-08.
 
-Do not close Phase 0 until the full-grid/background alignment correction is
-implemented, downstream model/map/report artifacts are rerun, and the corrected
-Phase 0 report is reviewed.
+This file records the completed Monterey feasibility checklist. Use
+`docs/backlog.md` for durable candidate work. Do not start or assume a Phase 1
+direction from this file; choose it explicitly after reviewing the Phase 0
+report and current project priorities.
+
+Final Phase 0 report:
+
+```text
+/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md
+```
+
+Final validation:
+
+```bash
+make check
+```
 
 ## Scope Decisions
 
@@ -21,8 +33,7 @@ Phase 0 report is reviewed.
     2018-2022.
 - [x] Choose the initial label target.
   - Use `kelp_max_y`, Kelpwatch annual max canopy.
-  - Defer binary `kelp_present_y` and thresholds until after source metadata and
-    value ranges are inspected.
+  - Binary thresholds were kept diagnostic-only in Phase 0.
 - [x] Choose the initial feature product and access path.
   - Use Source Cooperative AlphaEarth/AEF v1 annual GeoTIFFs for one `10N` grid
     tile.
@@ -57,6 +68,10 @@ Phase 0 report is reviewed.
   - Predicted map.
   - Residual map.
   - Area-bias summary.
+  - Full-grid aligned table.
+  - Background-inclusive sampled model input.
+  - Full-grid prediction dataset.
+  - Phase 0 model-analysis report.
 - [x] Confirm whether any tiny QA samples should be tracked.
   - Current policy: none are tracked by default.
 
@@ -100,3 +115,18 @@ Phase 0 report is reviewed.
   - Plan: `tasks/11_correct_full_grid_background_alignment.md`.
   - This reopens Phase 0 after Task 10 because the first aligned table sampled
     AEF only at Kelpwatch station centers.
+
+## Phase 0 Closeout Notes
+
+- The station-centered alignment artifact remains useful for QA, but it is not
+  the primary Phase 0 model input.
+- The corrected full-grid artifact includes Kelpwatch-station rows and
+  `assumed_background` rows.
+- The final simple ridge baseline is trained on the background-inclusive sample
+  without background expansion weights.
+- Full-grid prediction and mapping run end to end, but full-grid calibration is
+  poor because small positive predictions across many assumed-background cells
+  accumulate into large area overprediction.
+- Kelpwatch-station rows still show underprediction of high canopy magnitude.
+- Phase 1 is intentionally undecided. Candidate next questions live in
+  `docs/backlog.md`, not here.

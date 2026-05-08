@@ -96,8 +96,8 @@ as visual QA samples.
 
 ## Monterey Feasibility Outputs
 
-The first feasibility milestone should produce these outputs under the external
-artifact root.
+The first feasibility milestone produced these outputs under the external
+artifact root. They are generated artifacts and should not be tracked in git.
 
 | Output | Path | Purpose | Git |
 | --- | --- | --- | --- |
@@ -108,14 +108,43 @@ artifact root.
 | Kelpwatch source manifest | `/Volumes/x10pro/kelp_aef/interim/kelpwatch_source_manifest.json` | Downloaded/source Kelpwatch files used by the smoke config. | Not tracked |
 | Metadata summary | `/Volumes/x10pro/kelp_aef/interim/metadata_summary.json` | CRS, bounds, variables, seasons, years, units, and missing-data notes for source inputs. | Not tracked |
 | Annual labels | `/Volumes/x10pro/kelp_aef/interim/labels_annual.parquet` | Kelpwatch seasonal labels collapsed to the configured annual target. | Not tracked |
-| AEF samples | `/Volumes/x10pro/kelp_aef/interim/aef_samples.parquet` | AlphaEarth features staged for the configured region and years. | Not tracked |
-| Aligned training table | `/Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet` | Grid-cell-by-year modeling table with A00-A63, location/year fields, and labels. | Not tracked |
+| Station aligned table | `/Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet` | Station-centered alignment artifact retained as QA/reference; not the primary Phase 0 model input after Task 11. | Not tracked |
+| Full-grid aligned table | `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet` | Full AEF-aligned 30 m target grid with Kelpwatch-station and assumed-background rows. | Not tracked |
+| Full-grid alignment manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table_manifest.json` | Row counts, label-source counts, assets, and alignment settings for the full-grid artifact. | Not tracked |
+| Background sample table | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet` | Background-inclusive sampled model input used by the Phase 0 ridge baseline. | Not tracked |
+| Background sample manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table_manifest.json` | Sampling policy, schema, and sample count metadata. | Not tracked |
 | Split manifest | `/Volumes/x10pro/kelp_aef/interim/split_manifest.parquet` | Train/validation/test assignments for year-holdout evaluation. | Not tracked |
-| Sample QA figure | `/Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png` | Visual check that labels and embeddings cover the same region. | Not tracked by default |
-| Predicted map | `/Volumes/x10pro/kelp_aef/reports/figures/predicted_map.png` | Map of model predictions for the held-out year or region. | Not tracked by default |
-| Residual map | `/Volumes/x10pro/kelp_aef/reports/figures/residual_map.png` | Spatial residual check against Kelpwatch-style labels. | Not tracked by default |
-| Area-bias summary | `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_summary.csv` | Region/year area bias and aggregate error summary. | Not tracked |
+| Baseline model | `/Volumes/x10pro/kelp_aef/models/baselines/ridge_kelp_fraction.joblib` | Serialized Phase 0 ridge model payload. | Not tracked |
+| Sample predictions | `/Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet` | No-skill and ridge predictions on the sampled model frame. | Not tracked |
+| Full-grid predictions | `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet` | Streamed ridge predictions for the full grid across 2018-2022. | Not tracked |
+| Full-grid prediction manifest | `/Volumes/x10pro/kelp_aef/interim/baseline_full_grid_prediction_manifest.json` | Row count, part count, and label-source counts for full-grid predictions. | Not tracked |
+| Baseline metrics | `/Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.csv` | No-skill and ridge metrics by split and label source. | Not tracked |
+| Residual map | `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png` | Three-panel observed, predicted, and residual map for the held-out year. | Not tracked by default |
+| Interactive residual map | `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.html` | Local HTML map for exploring observed, predicted, and residual values. | Not tracked by default |
+| Area bias by year | `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv` | Full-grid year-level area-bias summary. | Not tracked |
+| Phase 0 report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md` | Report summarizing Phase 0 outputs, model behavior, and unresolved questions. | Not tracked |
+| Phase 0 HTML report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.html` | Rendered report with embedded figures for easier local review. | Not tracked |
 
-These paths are the current Monterey smoke-test contracts. The Kelpwatch source
-format still needs source inspection before data-heavy implementation. AEF asset
-selection should come from the Source Cooperative STAC GeoParquet catalog query.
+## Phase 0 Artifact Counts
+
+The final Phase 0 run used the Monterey smoke config with 2018-2022:
+
+- Full-grid aligned table: 37,291,805 rows.
+- Per year full-grid rows: 7,428,207 `assumed_background` rows and 30,154
+  `kelpwatch_station` rows.
+- Background-inclusive model input sample: 1,400,809 rows.
+- Baseline retained model rows after missing-feature drops: 1,342,631 rows.
+- Full-grid prediction dataset: 37,291,805 rows in 430 Parquet parts.
+- Phase 0 report primary map/report year: 2022 test split with 7,458,361
+  full-grid prediction rows.
+
+## Phase 0 Interpretation Notes
+
+The current Phase 0 ridge baseline is trained on the background-inclusive sample
+without sample expansion weights. This avoids the near-zero collapse observed
+with population-expanded background weights, but it is still not calibrated on
+the full grid. In the final report, station-supported Kelpwatch rows and
+assumed-background rows are interpreted separately.
+
+No Phase 1 artifact contract is defined yet. Add new artifact rows only after
+the next phase is explicitly chosen.

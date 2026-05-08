@@ -6,11 +6,12 @@ Use AlphaEarth/Satellite Embedding features to learn kelp canopy products from K
 
 Important caveat: Kelpwatch is not independent field truth. It is a Landsat-derived kelp canopy product. The first version should be framed as learning, improving, or reproducing Kelpwatch-style labels from AlphaEarth embeddings, not proving true kelp biomass.
 
-## Phase 0: Tiny Feasibility Spike
+## Phase 0: Monterey Feasibility Spike
 
-Do not start with the whole West Coast.
+Status: complete for now as of 2026-05-08.
 
-Pick one region, such as Monterey or Santa Barbara, and 2-3 years in the AlphaEarth overlap window.
+The Phase 0 region is Monterey Peninsula, using 2018-2022. Do not start with
+the whole West Coast until a later phase explicitly chooses scale-up.
 
 Goal:
 
@@ -23,12 +24,30 @@ Success criteria:
 - AlphaEarth embeddings load correctly.
 - Kelpwatch labels load correctly.
 - Coordinate alignment works.
-- A simple model beats dumb baselines.
-- Outputs look spatially plausible.
+- Full-grid and background-inclusive artifacts are produced.
+- A simple model and diagnostics run end to end.
+- Outputs expose whether the first model is useful or broken.
 
 AlphaEarth public embeddings are 10 m, 64-dimensional, annual products available in Earth Engine. The Geo-Embeddings xarray/Zarr workflow is useful, but the full collection is enormous, so pull only coastal chips rather than bulk-downloading everything.
 
-## Phase 1: Data Ingestion
+Phase 0 outcome:
+
+- Kelpwatch source download/inspection works for the smoke config.
+- AEF STAC catalog query and selected tile download work for the Monterey
+  footprint and 2018-2022.
+- Annual Kelpwatch max labels are built.
+- AEF features are aggregated to a 30 m target grid.
+- The first station-centered alignment mistake was corrected with a full-grid
+  artifact containing `kelpwatch_station` and `assumed_background` rows.
+- A ridge baseline trained without background expansion weights has some
+  Kelpwatch-station signal but underpredicts high canopy and is poorly
+  calibrated on the full grid.
+- The Phase 0 report is the source of truth for current model interpretation:
+  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`.
+
+## Candidate Next Work: Data Ingestion Hardening
+
+This is not selected as Phase 1 yet. It is one possible direction.
 
 Inputs:
 
@@ -59,7 +78,9 @@ Expected artifacts:
 /Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png
 ```
 
-## Phase 2: Derived Labels
+## Candidate Next Work: Derived Labels
+
+This is not selected as Phase 1 yet. It is one possible direction.
 
 Turn seasonal Kelpwatch into annual or multi-year targets compatible with annual AlphaEarth embeddings.
 
@@ -88,11 +109,17 @@ Generate label diagnostics:
 - Seasonal coverage.
 - Maps for a few known kelp regions.
 
-## Phase 3: Alignment
+## Candidate Next Work: Alignment
+
+This is not selected as Phase 1 yet. It is one possible direction.
 
 Align into the AlphaEarth coordinate frame, then decide whether labels are upsampled from 30 m to 10 m or AlphaEarth embeddings are aggregated from 10 m to 30 m.
 
 Start by aggregating AlphaEarth to the Kelpwatch 30 m grid because Kelpwatch labels are 30 m. The Earth Engine documentation says embeddings are linearly composable and can be aggregated to coarser resolutions, so this is a defensible first pass.
+
+Phase 0 already implements this first pass for Monterey. Future alignment work
+should focus on QA and alternative model artifacts, not on redoing the same
+station-centered path.
 
 First table product:
 
@@ -109,7 +136,9 @@ X = 64-channel embedding chip
 Y = kelp label chip
 ```
 
-## Phase 4: Splits
+## Candidate Next Work: Splits
+
+This is not selected as Phase 1 yet. It is one possible direction.
 
 Use multiple split families, not one split.
 
@@ -133,7 +162,9 @@ region/site split:
 
 Main results should emphasize year and space holdouts, not random pixels, because coastal pixels are autocorrelated.
 
-## Phase 5: Models
+## Candidate Next Work: Models And Calibration
+
+This is not selected as Phase 1 yet. It is one possible direction.
 
 Start simple.
 
@@ -157,7 +188,19 @@ temporal model using embeddings from y, y-1, y-2
 
 Do not jump to deep spatial models first. A tree model or MLP on 64-dimensional embeddings will quickly show whether AlphaEarth contains useful kelp signal.
 
-## Phase 6: Evaluation
+Phase 0-specific model lesson:
+
+- Training the continuous ridge model with full population-expanded background
+  weights collapsed predictions toward zero.
+- The final Phase 0 baseline therefore trains unweighted on the
+  background-inclusive sample.
+- This recovers useful Kelpwatch-station signal, but it still underpredicts
+  canopy magnitude and greatly overpredicts full-grid area because tiny positive
+  predictions accumulate over many assumed-background cells.
+- Sampling, objective weighting, and calibration should be treated as explicit
+  research questions if selected next.
+
+## Candidate Next Work: Evaluation
 
 Metrics should match the ecology use case.
 
@@ -194,11 +237,11 @@ Maps:
 - Held-out region maps.
 - Uncertainty maps if using ensembles or quantile models.
 
-## Phase 7: Codex and Agent Workflow
+## Codex and Agent Workflow
 
 The project should be agent-friendly from the start. Keep modules narrow, artifacts explicit, and every step runnable from the command line.
 
-Suggested structure:
+Current package shape and command strategy:
 
 ```text
 src/kelp_aef/
@@ -210,18 +253,22 @@ src/kelp_aef/
   evaluation/
   viz/
 
-scripts/
-  download_kelpwatch.py
-  fetch_aef_chips.py
-  build_labels.py
-  align_features_labels.py
-  train_model.py
-  evaluate_model.py
-  make_maps.py
+kelp-aef commands:
+  query-aef-catalog
+  download-aef
+  inspect-kelpwatch
+  visualize-kelpwatch
+  build-labels
+  align
+  align-full-grid
+  train-baselines
+  predict-full-grid
+  map-residuals
+  analyze-model
 
 configs/
   monterey_smoke.yaml
-  west_coast_full.yaml
+  # future configs should be named only after the next phase is selected
 
 external artifact root: /Volumes/x10pro/kelp_aef/
   raw/
@@ -233,15 +280,18 @@ external artifact root: /Volumes/x10pro/kelp_aef/
     tables/
 ```
 
-Agent-style task breakdown:
+Future agent-sized work should be defined only after the next phase is selected:
 
 ```text
-Agent 1: inspect Kelpwatch data format and write reader
-Agent 2: implement AlphaEarth xarray/Zarr chip fetcher
-Agent 3: design derived label builder
-Agent 4: implement alignment and split manifests
-Agent 5: train/evaluate baseline models
-Agent 6: make maps and write results summary
+Goal:
+Inputs:
+Outputs:
+Config file:
+Plan/spec requirement:
+Validation command:
+Smoke-test region and years:
+Acceptance criteria:
+Known constraints or non-goals:
 ```
 
 Each agent should get a narrow contract:
@@ -254,19 +304,20 @@ Each agent should get a narrow contract:
 
 ## First Concrete Milestone
 
-Start with:
+Completed for now:
 
 ```text
 Region: Monterey Peninsula
-Years: 2018-2024, depending on available embedding coverage
+Years: 2018-2022
 Label: Kelpwatch annual max
 Features: AlphaEarth embeddings aggregated to 30 m
-Models: logistic regression + random forest
+Models: no-skill + ridge regression
 Split: year holdout
 Output: predicted map, residual map, and area-bias summary
 ```
 
-If that works, scale to the full U.S. West Coast.
+Do not assume the next step is full U.S. West Coast scale-up. The next phase
+must be chosen explicitly from the current evidence.
 
 ## Sources
 

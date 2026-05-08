@@ -4,54 +4,80 @@ This is the durable high-level project queue. Keep short-term execution details
 in `docs/todo.md`; add P1/P2 subtasks here only when a phase is close enough to
 start.
 
+## Status
+
+- [x] Phase 0: Monterey feasibility milestone.
+  - Completed for now on 2026-05-08.
+  - Outputs include Kelpwatch labels, AEF asset discovery/download, full-grid
+    alignment, background-inclusive sample training, streamed full-grid
+    prediction, maps, metrics, and a Phase 0 report.
+  - Final report:
+    `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`.
+
 ## Active Planning
 
-- [ ] Phase 0: lock the first feasibility milestone.
-  - Confirm the smoke-test region, years, label target, feature source,
-    alignment choice, split policy, expected outputs, and task contracts.
+- [ ] Decide the next phase explicitly.
+  - Do not assume the next phase is scale-up, target engineering, calibration,
+    or a stronger model until the Phase 0 report is reviewed.
+  - When selected, move the relevant backlog item into `docs/todo.md` with an
+    agent-sized task contract.
 
-## Pipeline Milestones
+## Candidate Pipeline Milestones
 
-- [ ] Phase 1: implement data ingestion.
-  - Kelpwatch reader/downloader.
-  - AlphaEarth sample or chip fetcher.
-  - Source metadata inspection.
-  - Available-years/regions manifest.
-  - Tiny visual QA sample output.
-- [ ] Phase 2: implement derived labels.
+- [ ] Harden ingestion and manifests beyond the Monterey smoke run.
+  - Kelpwatch reader/downloader is implemented for the smoke path, but needs
+    robustness before larger geography.
+  - AEF STAC catalog query and download work for the smoke tile, but selection,
+    retry, and manifest QA need hardening before scale-up.
+  - Available-years/regions manifests remain candidate work.
+- [ ] Explore derived labels.
   - Seasonal-to-annual Kelpwatch targets.
   - Continuous and binary label variants.
   - Missing-data and seasonal-coverage diagnostics.
   - Label QA maps for known kelp regions.
-- [ ] Phase 3: implement feature/label alignment.
-  - AlphaEarth aggregation to the Kelpwatch 30 m grid for the first pass.
-  - Grid-cell-by-year aligned parquet table for tabular baselines.
+- [ ] Harden feature/label alignment.
+  - Phase 0 has both station-centered and full-grid 30 m alignment artifacts.
+  - Add stronger QA for target-grid identity, duplicate cells, missing features,
+    and station-to-grid assignment before larger runs.
   - Treat parquet as the first end-to-end artifact, not the final data shape for
     every model family.
   - Later chip, tensor, or other spatial artifact for CNNs and neighborhood-aware
     models that need to preserve the 10 m spatial context.
-- [ ] Phase 4: implement split manifests.
+- [ ] Expand split manifests.
   - Year holdout.
   - Latitude or spatial holdout.
   - State or regional holdout.
   - Random/block split only as a sanity check.
-- [ ] Phase 5: implement baseline and first embedding models.
+- [ ] Improve baselines and first embedding models.
   - No-skill and geographic baselines.
-  - Logistic/ridge model.
+  - Previous-year and station-climatology baselines.
+  - Ridge/logistic variants.
   - Random forest or similar tree model.
   - Defer deep spatial models until tabular baselines are informative.
-- [ ] Phase 6: implement evaluation and reporting.
+- [ ] Improve evaluation and reporting.
   - Classification and regression metrics.
   - Area-bias and region/year summaries.
   - Predicted and residual maps.
   - Results summary for the feasibility spike.
-- [ ] Phase 7: scale beyond the smoke test.
+- [ ] Scale beyond the smoke test.
   - Full U.S. West Coast config.
   - Broader temporal/spatial holdouts.
   - Larger artifact-management and runtime strategy.
+  - Do not start this until the next phase decision explicitly chooses scale-up.
 
 ## Research Questions
 
+- [ ] Resolve sampling/objective calibration for background-inclusive training.
+  - Phase 0 showed that population-expanded background weights collapse the
+    continuous ridge model toward near-zero predictions.
+  - The final Phase 0 baseline therefore uses an unweighted
+    background-inclusive sample.
+  - Full-grid calibration is still poor because small positive predictions over
+    millions of assumed-background cells accumulate into large area
+    overprediction.
+  - Candidate work: compare capped background weights, stratified losses,
+    station-supported metrics, full-grid calibration metrics, and post-fit
+    calibration.
 - [ ] Evaluate alternative Kelpwatch temporal label aggregations after the first
   annual-max baseline.
   - Compare annual max canopy with fall-only, winter-only, and fall-to-winter
@@ -87,6 +113,7 @@ start.
 
 - [ ] Write a short `README.md` entrypoint for humans and agents.
 - [ ] Add CI once the dependency and test surface stabilizes.
-- [ ] Add geospatial/data dependencies only when the first concrete data task
-  needs them.
+- [ ] Keep geospatial/data dependencies tied to concrete tasks and avoid
+  hand-rolled geometry, raster, projection, or tabular logic when maintained
+  libraries are available.
 - [ ] Decide whether to track any tiny QA fixtures after real outputs exist.

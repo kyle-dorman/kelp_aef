@@ -1,12 +1,12 @@
 # Phase 0 Monterey Smoke Decision
 
-Status: draft for review.
+Status: closed for now as of 2026-05-08.
 
 ## Goal
 
-Lock the first feasibility smoke test tightly enough that implementation agents
-can work from `configs/monterey_smoke.yaml` without expanding into the full West
-Coast or bulk-downloading AlphaEarth/AEF.
+Record the selected Monterey feasibility smoke test and its closeout results.
+This document is now a Phase 0 decision and outcome note. It should not be read
+as a Phase 1 plan.
 
 ## Selected Scope
 
@@ -20,6 +20,9 @@ Coast or bulk-downloading AlphaEarth/AEF.
 - Feature product: Source Cooperative AlphaEarth/AEF v1 annual GeoTIFFs.
 - Feature grid: one `10N` tile covering the Monterey smoke region.
 - Alignment policy: aggregate 10 m AEF embeddings to the Kelpwatch 30 m grid.
+- Final model policy: train the simple ridge baseline on the
+  background-inclusive sample without background expansion weights, then stream
+  predictions over the full-grid artifact.
 
 ## AEF Access Decision
 
@@ -62,21 +65,20 @@ The smoke config records those known examples and a manifest output path:
 /Volumes/x10pro/kelp_aef/interim/aef_monterey_tile_manifest.json
 ```
 
-The manifest should be filled by the AEF download task using the catalog query
-result rather than hard-coded tile names.
+The manifest is filled by the AEF download task using the catalog query result
+rather than hard-coded tile names.
 
 ## Kelpwatch Decision
 
-Kelpwatch remains the weak-label source. The first implementation work should
-write a downloader/reader rather than assume a manually staged Kelpwatch path.
-The downloader should record source files in:
+Kelpwatch remains the weak-label source. Phase 0 implemented a
+downloader/reader and records source files in:
 
 ```text
 /Volumes/x10pro/kelp_aef/interim/kelpwatch_source_manifest.json
 ```
 
-Do not implement annual label derivation until the source format, variables,
-units, seasons, CRS, and missing-data conventions are inspected.
+Annual label derivation was implemented after source format, variables, units,
+seasons, CRS, and missing-data conventions were inspected.
 
 ## Artifact Paths
 
@@ -97,7 +99,21 @@ units, seasons, CRS, and missing-data conventions are inspected.
 - AEF sample table: `/Volumes/x10pro/kelp_aef/interim/aef_samples.parquet`
 - Aligned training table:
   `/Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet`
+- Full-grid aligned table:
+  `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet`
+- Background-inclusive training sample:
+  `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet`
 - Split manifest: `/Volumes/x10pro/kelp_aef/interim/split_manifest.parquet`
+- Sample predictions:
+  `/Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet`
+- Full-grid predictions:
+  `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet`
+- Baseline metrics:
+  `/Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.csv`
+- Full-grid area-bias summary:
+  `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv`
+- Phase 0 report:
+  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`
 
 ## Non-Goals
 
@@ -106,6 +122,47 @@ units, seasons, CRS, and missing-data conventions are inspected.
 - Do not bulk-download the full AEF collection.
 - Do not start full West Coast processing.
 - Do not frame Kelpwatch-style label reproduction as independent biomass truth.
+- Do not assume the next phase before reviewing the Phase 0 report.
+
+## Implementation Results
+
+Phase 0 produced the Monterey smoke pipeline end to end:
+
+- Kelpwatch source download, metadata inspection, and annual label derivation.
+- AEF STAC catalog query, tile download, and local VRT/TIFF handling.
+- AEF 10 m to 30 m aggregation for the selected Monterey tile.
+- Station-centered alignment retained as a QA/reference artifact.
+- Full-grid 30 m alignment with `kelpwatch_station` and `assumed_background`
+  label provenance.
+- Background-inclusive sampled model input.
+- Year-holdout split manifest.
+- No-skill and ridge baseline metrics.
+- Streamed full-grid ridge predictions.
+- Static and interactive observed/predicted/residual maps.
+- Phase 0 model-analysis report.
+
+Key final row counts:
+
+- Annual labels: 151,160 rows across 2018-2022.
+- Full-grid aligned table: 37,291,805 rows.
+- Background-inclusive model input sample: 1,400,809 rows.
+- Retained model rows after missing-feature drops: 1,342,631 rows.
+- Full-grid predictions: 37,291,805 rows in 430 Parquet parts.
+- Primary report/map split: 2022 test year with 7,458,361 full-grid prediction
+  rows.
+
+Final simple baseline behavior:
+
+- Ridge is trained without background expansion weights.
+- Kelpwatch-station 2022 test rows: R2 around 0.356 and area bias around
+  -36.7%.
+- Background-inclusive sample 2022 test rows: area bias around +16.6%.
+- Full-grid 2022 area bias remains very poor because small positive predictions
+  over many assumed-background cells accumulate into large area overprediction.
+- High-canopy rows remain underpredicted.
+
+These are good enough to close Phase 0 as a feasibility spike, but not good
+enough to call the model solved.
 
 ## Validation Plan
 
@@ -121,11 +178,23 @@ units, seasons, CRS, and missing-data conventions are inspected.
 - Kelpwatch downloader task: verify the source manifest and metadata summary
   include CRS, bounds, variables, seasons, years, units, and missing-data notes.
 
-## Open Questions
+Final closeout validation:
 
-- The exact matching AEF object names for 2019-2021 should come from the STAC
-  GeoParquet catalog query.
-- The Kelpwatch download endpoint, file format, and local naming convention still
-  need source inspection.
-- The binary label target `kelp_present_y` and any threshold should remain
-  deferred until Kelpwatch value ranges are inspected.
+```bash
+make check
+uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml
+uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
+uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
+```
+
+## Deferred Questions
+
+- Which question should define Phase 1: sampling/calibration, target framing,
+  stronger baselines, spatial holdouts, ingestion hardening, or scale-up.
+- Whether and how to calibrate small positive full-grid predictions that
+  accumulate over assumed-background cells.
+- Whether alternative Kelpwatch target framings, such as fall-only,
+  winter-only, annual mean, persistence, or binary thresholds, are more
+  appropriate than annual max.
+- Whether to add a second region before broader scale-up.

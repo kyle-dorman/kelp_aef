@@ -11,7 +11,7 @@ notebook state.
 short product contract. This document defines the intended technical shape of
 the repo.
 
-## Planned Package Layout
+## Package Layout
 
 ```text
 src/kelp_aef/
@@ -40,7 +40,11 @@ Responsibilities:
   tables.
 - `viz/`: sample QA plots, predicted maps, residual maps, and uncertainty maps.
 
-## Planned Command Layout
+Phase 0 implemented the first practical slices of this layout under `labels/`,
+`features/`, `alignment/`, `evaluation/`, and `viz/`. Some planned folders may
+remain thin until the next selected phase gives them a concrete purpose.
+
+## Command Layout
 
 Prefer package-backed CLI commands so code remains testable. Thin scripts are
 acceptable when they only delegate into package functions.
@@ -49,16 +53,22 @@ Decision: user-facing workflow commands should live behind the `kelp-aef`
 package CLI. Do not add standalone `scripts/` entrypoints unless they are thin
 wrappers around package functions or there is a specific operational reason.
 
-Mapped initial commands:
+Current CLI commands:
 
 ```text
 kelp-aef smoke --config configs/monterey_smoke.yaml
 kelp-aef query-aef-catalog --config configs/monterey_smoke.yaml
 kelp-aef download-aef --config configs/monterey_smoke.yaml
 kelp-aef inspect-kelpwatch --config configs/monterey_smoke.yaml
+kelp-aef visualize-kelpwatch --config configs/monterey_smoke.yaml
 kelp-aef fetch-aef-chip --config configs/monterey_smoke.yaml
 kelp-aef build-labels --config configs/monterey_smoke.yaml
 kelp-aef align --config configs/monterey_smoke.yaml
+kelp-aef align-full-grid --config configs/monterey_smoke.yaml
+kelp-aef train-baselines --config configs/monterey_smoke.yaml
+kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
+kelp-aef map-residuals --config configs/monterey_smoke.yaml
+kelp-aef analyze-model --config configs/monterey_smoke.yaml
 ```
 
 Each command should accept a config path and write deterministic artifact paths
@@ -68,14 +78,16 @@ declared in that config.
 
 Use YAML configs for repeatable runs.
 
-Expected config files:
+Current config file:
 
 ```text
 configs/monterey_smoke.yaml
-configs/west_coast_full.yaml
 ```
 
-The smoke config should define:
+Future configs should be added only when the next phase needs them. Do not add a
+full West Coast config just because it was part of the early sketch.
+
+The smoke config defines:
 
 - Data root, currently `/Volumes/x10pro/kelp_aef`.
 - Region name and a footprint GeoJSON path.
@@ -86,6 +98,8 @@ The smoke config should define:
 - Output paths.
 - Split policy.
 - Runtime limits for small agent-safe runs.
+- A full-grid alignment product and a background-inclusive sampled model input.
+- A simple ridge baseline trained without background expansion weights.
 
 ## Data Flow
 
@@ -103,6 +117,20 @@ raw source data
 The first aligned table should use AlphaEarth embeddings aggregated to the
 Kelpwatch 30 m grid. This matches the label resolution and avoids pretending
 upsampled 30 m labels contain 10 m truth.
+
+Phase 0 now has three alignment-related artifacts with different meanings:
+
+- `aligned_training_table.parquet`: station-centered alignment artifact retained
+  mostly as a QA/reference product.
+- `aligned_full_grid_training_table.parquet`: full 30 m target-grid artifact
+  with both Kelpwatch-supported rows and assumed-background rows.
+- `aligned_background_sample_training_table.parquet`: sampled training input
+  used by the Phase 0 ridge baseline.
+
+The current Phase 0 model is intentionally simple. It is trained on the sampled
+artifact without population expansion weights, then applied back to the full
+grid with streamed inference. This avoids the near-zero collapse caused by
+population-expanded background weights, but full-grid calibration is still poor.
 
 ## Artifact Conventions
 
@@ -152,11 +180,15 @@ Early smoke-test artifacts:
 - `/Volumes/x10pro/kelp_aef/interim/labels_annual.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/aef_samples.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet`
+- `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet`
+- `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/split_manifest.parquet`
+- `/Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet`
 - `/Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png`
-- `/Volumes/x10pro/kelp_aef/reports/figures/predicted_map.png`
-- `/Volumes/x10pro/kelp_aef/reports/figures/residual_map.png`
-- `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_summary.csv`
+- `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png`
+- `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv`
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`
 
 Large raw data, downloaded raster/Zarr artifacts, model outputs, and temporary
 exports should stay out of git unless the repo explicitly marks a tiny sample as
@@ -184,6 +216,14 @@ uv run pytest
 
 Use a separate mutating command such as `make fix` for formatting and autofixes.
 
+Phase 0 closeout validation passed with:
+
+```bash
+make check
+```
+
+The full check covered formatting, linting, mypy, and the test suite.
+
 ## Agent Task Contract
 
 Every agent-sized task should specify:
@@ -209,3 +249,10 @@ Acceptance: summary includes CRS, bounds, variables, seasons, years, units, and 
 
 Avoid broad tasks such as "build the whole pipeline" until the smoke-test
 contracts are stable.
+
+## Phase 1 Boundary
+
+No Phase 1 architecture has been selected. The next phase might focus on
+sampling/calibration, target framing, stronger baselines, spatial evaluation, or
+another question that follows from reviewing the Phase 0 report. Architecture
+changes should wait for that decision rather than assuming a scale-up path.

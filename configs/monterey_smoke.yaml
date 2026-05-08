@@ -7,20 +7,15 @@ data_root: /Volumes/x10pro/kelp_aef
 
 region:
   name: monterey_peninsula
-  display_name: Monterey Peninsula
   crs: EPSG:4326
   geometry:
-    type: footprint_geojson
     path: /Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson
-    source: alphaearth_tile_footprint
     source_tile_uri: s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000008192-0000008192.tiff
 
 years:
   smoke: [2018, 2019, 2020, 2021, 2022]
-  milestone: [2018, 2019, 2020, 2021, 2022]
 
 labels:
-  source: kelpwatch
   target: kelp_max_y
   aggregation: annual_max
   native_resolution_m: 30
@@ -31,19 +26,12 @@ labels:
     annual_label_manifest: /Volumes/x10pro/kelp_aef/interim/labels_annual_manifest.json
 
 features:
-  source: alphaearth
-  product: aef_v1_annual
-  provider: source_cooperative
-  bucket: us-west-2.opendata.source.coop
   s3_prefix: tge-labs/aef/v1/annual
   utm_grid: 10N
   bands: A00-A63
   native_resolution_m: 10
-  target_resolution_m: 30
-  aggregation: mean_to_kelpwatch_grid
   catalog:
     url: https://data.source.coop/tge-labs/aef/v1/annual/aef_index_stac_geoparquet.parquet
-    visual_qa_url: https://developmentseed.org/stac-map/?href=https://data.source.coop/tge-labs/aef/v1/annual/aef_index_stac_geoparquet.parquet
     layer_name: aef_index_stac_geoparquet
     selection_policy: max_overlap_per_year
     min_footprint_overlap_fraction: 0.5
@@ -52,14 +40,12 @@ features:
     catalog_query: /Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query.parquet
     catalog_query_summary: /Volumes/x10pro/kelp_aef/interim/aef_monterey_catalog_query_summary.json
     tile_manifest: /Volumes/x10pro/kelp_aef/interim/aef_monterey_tile_manifest.json
-    feature_table: /Volumes/x10pro/kelp_aef/interim/aef_samples.parquet
+  # Documentation-only examples from the first manual/source discovery pass.
   known_tiles:
     2018:
       source_uri: s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2018/10N/xdz8z3a9znk5b1j75-0000008192-0000008192.tiff
-      local_path: /Volumes/x10pro/kelp_aef/raw/aef/v1/annual/2018/10N/xdz8z3a9znk5b1j75-0000008192-0000008192.tiff
     2022:
       source_uri: s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000008192-0000008192.tiff
-      local_path: /Volumes/x10pro/kelp_aef/raw/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000008192-0000008192.tiff
 
 alignment:
   method: rasterio_average_10m_to_30m
@@ -67,10 +53,6 @@ alignment:
   output_table: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet
   output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_training_table_manifest.json
   summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table_summary.csv
-  station_sample:
-    output_table: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet
-    output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_training_table_manifest.json
-    summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table_summary.csv
   full_grid:
     output_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
     output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table_manifest.json
@@ -90,7 +72,6 @@ alignment:
     random_seed: 13
     background_rows_per_year: 250000
     include_all_kelpwatch_observed: true
-    sample_weight_column: sample_weight
   fast:
     years: [2022]
     max_stations: 500
@@ -98,19 +79,14 @@ alignment:
     output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.fast_manifest.json
     summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table.fast_summary.csv
     comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table.fast_method_comparison.csv
-  split_manifest: /Volumes/x10pro/kelp_aef/interim/split_manifest.parquet
 
 splits:
-  primary: year_holdout
   train_years: [2018, 2019, 2020]
   validation_years: [2021]
   test_years: [2022]
   output_manifest: /Volumes/x10pro/kelp_aef/interim/split_manifest.parquet
 
 models:
-  initial:
-    - ridge_regression
-  output_dir: /Volumes/x10pro/kelp_aef/models
   baselines:
     input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet
     inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
@@ -119,7 +95,6 @@ models:
     alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
     drop_missing_features: true
     use_sample_weight: false
-    sample_weight_column: sample_weight
     ridge_model: /Volumes/x10pro/kelp_aef/models/baselines/ridge_kelp_fraction.joblib
     sample_predictions: /Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet
     predictions: /Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet
@@ -149,10 +124,6 @@ reports:
     winter_quarter: 1
   outputs:
     metadata_summary: /Volumes/x10pro/kelp_aef/interim/metadata_summary.json
-    sample_qa_figure: /Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png
-    predicted_map: /Volumes/x10pro/kelp_aef/reports/figures/predicted_map.png
-    residual_map: /Volumes/x10pro/kelp_aef/reports/figures/residual_map.png
-    area_bias_summary: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_summary.csv
     ridge_observed_predicted_residual_map: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png
     ridge_observed_vs_predicted: /Volumes/x10pro/kelp_aef/reports/figures/ridge_observed_vs_predicted.png
     ridge_residual_interactive: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.html
@@ -181,7 +152,3 @@ reports:
     model_analysis_alternative_targets_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_alternative_target_framings.png
     model_analysis_feature_projection_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_feature_projection.png
     model_analysis_spatial_readiness_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_spatial_holdout_readiness.png
-
-runtime:
-  max_cells: 250000
-  fail_if_data_root_missing: true
