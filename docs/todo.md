@@ -3,8 +3,8 @@
 This is the active planning checklist for Phase 0. The basic agentic setup work
 is complete; use `docs/backlog.md` for the durable high-level queue.
 
-Do not start data-heavy implementation until this plan is reviewed and the
-smoke-test assumptions are updated.
+Do not close Phase 0 until the smoke-test model analysis report is complete and
+reviewed.
 
 ## Scope Decisions
 
@@ -92,3 +92,5 @@ smoke-test assumptions are updated.
   - Plan: `tasks/08_train_evaluate_baselines.md`.
 - [x] Make first predicted/residual maps and area-bias table.
   - Plan: `tasks/09_map_residuals_area_bias.md`.
+- [ ] Analyze smoke-test model behavior and write the Phase 0 report.
+  - Plan: `tasks/10_model_analysis_report.md`.
