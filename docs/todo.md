@@ -3,8 +3,9 @@
 This is the active planning checklist for Phase 0. The basic agentic setup work
 is complete; use `docs/backlog.md` for the durable high-level queue.
 
-Do not close Phase 0 until the smoke-test model analysis report is complete and
-reviewed.
+Do not close Phase 0 until the full-grid/background alignment correction is
+implemented, downstream model/map/report artifacts are rerun, and the corrected
+Phase 0 report is reviewed.
 
 ## Scope Decisions
 
@@ -94,3 +95,8 @@ reviewed.
   - Plan: `tasks/09_map_residuals_area_bias.md`.
 - [x] Analyze smoke-test model behavior and write the Phase 0 report.
   - Plan: `tasks/10_model_analysis_report.md`.
+- [ ] Correct the aligned training table to include full-grid/background rows,
+  then rerun the downstream Phase 0 workflow.
+  - Plan: `tasks/11_correct_full_grid_background_alignment.md`.
+  - This reopens Phase 0 after Task 10 because the first aligned table sampled
+    AEF only at Kelpwatch station centers.
