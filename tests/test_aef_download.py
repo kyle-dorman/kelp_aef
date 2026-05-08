@@ -56,7 +56,7 @@ def test_download_aef_dry_run_writes_fast_manifest(
         """Fail if dry-run mode unexpectedly tries to download a file."""
         raise AssertionError("download_file should not be called in dry-run mode")
 
-    monkeypatch.setattr(aef_download, "download_file", fail_download)
+    monkeypatch.setattr(aef_download, "download_file", fail_download)  # pyright: ignore[reportAttributeAccessIssue]
 
     assert (
         download_aef(
@@ -93,7 +93,7 @@ def test_download_aef_skips_existing_tiff_and_writes_metadata_summary(
         """Fail if an existing local raster is downloaded again."""
         raise AssertionError("download_file should not be called for an existing file")
 
-    monkeypatch.setattr(aef_download, "download_file", fail_download)
+    monkeypatch.setattr(aef_download, "download_file", fail_download)  # pyright: ignore[reportAttributeAccessIssue]
 
     assert download_aef(config_path, skip_remote_checks=True) == 0
 
@@ -125,7 +125,7 @@ def test_download_aef_generates_local_vrt_for_offline_reads(
         """Fail if existing local AEF files are downloaded again."""
         raise AssertionError("download_file should not be called for existing files")
 
-    monkeypatch.setattr(aef_download, "download_file", fail_download)
+    monkeypatch.setattr(aef_download, "download_file", fail_download)  # pyright: ignore[reportAttributeAccessIssue]
 
     assert download_aef(config_path, skip_remote_checks=True) == 0
 

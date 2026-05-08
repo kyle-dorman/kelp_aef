@@ -47,6 +47,18 @@ start.
   - Broader temporal/spatial holdouts.
   - Larger artifact-management and runtime strategy.
 
+## Research Questions
+
+- [ ] Evaluate alternative Kelpwatch temporal label aggregations after the first
+  annual-max baseline.
+  - Compare annual max canopy with fall-only, winter-only, and fall-to-winter
+    difference or loss labels.
+  - Test whether annual max labels count canopy that was later lost before
+    fall or winter, and whether annual AEF embeddings learn that loss signal or
+    mainly reproduce peak-season canopy.
+  - Keep this as backlog until the initial annual-max label derivation,
+    alignment table, and baseline evaluation exist.
+
 ## Engineering
 
 - [ ] Write a short `README.md` entrypoint for humans and agents.
@@ -54,4 +66,3 @@ start.
 - [ ] Add geospatial/data dependencies only when the first concrete data task
   needs them.
 - [ ] Decide whether to track any tiny QA fixtures after real outputs exist.
-
