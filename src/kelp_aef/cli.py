@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from kelp_aef.alignment.feature_label_table import align_features_labels
+from kelp_aef.evaluation.baselines import train_baselines
 from kelp_aef.features.aef_catalog import query_aef_catalog
 from kelp_aef.features.aef_download import download_aef
 from kelp_aef.labels.kelpwatch import inspect_kelpwatch
@@ -32,6 +33,7 @@ COMMANDS: dict[str, str] = {
     "fetch-aef-chip": "Fetch or stage AlphaEarth embedding samples for the configured region.",
     "build-labels": "Build derived Kelpwatch labels for the configured target.",
     "align": "Align AlphaEarth features and Kelpwatch labels into a training table.",
+    "train-baselines": "Train and evaluate first simple tabular baselines.",
 }
 
 
@@ -324,6 +326,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 manifest_output=args.manifest_output,
                 comparison_output=args.comparison_output,
             )
+        elif command == "train-baselines":
+            exit_code = train_baselines(config_path)
         else:
             exit_code = run_scaffold_command(command, config_path)
     except Exception:

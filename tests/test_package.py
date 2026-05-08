@@ -19,6 +19,7 @@ def test_cli_imports() -> None:
         "fetch-aef-chip",
         "build-labels",
         "align",
+        "train-baselines",
     }
 
 

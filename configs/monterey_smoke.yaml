@@ -81,12 +81,21 @@ splits:
   train_years: [2018, 2019, 2020]
   validation_years: [2021]
   test_years: [2022]
+  output_manifest: /Volumes/x10pro/kelp_aef/interim/split_manifest.parquet
 
 models:
   initial:
-    - logistic_regression
-    - random_forest
+    - ridge_regression
   output_dir: /Volumes/x10pro/kelp_aef/models
+  baselines:
+    target: kelp_fraction_y
+    features: A00-A63
+    alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
+    drop_missing_features: true
+    ridge_model: /Volumes/x10pro/kelp_aef/models/baselines/ridge_kelp_fraction.joblib
+    predictions: /Volumes/x10pro/kelp_aef/processed/baseline_predictions.parquet
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.csv
+    manifest: /Volumes/x10pro/kelp_aef/interim/baseline_eval_manifest.json
 
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures
