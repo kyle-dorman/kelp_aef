@@ -97,24 +97,29 @@ masking change should end with an updated model-analysis report.
   - Goal: Test whether AEF beats one-year persistence.
   - Output: previous-year predictions and station-row metrics.
   - Validation: validation uses 2020 -> 2021 and test uses 2021 -> 2022.
+  - Plan: `tasks/13_reference_baselines.md`.
 - [ ] P1-05: Extend previous-year baseline to full-grid area calibration.
   - Goal: Compare persistence against ridge on full-grid annual area totals.
   - Output: previous-year full-grid prediction table and area-bias rows.
   - Validation: report separates Kelpwatch-station and assumed-background rows.
+  - Plan: `tasks/13_reference_baselines.md`.
 - [ ] P1-06: Add a station or grid-cell climatology baseline.
   - Goal: Test whether AEF beats site memory from training years.
   - Output: climatology predictions and fallback policy for cells without
     training history.
   - Validation: report documents fallback counts and area calibration.
+  - Plan: `tasks/13_reference_baselines.md`.
 - [ ] P1-07: Add a lat/lon/year-only geographic baseline.
   - Goal: Test whether AEF beats spatial and temporal location alone.
   - Output: geographic baseline model, predictions, and metrics.
   - Validation: same splits and report metrics as ridge.
+  - Plan: `tasks/13_reference_baselines.md`.
 - [ ] P1-08: Update the report to rank all reference baselines against ridge.
   - Goal: Make the "AEF adds value" question explicit.
   - Output: comparison table and short interpretation section.
   - Validation: report includes pixel skill and area calibration for every
     baseline.
+  - Plan: `tasks/13_reference_baselines.md`.
 
 ## Bathymetry And DEM Domain Filter
 
