@@ -124,7 +124,8 @@ Key Phase 0 artifacts:
 - `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet`
 - `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png`
 - `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv`
-- `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`
+- `docs/report_snapshots/monterey_phase0_model_analysis.md`
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md`
 
 ## Non-Goals
 

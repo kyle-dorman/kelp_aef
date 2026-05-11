@@ -112,8 +112,8 @@ seasons, CRS, and missing-data conventions were inspected.
   `/Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.csv`
 - Full-grid area-bias summary:
   `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv`
-- Phase 0 report:
-  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`
+- Phase 0 report snapshot:
+  `docs/report_snapshots/monterey_phase0_model_analysis.md`
 
 ## Non-Goals
 

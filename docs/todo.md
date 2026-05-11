@@ -13,10 +13,18 @@ Phase 1 plan:
 docs/phase1_model_domain_hardening.md
 ```
 
-Phase 0 report:
+Closed Phase 0 report snapshot:
 
 ```text
-/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md
+docs/report_snapshots/monterey_phase0_model_analysis.md
+```
+
+Active Phase 1 report outputs:
+
+```text
+/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md
+/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.html
+/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.pdf
 ```
 
 Default validation loop for implemented Phase 1 tasks:
@@ -51,27 +59,37 @@ masking change should end with an updated model-analysis report.
 
 ## Planning And Harness
 
-- [ ] P1-01: Add a Phase 1 run/report harness.
+- [x] P1-01: Add a Phase 1 run/report harness.
   - Goal: Make each implemented change visible in the report without changing
     model behavior yet.
   - Output: Phase 1 report sections or tables that can show current model,
     reference baselines, domain mask status, pixel metrics, and area
     calibration.
   - Validation: rerun `analyze-model` and confirm the report still reproduces
-    the Phase 0 ridge result.
+    the current ridge reference result.
   - Plan: `tasks/12_phase1_planning_harness.md`.
-- [ ] P1-02: Add a compact model comparison table contract.
+  - Completed: added `Phase 1 Harness Status` to the Phase 1 model-analysis
+    report.
+- [x] P1-02: Add a compact model comparison table contract.
   - Goal: Standardize columns for model name, split, label source, mask status,
     pixel skill, threshold skill, and area calibration.
   - Output: report table contract and generated comparison table.
   - Validation: existing no-skill and ridge rows appear unchanged.
   - Plan: `tasks/12_phase1_planning_harness.md`.
-- [ ] P1-03: Add stage-to-stage row-count and drop-rate checks to the report.
+  - Completed: wrote
+    `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_phase1_model_comparison.csv`.
+- [x] P1-03: Add stage-to-stage row-count and drop-rate checks to the report.
   - Goal: Catch data plumbing changes before interpreting model changes.
   - Output: row-count, missing-feature, label-source, and mask-status summary.
-  - Validation: report shows current Phase 0 row counts and missing-feature
+  - Validation: report shows current row counts and missing-feature
     drop rates.
   - Plan: `tasks/12_phase1_planning_harness.md`.
+  - Completed: wrote
+    `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_data_health.csv`.
+  - Validation passed:
+    `uv run pytest tests/test_model_analysis.py`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
+    and `make check`.
 
 ## Reference Baselines
 

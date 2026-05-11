@@ -40,7 +40,7 @@ COMMANDS: dict[str, str] = {
     "train-baselines": "Train and evaluate first simple tabular baselines.",
     "predict-full-grid": "Stream baseline predictions over the full-grid feature table.",
     "map-residuals": "Map baseline predictions, residuals, and area bias.",
-    "analyze-model": "Analyze smoke-test model behavior and write the Phase 0 report.",
+    "analyze-model": "Analyze model behavior and write the Phase 1 report.",
 }
 
 

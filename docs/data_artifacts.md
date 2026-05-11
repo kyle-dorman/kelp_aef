@@ -122,8 +122,10 @@ artifact root. They are generated artifacts and should not be tracked in git.
 | Residual map | `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png` | Three-panel observed, predicted, and residual map for the held-out year. | Not tracked by default |
 | Interactive residual map | `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.html` | Local HTML map for exploring observed, predicted, and residual values. | Not tracked by default |
 | Area bias by year | `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv` | Full-grid year-level area-bias summary. | Not tracked |
-| Phase 0 report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md` | Report summarizing Phase 0 outputs, model behavior, and unresolved questions. | Not tracked |
-| Phase 0 HTML report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.html` | Rendered report with embedded figures for easier local review. | Not tracked |
+| Phase 0 report snapshot | `docs/report_snapshots/monterey_phase0_model_analysis.md` | Repo copy of the closed Phase 0 report. | Tracked |
+| Phase 1 Markdown report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md` | Active model-hardening report with model comparison and data-health sections. | Not tracked |
+| Phase 1 HTML report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.html` | Rendered Phase 1 report with embedded figures and model comparison. | Not tracked |
+| Phase 1 PDF report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.pdf` | PDF Phase 1 report with the same core model-comparison content. | Not tracked |
 
 ## Phase 0 Artifact Counts
 

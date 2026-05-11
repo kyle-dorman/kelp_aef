@@ -11,8 +11,8 @@ start.
   - Outputs include Kelpwatch labels, AEF asset discovery/download, full-grid
     alignment, background-inclusive sample training, streamed full-grid
     prediction, maps, metrics, and a Phase 0 report.
-  - Final report:
-    `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`.
+  - Final report snapshot:
+    `docs/report_snapshots/monterey_phase0_model_analysis.md`.
 - [x] Phase 1 direction selected.
   - Selected theme: model and domain hardening for the Monterey annual-max
     pipeline.

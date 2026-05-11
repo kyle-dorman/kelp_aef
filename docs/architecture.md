@@ -188,7 +188,8 @@ Early smoke-test artifacts:
 - `/Volumes/x10pro/kelp_aef/reports/figures/sample_kelpwatch_vs_aef.png`
 - `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png`
 - `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv`
-- `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`
+- `docs/report_snapshots/monterey_phase0_model_analysis.md`
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md`
 
 Large raw data, downloaded raster/Zarr artifacts, model outputs, and temporary
 exports should stay out of git unless the repo explicitly marks a tiny sample as

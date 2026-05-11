@@ -42,15 +42,17 @@ selected Phase 1 theme: Monterey annual-max model and domain hardening.
   `/Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.csv`.
 - Full-grid baseline predictions:
   `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet`.
-- Current Phase 0 model-analysis report:
-  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`.
+- Closed Phase 0 model-analysis report snapshot:
+  `docs/report_snapshots/monterey_phase0_model_analysis.md`.
 
 ## Outputs
 
-- Updated model-analysis report:
-  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`.
-- Updated standalone HTML report:
-  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.html`.
+- Updated Phase 1 model-analysis report:
+  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md`.
+- Updated standalone Phase 1 HTML report:
+  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.html`.
+- Updated standalone Phase 1 PDF report:
+  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.pdf`.
 - Updated model-analysis manifest:
   `/Volumes/x10pro/kelp_aef/interim/model_analysis_manifest.json`.
 - New compact model-comparison table:
@@ -68,13 +70,15 @@ Use `configs/monterey_smoke.yaml`.
 Expected config additions under `reports.outputs`:
 
 ```yaml
+model_analysis_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md
+model_analysis_html_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.html
+model_analysis_pdf_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.pdf
 model_analysis_phase1_model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_phase1_model_comparison.csv
 model_analysis_data_health: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_data_health.csv
 ```
 
-Do not rename the existing report paths in this task. Keep the configured
-`monterey_phase0_model_analysis.md` and `.html` paths stable while updating the
-content to be Phase 1-aware.
+The active report paths now use the Phase 1 filename. The closed Phase 0 report
+is preserved in `docs/report_snapshots/monterey_phase0_model_analysis.md`.
 
 ## Plan/Spec Requirement
 
@@ -141,13 +145,10 @@ The data-health table should include, at minimum:
 
 Update report text so:
 
-- The executive summary says Phase 1 has been selected, rather than
-  recommending a branch.
+- The executive summary frames the report as the active Phase 1 hardening
+  report, rather than recommending a branch.
 - The active Phase 1 theme is annual-max model and domain hardening.
-- Alternative temporal target-framing diagnostics are clearly marked as
-  Phase 0 evidence and out of active Phase 1 scope.
-- The legacy Phase 1 decision matrix is retained only as Phase 0 evidence, not
-  the active plan.
+- Phase 0 branch-selection notes are removed from the active report.
 - A new `Phase 1 Harness Status` section links the two new tables and explains
   what future tasks should add to them.
 
@@ -189,9 +190,11 @@ reshape analysis/report outputs from existing inputs.
 - The data-health table reports row counts and missing-feature drop rates from
   labels, model input, split manifest, and predictions.
 - The report includes a `Phase 1 Harness Status` section.
-- The report clearly states the selected Phase 1 theme and no longer presents
-  the Phase 1 decision matrix as an open branch-selection decision.
-- Existing Phase 0 ridge/no-skill results are preserved.
+- The report clearly states the selected Phase 1 theme and omits the old
+  Phase 0 branch-selection section.
+- Existing ridge/no-skill reference results are preserved.
+- The HTML and PDF reports include the compact model-comparison content, not
+  just the separate CSV table.
 - `tests/test_model_analysis.py` covers the new outputs.
 - Focused validation and `make check` pass.
 - P1-01, P1-02, and P1-03 are marked complete in `docs/todo.md` only after
@@ -205,5 +208,6 @@ reshape analysis/report outputs from existing inputs.
 - Do not add bathymetry/DEM inputs or masks in this task.
 - Do not choose a binary annual-max threshold in this task.
 - Do not evaluate alternative temporal label inputs beyond annual max.
-- Do not rename existing report paths in this task.
+- Keep the closed Phase 0 report as a repo snapshot instead of overwriting it
+  with active Phase 1 report content.
 - Do not tune on the 2022 test split.

@@ -1,4 +1,4 @@
-"""Analyze smoke-test model behavior and write a Phase 0 report."""
+"""Analyze smoke-test model behavior and write a Phase 1 report."""
 # ruff: noqa: E501
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import math
 import operator
 import os
 import re
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, SupportsIndex, cast
@@ -37,6 +38,7 @@ from kelp_aef.labels.kelpwatch import NETCDF_ENGINE
 
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt  # noqa: E402
+from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +51,20 @@ DEFAULT_FALL_QUARTER = 4
 DEFAULT_WINTER_QUARTER = 1
 DEFAULT_OBSERVED_AREA_BINS = (0.0, 1.0, 90.0, 225.0, 450.0, 810.0, 900.0)
 DEFAULT_THRESHOLD_FRACTIONS = (0.0, 0.01, 0.05, 0.10, 0.50, 0.90)
+PERSISTENCE_CLASS_ORDER = (
+    "no_quarter_present",
+    "transient_one_quarter",
+    "intermittent_two_or_three_quarters",
+    "persistent_all_valid_quarters",
+    "missing_quarters",
+)
+PDF_PAGE_WIDTH_IN = 8.5
+PDF_PAGE_HEIGHT_IN = 11.0
+PDF_MARGIN_X = 0.055
+PDF_TOP_Y = 0.965
+PDF_BODY_FONT_SIZE = 8.3
+PDF_MONO_FONT_SIZE = 7.2
+PDF_LINE_HEIGHT = 0.0185
 QUARTER_COLUMNS = ("area_q1", "area_q2", "area_q3", "area_q4")
 REQUIRED_LABEL_COLUMNS = (
     "year",
@@ -225,6 +241,33 @@ PHASE1_DECISION_FIELDS = (
     "expected_artifacts",
     "decision_unlocked",
 )
+PHASE1_MODEL_COMPARISON_FIELDS = (
+    "model_name",
+    "split",
+    "year",
+    "mask_status",
+    "evaluation_scope",
+    "label_source",
+    "row_count",
+    "mae",
+    "rmse",
+    "r2",
+    "spearman",
+    "f1_ge_10pct",
+    "observed_canopy_area",
+    "predicted_canopy_area",
+    "area_pct_bias",
+)
+DATA_HEALTH_FIELDS = (
+    "check_name",
+    "split",
+    "year",
+    "label_source",
+    "row_count",
+    "reference_row_count",
+    "rate",
+    "detail",
+)
 
 
 @dataclass(frozen=True)
@@ -252,6 +295,7 @@ class ModelAnalysisConfig:
     winter_quarter: int
     report_path: Path
     html_report_path: Path
+    pdf_report_path: Path
     manifest_path: Path
     label_distribution_path: Path
     target_framing_path: Path
@@ -262,6 +306,8 @@ class ModelAnalysisConfig:
     spatial_readiness_path: Path
     feature_separability_path: Path
     phase1_decision_path: Path
+    phase1_model_comparison_path: Path
+    data_health_path: Path
     quarter_mapping_path: Path
     label_distribution_figure: Path
     observed_predicted_figure: Path
@@ -288,6 +334,8 @@ class AnalysisTables:
     spatial_readiness: list[dict[str, object]]
     feature_separability: list[dict[str, object]]
     phase1_decision: list[dict[str, object]]
+    phase1_model_comparison: list[dict[str, object]]
+    data_health: list[dict[str, object]]
     quarter_mapping: list[dict[str, object]]
 
 
@@ -317,6 +365,7 @@ def analyze_model(config_path: Path) -> int:
     write_manifest(data, tables, analysis_config)
     LOGGER.info("Wrote model-analysis report: %s", analysis_config.report_path)
     LOGGER.info("Wrote model-analysis HTML report: %s", analysis_config.html_report_path)
+    LOGGER.info("Wrote model-analysis PDF report: %s", analysis_config.pdf_report_path)
     LOGGER.info("Wrote model-analysis manifest: %s", analysis_config.manifest_path)
     return 0
 
@@ -407,12 +456,17 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
         report_path=output_path(
             outputs,
             "model_analysis_report",
-            report_dir / "monterey_phase0_model_analysis.md",
+            report_dir / "monterey_phase1_model_analysis.md",
         ),
         html_report_path=output_path(
             outputs,
             "model_analysis_html_report",
-            report_dir / "monterey_phase0_model_analysis.html",
+            report_dir / "monterey_phase1_model_analysis.html",
+        ),
+        pdf_report_path=output_path(
+            outputs,
+            "model_analysis_pdf_report",
+            report_dir / "monterey_phase1_model_analysis.pdf",
         ),
         manifest_path=output_path(
             outputs,
@@ -463,6 +517,16 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             outputs,
             "model_analysis_phase1_decision_matrix",
             tables_dir / "model_analysis_phase1_decision_matrix.csv",
+        ),
+        phase1_model_comparison_path=output_path(
+            outputs,
+            "model_analysis_phase1_model_comparison",
+            tables_dir / "model_analysis_phase1_model_comparison.csv",
+        ),
+        data_health_path=output_path(
+            outputs,
+            "model_analysis_data_health",
+            tables_dir / "model_analysis_data_health.csv",
         ),
         quarter_mapping_path=output_path(
             outputs,
@@ -786,6 +850,8 @@ def build_analysis_tables(
         spatial_readiness=spatial_readiness,
         feature_separability=feature_separability,
     )
+    phase1_model_comparison = build_phase1_model_comparison(data, analysis_config)
+    data_health = build_data_health_rows(data, analysis_config)
     quarter_mapping = build_quarter_mapping(analysis_config)
     data.aligned.attrs["model_analysis_projection_frame"] = projection_frame
     return AnalysisTables(
@@ -798,6 +864,8 @@ def build_analysis_tables(
         spatial_readiness=spatial_readiness,
         feature_separability=feature_separability,
         phase1_decision=phase1_decision,
+        phase1_model_comparison=phase1_model_comparison,
+        data_health=data_health,
         quarter_mapping=quarter_mapping,
     )
 
@@ -1437,6 +1505,361 @@ def build_phase1_decision_matrix(
     return rows
 
 
+def build_phase1_model_comparison(
+    data: AnalysisData, analysis_config: ModelAnalysisConfig
+) -> list[dict[str, object]]:
+    """Build the Phase 1 compact model comparison rows."""
+    rows: list[dict[str, object]] = []
+    split_years = split_year_labels(data.split_manifest)
+    for metric in data.metrics.to_dict("records"):
+        comparison_row = metric_comparison_row(
+            cast(dict[str, object], metric),
+            split_years,
+        )
+        if comparison_row:
+            rows.append(comparison_row)
+    rows.extend(full_grid_comparison_rows(data.model_predictions, analysis_config))
+    return rows
+
+
+def split_year_labels(split_manifest: pd.DataFrame) -> dict[str, str]:
+    """Return compact year labels for each split in the split manifest."""
+    if "split" not in split_manifest.columns or "year" not in split_manifest.columns:
+        return {}
+    labels: dict[str, str] = {}
+    for split, group in split_manifest.groupby("split", sort=True):
+        years = sorted(int(year) for year in group["year"].dropna().unique())
+        if not years:
+            labels[str(split)] = ""
+        elif len(years) == 1:
+            labels[str(split)] = str(years[0])
+        elif years == list(range(years[0], years[-1] + 1)):
+            labels[str(split)] = f"{years[0]}-{years[-1]}"
+        else:
+            labels[str(split)] = ",".join(str(year) for year in years)
+    return labels
+
+
+def metric_comparison_row(
+    metric: dict[str, object], split_years: dict[str, str]
+) -> dict[str, object]:
+    """Convert one metrics CSV row into the Phase 1 comparison schema."""
+    if bool_from_metric(metric.get("weighted")):
+        return {}
+    metric_group = str(metric.get("metric_group", "overall"))
+    metric_group_value = str(metric.get("metric_group_value", "all"))
+    if metric_group == "overall":
+        evaluation_scope = "background_inclusive_sample"
+        label_source = "all"
+    elif metric_group == "label_source" and metric_group_value == "kelpwatch_station":
+        evaluation_scope = "kelpwatch_station_sample"
+        label_source = metric_group_value
+    elif "metric_group" not in metric:
+        evaluation_scope = "kelpwatch_station_sample"
+        label_source = "kelpwatch_station"
+    else:
+        return {}
+    split = str(metric.get("split", ""))
+    return {
+        "model_name": metric.get("model_name", ""),
+        "split": split,
+        "year": split_years.get(split, ""),
+        "mask_status": "unmasked",
+        "evaluation_scope": evaluation_scope,
+        "label_source": label_source,
+        "row_count": metric.get("row_count", ""),
+        "mae": metric.get("mae", math.nan),
+        "rmse": metric.get("rmse", math.nan),
+        "r2": metric.get("r2", math.nan),
+        "spearman": metric.get("spearman", math.nan),
+        "f1_ge_10pct": metric.get("f1_ge_10pct", math.nan),
+        "observed_canopy_area": metric.get("observed_canopy_area", math.nan),
+        "predicted_canopy_area": metric.get("predicted_canopy_area", math.nan),
+        "area_pct_bias": metric.get("area_pct_bias", math.nan),
+    }
+
+
+def bool_from_metric(value: object) -> bool:
+    """Return whether a CSV/object value should be treated as true."""
+    return str(value).lower() in {"true", "1"}
+
+
+def full_grid_comparison_rows(
+    predictions: pd.DataFrame, analysis_config: ModelAnalysisConfig
+) -> list[dict[str, object]]:
+    """Build full-grid calibration rows from prediction artifacts."""
+    rows: list[dict[str, object]] = []
+    if predictions.empty:
+        return rows
+    for keys, group in predictions.groupby(["model_name", "split", "year"], sort=True):
+        model_name, split, year = cast(tuple[str, str, int], keys)
+        rows.append(
+            full_grid_comparison_row(
+                str(model_name),
+                str(split),
+                int(year),
+                group,
+                analysis_config,
+            )
+        )
+    return rows
+
+
+def full_grid_comparison_row(
+    model_name: str,
+    split: str,
+    year: int,
+    group: pd.DataFrame,
+    analysis_config: ModelAnalysisConfig,
+) -> dict[str, object]:
+    """Build one full-grid prediction comparison row."""
+    observed = group["kelp_fraction_y"].to_numpy(dtype=float)
+    predicted = group["pred_kelp_fraction_y_clipped"].to_numpy(dtype=float)
+    observed_area = group["kelp_max_y"].to_numpy(dtype=float)
+    predicted_area = group["pred_kelp_max_y"].to_numpy(dtype=float)
+    observed_positive = observed >= 0.10
+    predicted_positive = predicted >= 0.10
+    _precision, _recall, f1 = precision_recall_f1(observed_positive, predicted_positive)
+    return {
+        "model_name": model_name,
+        "split": split,
+        "year": year,
+        "mask_status": "unmasked",
+        "evaluation_scope": "full_grid_prediction",
+        "label_source": "all",
+        "row_count": int(len(group)),
+        "mae": mean_absolute_error(observed, predicted),
+        "rmse": root_mean_squared_error(observed, predicted),
+        "r2": unweighted_r2(observed, predicted),
+        "spearman": correlation(observed, predicted, method="spearman"),
+        "f1_ge_10pct": f1,
+        "observed_canopy_area": float(np.nansum(observed_area)),
+        "predicted_canopy_area": float(np.nansum(predicted_area)),
+        "area_pct_bias": percent_bias(
+            float(np.nansum(predicted_area)),
+            float(np.nansum(observed_area)),
+        ),
+    }
+
+
+def unweighted_r2(observed: np.ndarray, predicted: np.ndarray) -> float:
+    """Compute unweighted R2 or NaN when the observed target is constant."""
+    finite_mask = np.isfinite(observed) & np.isfinite(predicted)
+    observed = observed[finite_mask]
+    predicted = predicted[finite_mask]
+    if observed.size == 0:
+        return math.nan
+    total_sum_squares = float(np.sum((observed - np.mean(observed)) ** 2))
+    if total_sum_squares == 0:
+        return math.nan
+    residual_sum_squares = float(np.sum((observed - predicted) ** 2))
+    return 1.0 - residual_sum_squares / total_sum_squares
+
+
+def build_data_health_rows(
+    data: AnalysisData, analysis_config: ModelAnalysisConfig
+) -> list[dict[str, object]]:
+    """Build Phase 1 data-health rows for the report harness."""
+    rows: list[dict[str, object]] = []
+    rows.extend(year_count_health_rows("annual_label_rows", data.labels))
+    rows.extend(label_source_health_rows("model_input_rows", data.aligned, split="all"))
+    rows.extend(split_manifest_health_rows(data.split_manifest))
+    rows.extend(label_source_health_rows("prediction_rows", data.model_predictions))
+    primary = primary_rows(data.model_predictions, analysis_config)
+    rows.append(
+        data_health_row(
+            check_name="primary_report_prediction_rows",
+            split=analysis_config.analysis_split,
+            year=analysis_config.analysis_year,
+            label_source="all",
+            row_count=len(primary),
+            reference_row_count=len(data.model_predictions),
+            detail="rows selected for the primary model-analysis split/year",
+        )
+    )
+    return rows
+
+
+def year_count_health_rows(check_name: str, dataframe: pd.DataFrame) -> list[dict[str, object]]:
+    """Build data-health count rows by year."""
+    rows: list[dict[str, object]] = []
+    if "year" not in dataframe.columns:
+        return [
+            data_health_row(
+                check_name=check_name,
+                split="all",
+                year="all",
+                label_source="all",
+                row_count=len(dataframe),
+                reference_row_count=len(dataframe),
+                detail=check_name,
+            )
+        ]
+    for year, group in dataframe.groupby("year", sort=True):
+        rows.append(
+            data_health_row(
+                check_name=check_name,
+                split="all",
+                year=int(cast(int, year)),
+                label_source="all",
+                row_count=len(group),
+                reference_row_count=len(group),
+                detail=check_name,
+            )
+        )
+    return rows
+
+
+def label_source_health_rows(
+    check_name: str, dataframe: pd.DataFrame, *, split: str | None = None
+) -> list[dict[str, object]]:
+    """Build data-health count rows by split, year, and label source."""
+    if dataframe.empty:
+        return []
+    frame = dataframe.copy()
+    frame["_health_split"] = split if split is not None else frame.get("split", "all")
+    frame["_health_label_source"] = label_source_series(frame)
+    rows: list[dict[str, object]] = []
+    for keys, group in frame.groupby(
+        ["_health_split", "year", "_health_label_source"], sort=True, dropna=False
+    ):
+        group_split, year, label_source = cast(tuple[str, int, str], keys)
+        year_total = (
+            len(frame.loc[frame["year"] == year]) if "year" in frame.columns else len(frame)
+        )
+        rows.append(
+            data_health_row(
+                check_name=check_name,
+                split=str(group_split),
+                year=int(year),
+                label_source=str(label_source),
+                row_count=len(group),
+                reference_row_count=year_total,
+                detail=check_name,
+            )
+        )
+    return rows
+
+
+def split_manifest_health_rows(split_manifest: pd.DataFrame) -> list[dict[str, object]]:
+    """Build data-health rows for split-manifest retained and dropped counts."""
+    if (
+        split_manifest.empty
+        or "split" not in split_manifest.columns
+        or "year" not in split_manifest.columns
+    ):
+        return []
+    rows: list[dict[str, object]] = []
+    for keys, group in split_manifest.groupby(["split", "year"], sort=True):
+        split, year = cast(tuple[str, int], keys)
+        total = len(group)
+        if "used_for_training_eval" in group.columns:
+            retained_mask = group["used_for_training_eval"].fillna(False).astype(bool)
+        else:
+            retained_mask = pd.Series(True, index=group.index)
+        dropped_mask = ~retained_mask
+        missing_mask = missing_feature_drop_mask(group, dropped_mask)
+        rows.append(
+            data_health_row(
+                check_name="split_manifest_rows",
+                split=str(split),
+                year=int(year),
+                label_source="all",
+                row_count=total,
+                reference_row_count=total,
+                detail="all split-manifest rows",
+            )
+        )
+        rows.append(
+            data_health_row(
+                check_name="retained_model_rows",
+                split=str(split),
+                year=int(year),
+                label_source="all",
+                row_count=int(retained_mask.sum()),
+                reference_row_count=total,
+                detail="rows retained for model training/evaluation",
+            )
+        )
+        rows.append(
+            data_health_row(
+                check_name="dropped_model_rows",
+                split=str(split),
+                year=int(year),
+                label_source="all",
+                row_count=int(dropped_mask.sum()),
+                reference_row_count=total,
+                detail="rows dropped before model training/evaluation",
+            )
+        )
+        rows.append(
+            data_health_row(
+                check_name="missing_feature_drop_rate",
+                split=str(split),
+                year=int(year),
+                label_source="all",
+                row_count=int(missing_mask.sum()),
+                reference_row_count=total,
+                detail="dropped rows attributed to missing features",
+            )
+        )
+    return rows
+
+
+def missing_feature_drop_mask(group: pd.DataFrame, dropped_mask: pd.Series) -> pd.Series:
+    """Return rows dropped because features are missing."""
+    if "drop_reason" in group.columns:
+        reason_mask = group["drop_reason"].fillna("").astype(str) == "missing_features"
+        return dropped_mask & reason_mask
+    if "has_complete_features" in group.columns:
+        return dropped_mask & ~group["has_complete_features"].fillna(False).astype(bool)
+    return dropped_mask
+
+
+def label_source_series(dataframe: pd.DataFrame) -> pd.Series:
+    """Return label-source provenance with fallbacks for older artifacts."""
+    if "label_source" in dataframe.columns:
+        return dataframe["label_source"].fillna("unknown").astype(str)
+    if "is_kelpwatch_observed" in dataframe.columns:
+        observed = dataframe["is_kelpwatch_observed"].fillna(False).astype(bool)
+        return pd.Series(
+            np.where(observed, "kelpwatch_station", "assumed_background"),
+            index=dataframe.index,
+            dtype="object",
+        )
+    if "kelpwatch_station_id" in dataframe.columns:
+        observed = dataframe["kelpwatch_station_id"].notna()
+        return pd.Series(
+            np.where(observed, "kelpwatch_station", "assumed_background"),
+            index=dataframe.index,
+            dtype="object",
+        )
+    return pd.Series("all", index=dataframe.index, dtype="object")
+
+
+def data_health_row(
+    *,
+    check_name: str,
+    split: object,
+    year: object,
+    label_source: object,
+    row_count: int,
+    reference_row_count: int,
+    detail: str,
+) -> dict[str, object]:
+    """Build one data-health row."""
+    return {
+        "check_name": check_name,
+        "split": split,
+        "year": year,
+        "label_source": label_source,
+        "row_count": int(row_count),
+        "reference_row_count": int(reference_row_count),
+        "rate": safe_ratio(int(row_count), int(reference_row_count)),
+        "detail": detail,
+    }
+
+
 def first_matching_row(
     rows: list[dict[str, object]], *, split: str, year: int
 ) -> dict[str, object]:
@@ -1568,6 +1991,12 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
         FEATURE_SEPARABILITY_FIELDS,
     )
     write_csv(tables.phase1_decision, analysis_config.phase1_decision_path, PHASE1_DECISION_FIELDS)
+    write_csv(
+        tables.phase1_model_comparison,
+        analysis_config.phase1_model_comparison_path,
+        PHASE1_MODEL_COMPARISON_FIELDS,
+    )
+    write_csv(tables.data_health, analysis_config.data_health_path, DATA_HEALTH_FIELDS)
     write_csv(tables.quarter_mapping, analysis_config.quarter_mapping_path, QUARTER_MAPPING_FIELDS)
 
 
@@ -1666,6 +2095,14 @@ def write_residual_by_bin_figure(
         split=analysis_config.analysis_split,
         year=analysis_config.analysis_year,
     )
+    bin_order = {
+        label: index
+        for index, label in enumerate(observed_area_bin_order(analysis_config.observed_area_bins))
+    }
+    rows = sorted(
+        rows,
+        key=lambda row: bin_order.get(str(row["observed_bin"]), len(bin_order)),
+    )
     output_path = analysis_config.residual_by_bin_figure
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig, axis = plt.subplots(figsize=(9, 4), constrained_layout=True)
@@ -1721,6 +2158,11 @@ def write_residual_by_persistence_figure(
         tables.residual_by_persistence,
         split=analysis_config.analysis_split,
         year=analysis_config.analysis_year,
+    )
+    class_order = {label: index for index, label in enumerate(PERSISTENCE_CLASS_ORDER)}
+    rows = sorted(
+        rows,
+        key=lambda row: class_order.get(str(row["persistence_class"]), len(class_order)),
     )
     output_path = analysis_config.residual_by_persistence_figure
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1810,7 +2252,7 @@ def write_spatial_readiness_figure(
 def write_report(
     data: AnalysisData, tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> None:
-    """Write the Markdown Phase 0 model-analysis report."""
+    """Write the Markdown Phase 1 model-analysis report."""
     output_path = analysis_config.report_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
     test_distribution = first_matching_row(
@@ -1824,19 +2266,18 @@ def write_report(
         if row["year"] == analysis_config.analysis_year
         and row["stage"] in {"annual_labels", "model_input_sample", "retained_model_rows"}
     ]
-    recommended_branch = recommended_phase1_branch(tables.phase1_decision)
     report = [
-        "# Monterey Phase 0 Model Analysis",
+        "# Monterey Phase 1 Model Analysis",
         "",
         "## Executive Summary",
         "",
-        "The Monterey smoke-test pipeline now runs from Kelpwatch labels and AEF features through alignment, ridge prediction, residual maps, and this report. Results should be interpreted as learning Kelpwatch-style labels, not field-verified kelp truth.",
+        "This is the active hardening report for the Monterey annual-max pipeline. It keeps the Kelpwatch annual-max target fixed and treats the current ridge output as a reference model to improve, not as a production result. Results should be interpreted as learning Kelpwatch-style labels, not field-verified kelp truth.",
         "",
         shrinkage_summary_markdown(data.metrics, tables.residual_by_bin, analysis_config),
         "",
-        f"Recommended Phase 1 branch: **{recommended_branch}**.",
+        "Phase 1 focus: **Monterey annual-max model and domain hardening**. The harness is set up to compare reference baselines, domain-mask variants, imbalance-aware models, pixel skill, and area calibration in the main reports after each pipeline rerun.",
         "",
-        "## Smoke-Test Scope And Artifacts",
+        "## Current Annual-Max Scope And Artifacts",
         "",
         f"- Config: `{analysis_config.config_path}`",
         f"- Annual labels: `{analysis_config.label_path}`",
@@ -1844,21 +2285,21 @@ def write_report(
         f"- Predictions: `{analysis_config.predictions_path}`",
         f"- Metrics: `{analysis_config.metrics_path}`",
         "",
-        "## Pipeline Accomplishments",
+        "## Phase 1 Harness Status",
         "",
-        "- Downloaded and inspected Kelpwatch source data.",
-        "- Queried and downloaded the Monterey AEF annual tiles.",
-        "- Built annual Kelpwatch max labels for 2018-2022.",
-        "- Corrected the initial station-center-only alignment by writing a full AEF-aligned 30 m grid artifact and a documented background-inclusive training sample.",
-        "- Trained no-skill and ridge baselines on the background-inclusive sample with a year holdout.",
-        "- Applied the trained ridge model back to the full-grid table with streamed inference.",
-        "- Wrote residual maps, area-bias tables, and this model-analysis report from the corrected artifacts.",
+        phase1_harness_status_markdown(tables, analysis_config),
         "",
-        "## Full-Grid Background Correction",
+        "## Model Comparison",
         "",
-        background_correction_markdown(data),
+        model_comparison_markdown(tables.phase1_model_comparison, analysis_config),
         "",
-        "## Data And Label Distribution Findings",
+        baseline_comparison_markdown(data.metrics, analysis_config),
+        "",
+        baseline_calibration_markdown(data.metrics, analysis_config),
+        "",
+        "## Data Health And Label Distribution",
+        "",
+        data_health_markdown(tables.data_health, analysis_config),
         "",
         stage_distribution_markdown(stage_rows),
         "",
@@ -1872,13 +2313,9 @@ def write_report(
         "",
         f"- Quarter mapping table: `{analysis_config.quarter_mapping_path}`",
         "",
-        "## Ridge Baseline Performance Recap",
+        "## Pixel Skill And Area Calibration",
         "",
         metric_summary_markdown(data.metrics, analysis_config),
-        "",
-        baseline_comparison_markdown(data.metrics, analysis_config),
-        "",
-        baseline_calibration_markdown(data.metrics, analysis_config),
         "",
         image_markdown(
             "Observed vs predicted distribution",
@@ -1922,56 +2359,23 @@ def write_report(
         "",
         f"Detailed threshold sensitivity is written to `{analysis_config.threshold_sensitivity_path}`. These rows are diagnostics only; this task does not choose a production binary threshold.",
         "",
-        "## Alternative Target-Framing Findings",
+        "## Phase 1 Coverage Gaps",
         "",
-        top_target_framings_markdown(tables.target_framing),
-        "",
-        target_framing_interpretation_markdown(tables.target_framing),
-        "",
-        image_markdown(
-            "Alternative target framings",
-            analysis_config.alternative_targets_figure,
-            output_path,
-        ),
-        "",
-        "## Feature Separability Findings",
-        "",
-        feature_separability_markdown(tables.feature_separability),
-        "",
-        image_markdown(
-            "Feature projection", analysis_config.feature_projection_figure, output_path
-        ),
-        "",
-        "## Spatial Split And Scale-Up Readiness",
-        "",
-        spatial_readiness_markdown(tables.spatial_readiness),
-        "",
-        image_markdown(
-            "Spatial holdout readiness", analysis_config.spatial_readiness_figure, output_path
-        ),
-        "",
-        "## Baseline Completeness",
-        "",
-        "Implemented baselines: train-mean no-skill and ridge regression. Missing reference baselines from the research plan: previous-year kelp, per-station climatology, lat/lon/year-only geographic baseline, and any non-AEF spectral-product baseline.",
+        "Implemented rows currently cover train-mean no-skill and ridge regression. Missing rows that should appear in this same report as Phase 1 progresses: previous-year kelp, per-station climatology, lat/lon/year-only geographic baseline, bathymetry/DEM mask variants, and imbalance-aware model variants.",
         "",
         "## Interpretation",
         "",
         interpretation_markdown(data.metrics, tables, analysis_config),
         "",
-        "## Phase 1 Decision Matrix",
-        "",
-        decision_matrix_markdown(tables.phase1_decision),
-        "",
         "## Appendix",
         "",
         f"- Stage distribution table: `{analysis_config.label_distribution_path}`",
-        f"- Target framing table: `{analysis_config.target_framing_path}`",
         f"- Prediction distribution table: `{analysis_config.prediction_distribution_path}`",
         f"- Residual by observed bin table: `{analysis_config.residual_by_bin_path}`",
         f"- Residual by persistence table: `{analysis_config.residual_by_persistence_path}`",
-        f"- Spatial readiness table: `{analysis_config.spatial_readiness_path}`",
-        f"- Feature separability table: `{analysis_config.feature_separability_path}`",
-        f"- Phase 1 decision matrix: `{analysis_config.phase1_decision_path}`",
+        f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
+        f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
+        f"- Phase 1 PDF report: `{analysis_config.pdf_report_path}`",
         "",
         "Validation command:",
         "",
@@ -1986,6 +2390,7 @@ def write_report(
     write_html_report(
         report_text.splitlines(), analysis_config.html_report_path, output_path.parent
     )
+    write_pdf_report(report_text.splitlines(), analysis_config.pdf_report_path, output_path.parent)
 
 
 def image_markdown(alt_text: str, image_path: Path, report_path: Path) -> str:
@@ -2149,7 +2554,7 @@ def write_html_report(
         "<head>",
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        "<title>Monterey Phase 0 Model Analysis</title>",
+        "<title>Monterey Phase 1 Model Analysis</title>",
         "<style>",
         "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; margin: 0; background: #f6f7f8; color: #1f2933; }",
         "main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 56px; background: #ffffff; }",
@@ -2177,6 +2582,116 @@ def write_html_report(
         "",
     ]
     output_path.write_text("\n".join(html_lines))
+
+
+PdfLine = tuple[str, str]
+
+
+def write_pdf_report(markdown_lines: list[str], output_path: Path, markdown_base_dir: Path) -> None:
+    """Write a paginated PDF text report from the generated Markdown subset."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    report_lines = pdf_report_lines(markdown_lines, markdown_base_dir)
+    with PdfPages(output_path) as pdf:
+        fig = new_pdf_figure()
+        y_position = PDF_TOP_Y
+        for text, style in report_lines:
+            line_height = pdf_line_height(style)
+            if y_position - line_height < 0.04:
+                pdf.savefig(fig)
+                plt.close(fig)
+                fig = new_pdf_figure()
+                y_position = PDF_TOP_Y
+            draw_pdf_line(fig, text, style, y_position)
+            y_position -= line_height
+        pdf.savefig(fig)
+        plt.close(fig)
+
+
+def pdf_report_lines(markdown_lines: list[str], markdown_base_dir: Path) -> list[PdfLine]:
+    """Convert generated Markdown lines into plain styled PDF text lines."""
+    output: list[PdfLine] = []
+    in_code_block = False
+    for line in markdown_lines:
+        stripped = line.rstrip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if not stripped:
+            output.append(("", "body"))
+            continue
+        image_match = IMAGE_MARKDOWN_PATTERN.fullmatch(stripped)
+        if image_match is not None:
+            alt_text, source = image_match.groups()
+            figure_path = resolve_markdown_pdf_path(source, markdown_base_dir)
+            output.extend(wrapped_pdf_lines(f"[Figure] {alt_text}: {figure_path}", "body", 106))
+        elif stripped.startswith("# "):
+            output.extend(wrapped_pdf_lines(stripped[2:], "h1", 84))
+        elif stripped.startswith("## "):
+            output.extend(wrapped_pdf_lines(stripped[3:], "h2", 92))
+        elif stripped.startswith("|") or in_code_block:
+            output.extend(wrapped_pdf_lines(stripped, "mono", 116))
+        else:
+            output.extend(wrapped_pdf_lines(stripped, "body", 106))
+    return output or [("No report content.", "body")]
+
+
+def resolve_markdown_pdf_path(source: str, markdown_base_dir: Path) -> Path:
+    """Resolve a Markdown asset source for PDF text references."""
+    source_path = Path(source)
+    if source_path.is_absolute():
+        return source_path
+    return (markdown_base_dir / source_path).resolve()
+
+
+def wrapped_pdf_lines(text: str, style: str, width: int) -> list[PdfLine]:
+    """Wrap one text line into styled PDF line tuples."""
+    wrapped = textwrap.wrap(
+        text,
+        width=width,
+        break_long_words=True,
+        break_on_hyphens=False,
+        subsequent_indent="  " if text.startswith("- ") else "",
+    )
+    return [(line, style) for line in wrapped] or [("", style)]
+
+
+def new_pdf_figure() -> Any:
+    """Create one blank report PDF page figure."""
+    fig = plt.figure(figsize=(PDF_PAGE_WIDTH_IN, PDF_PAGE_HEIGHT_IN))
+    axis = fig.add_axes((0.0, 0.0, 1.0, 1.0))
+    axis.axis("off")
+    return fig
+
+
+def draw_pdf_line(fig: Any, text: str, style: str, y_position: float) -> None:
+    """Draw one styled text line onto a PDF page."""
+    font_size = PDF_MONO_FONT_SIZE if style == "mono" else PDF_BODY_FONT_SIZE
+    if style == "h1":
+        font_size = 14.0
+    elif style == "h2":
+        font_size = 11.0
+    fig.text(
+        PDF_MARGIN_X,
+        y_position,
+        text,
+        ha="left",
+        va="top",
+        fontsize=font_size,
+        fontweight="bold" if style in {"h1", "h2"} else "normal",
+        family="monospace" if style == "mono" else "sans-serif",
+        color="#111827",
+    )
+
+
+def pdf_line_height(style: str) -> float:
+    """Return the vertical line spacing for one PDF style."""
+    if style == "h1":
+        return PDF_LINE_HEIGHT * 1.8
+    if style == "h2":
+        return PDF_LINE_HEIGHT * 1.55
+    if style == "mono":
+        return PDF_LINE_HEIGHT * 0.92
+    return PDF_LINE_HEIGHT
 
 
 def markdown_lines_to_html(markdown_lines: list[str], markdown_base_dir: Path) -> list[str]:
@@ -2471,14 +2986,92 @@ def baseline_calibration_markdown(
         "The background-inclusive sample shows the calibration tradeoff: no-skill area "
         f"bias is `{format_percent(row_float(no_skill_sample, 'area_pct_bias'), 2)}` and ridge "
         f"area bias is `{format_percent(row_float(ridge_sample, 'area_pct_bias'), 2)}`. "
-        "This is still a sampling/objective calibration problem to revisit, but it is a more useful smoke baseline than the population-expanded weighted ridge."
+        "This is still a sampling/objective calibration problem to revisit, but it is a more useful reference baseline than the population-expanded weighted ridge."
     )
+
+
+def phase1_harness_status_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build prose describing the Phase 1 report harness outputs."""
+    comparison_count = len(tables.phase1_model_comparison)
+    data_health_count = len(tables.data_health)
+    return (
+        "The Phase 1 harness is active for the current annual-max workflow. It adds stable "
+        "table contracts for future reference baselines, domain-mask rows, and imbalance-aware "
+        "models without changing the current ridge predictions. "
+        f"The model comparison table currently has `{comparison_count}` rows at "
+        f"`{analysis_config.phase1_model_comparison_path}`. The data-health table has "
+        f"`{data_health_count}` rows at `{analysis_config.data_health_path}`. Future tasks "
+        "should append comparable rows instead of changing these schemas."
+    )
+
+
+def model_comparison_markdown(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build a compact Phase 1 model-comparison preview table."""
+    primary_rows = [
+        row
+        for row in rows
+        if row.get("split") == analysis_config.analysis_split
+        and str(row.get("year")) == str(analysis_config.analysis_year)
+    ]
+    if not primary_rows:
+        primary_rows = rows[:6]
+    if not primary_rows:
+        return "No Phase 1 model-comparison rows were available."
+    lines = [
+        "| Model | Scope | Mask | Rows | RMSE | R2 | Area pct bias |",
+        "|---|---|---|---:|---:|---:|---:|",
+    ]
+    for row in primary_rows[:8]:
+        lines.append(
+            f"| {row.get('model_name', '')} | "
+            f"{row.get('evaluation_scope', '')} | "
+            f"{row.get('mask_status', '')} | "
+            f"{row.get('row_count', '')} | "
+            f"{format_decimal(row_float(row, 'rmse'), 4)} | "
+            f"{format_decimal(row_float(row, 'r2'), 3)} | "
+            f"{format_percent(row_float(row, 'area_pct_bias'), 2)} |"
+        )
+    return "\n".join(lines)
+
+
+def data_health_markdown(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build a compact Phase 1 data-health preview table."""
+    primary_rows = [
+        row
+        for row in rows
+        if row.get("split") in {"all", analysis_config.analysis_split}
+        and str(row.get("year")) in {str(analysis_config.analysis_year), "all"}
+    ]
+    if not primary_rows:
+        primary_rows = rows[:8]
+    if not primary_rows:
+        return "No Phase 1 data-health rows were available."
+    lines = [
+        "| Check | Split | Year | Label source | Rows | Rate |",
+        "|---|---|---:|---|---:|---:|",
+    ]
+    for row in primary_rows[:10]:
+        lines.append(
+            f"| {row.get('check_name', '')} | "
+            f"{row.get('split', '')} | "
+            f"{row.get('year', '')} | "
+            f"{row.get('label_source', '')} | "
+            f"{row.get('row_count', '')} | "
+            f"{format_decimal(row_float(row, 'rate'), 3)} |"
+        )
+    return "\n".join(lines)
 
 
 def map_section_markdown(analysis_config: ModelAnalysisConfig) -> str:
     """Build prose for the observed, predicted, and residual map section."""
     return (
-        "The three-panel smoke-test map reuses the Task 09 static map for the primary "
+        "The three-panel model review map uses the latest static map for the primary "
         f"`{analysis_config.analysis_split}` `{analysis_config.analysis_year}` split. The "
         "observed and predicted panels use the same canopy-area scale, and the error panel "
         "uses `observed - predicted`, so positive residuals are underprediction. The linked "
@@ -2581,7 +3174,9 @@ def target_framing_interpretation_markdown(rows: list[dict[str, object]]) -> str
     return (
         "The Spearman target-framing plot is a rank-agreement diagnostic for the existing "
         "annual-max ridge predictions. The model was not retrained for each target, so this "
-        "does not prove that any alternative target is better. Current predictions rank "
+        "does not prove that any alternative target is better. Alternative temporal target "
+        "inputs are out of active Phase 1 scope; these rows are retained as Phase 0 evidence "
+        "while annual max remains fixed. Current predictions rank "
         f"`annual_mean_area` (`{format_decimal(row_float(annual_mean, 'spearman_with_prediction'), 3)}`), "
         f"`annual_max_area` (`{format_decimal(row_float(annual_max, 'spearman_with_prediction'), 3)}`), "
         f"and `mean_presence_fraction` (`{format_decimal(row_float(mean_presence, 'spearman_with_prediction'), 3)}`) "
@@ -2624,19 +3219,19 @@ def spatial_readiness_markdown(rows: list[dict[str, object]]) -> str:
 def interpretation_markdown(
     metrics: pd.DataFrame, tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> str:
-    """Build the report-level interpretation of Phase 0 evidence."""
+    """Build the report-level interpretation for the active Phase 1 workflow."""
     ridge_station = station_metric_row(
         metrics, analysis_config.model_name, analysis_config.analysis_split
     )
     return (
-        "Phase 0 now demonstrates that the end-to-end artifact path works, but the corrected "
-        "background-inclusive ridge result should be treated as a failed first baseline. The "
+        "The current background-inclusive ridge result should be treated as a weak starting "
+        "baseline. The "
         f"Kelpwatch-station test R2 is `{format_decimal(row_float(ridge_station, 'r2'), 3)}` "
         "and the model still severely underpredicts canopy-support rows while leaking small "
         "positive predictions over a large assumed-background population. The next work should "
-        "therefore focus on the learning objective, sampling/weighting policy, calibration, and "
-        "reference baselines before interpreting stronger nonlinear models or 10 m spatial models "
-        "as the main answer."
+        "therefore focus on reference baselines, bathymetry/DEM domain filtering, calibration, "
+        "and imbalance-aware modeling before interpreting stronger nonlinear models as the main "
+        "answer."
     )
 
 
@@ -2681,6 +3276,7 @@ def write_manifest(
         "outputs": {
             "report": str(analysis_config.report_path),
             "html_report": str(analysis_config.html_report_path),
+            "pdf_report": str(analysis_config.pdf_report_path),
             "observed_predicted_residual_map": str(
                 analysis_config.observed_predicted_residual_map_figure
             ),
@@ -2689,6 +3285,8 @@ def write_manifest(
             "target_framing": str(analysis_config.target_framing_path),
             "prediction_distribution": str(analysis_config.prediction_distribution_path),
             "phase1_decision": str(analysis_config.phase1_decision_path),
+            "phase1_model_comparison": str(analysis_config.phase1_model_comparison_path),
+            "data_health": str(analysis_config.data_health_path),
             "manifest": str(analysis_config.manifest_path),
         },
         "row_counts": {
@@ -2699,6 +3297,8 @@ def write_manifest(
             "stage_distribution": len(tables.stage_distribution),
             "target_framing": len(tables.target_framing),
             "phase1_decision": len(tables.phase1_decision),
+            "phase1_model_comparison": len(tables.phase1_model_comparison),
+            "data_health": len(tables.data_health),
         },
     }
     analysis_config.manifest_path.parent.mkdir(parents=True, exist_ok=True)

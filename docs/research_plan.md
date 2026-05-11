@@ -42,8 +42,10 @@ Phase 0 outcome:
 - A ridge baseline trained without background expansion weights has some
   Kelpwatch-station signal but underpredicts high canopy and is poorly
   calibrated on the full grid.
-- The Phase 0 report is the source of truth for current model interpretation:
-  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md`.
+- The closed Phase 0 report snapshot is tracked at
+  `docs/report_snapshots/monterey_phase0_model_analysis.md`.
+- Current model interpretation now belongs in the active Phase 1 report:
+  `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md`.
 
 ## Candidate Next Work: Data Ingestion Hardening
 

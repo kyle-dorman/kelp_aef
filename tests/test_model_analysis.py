@@ -15,6 +15,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     for key in (
         "report",
         "html_report",
+        "pdf_report",
         "manifest",
         "stage_distribution",
         "target_framing",
@@ -25,6 +26,8 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         "spatial_readiness",
         "feature_separability",
         "phase1_decision",
+        "phase1_model_comparison",
+        "data_health",
         "quarter_mapping",
         "label_distribution_figure",
         "observed_predicted_figure",
@@ -55,6 +58,17 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "Derived-label Phase 1" in set(decisions["branch"])
     assert "Baseline-hardening Phase 1" in set(decisions["branch"])
 
+    model_comparison = pd.read_csv(fixture["phase1_model_comparison"])
+    assert {"no_skill_train_mean", "ridge_regression"} <= set(model_comparison["model_name"])
+    assert "full_grid_prediction" in set(model_comparison["evaluation_scope"])
+    assert set(model_comparison["mask_status"]) == {"unmasked"}
+
+    data_health = pd.read_csv(fixture["data_health"])
+    missing_feature_rows = data_health.query(
+        "check_name == 'missing_feature_drop_rate' and split == 'validation' and year == 2021"
+    )
+    assert int(missing_feature_rows.iloc[0]["row_count"]) == 1
+
     quarter_mapping = pd.read_csv(fixture["quarter_mapping"])
     assert set(quarter_mapping["derived_quarter"]) == {1, 2, 3, 4}
 
@@ -64,16 +78,21 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert manifest["command"] == "analyze-model"
     assert manifest["row_counts"]["model_predictions"] == 6
     assert manifest["outputs"]["html_report"] == str(fixture["html_report"])
-    assert "Phase 1 Decision Matrix" in report
+    assert manifest["outputs"]["pdf_report"] == str(fixture["pdf_report"])
+    assert fixture["pdf_report"].stat().st_size > 0
+    assert "Phase 1 Harness Status" in report
+    assert "Model Comparison" in report
+    assert "Phase 1 Coverage Gaps" in report
+    assert "Phase 0 Decision Evidence" not in report
     assert "failed ridge objective" in report
-    assert "Sampling/objective calibration Phase 1" in report
     assert "sampling/objective calibration problem" in report
-    assert "The Spearman target-framing plot is a rank-agreement diagnostic" in report
+    assert "previous-year kelp" in report
     assert "Observed, Predicted, And Error Map" in report
     assert "![Observed, predicted, and residual map]" in report
     assert "ridge_2022_residual_interactive.html" in report
-    assert "![Feature projection](../figures/model_analysis_feature_projection.png)" in report
-    assert "<h1>Monterey Phase 0 Model Analysis</h1>" in html_report
+    assert "Alternative Target-Framing Findings" not in report
+    assert "<h1>Monterey Phase 1 Model Analysis</h1>" in html_report
+    assert "<h2>Model Comparison</h2>" in html_report
     assert 'src="data:image/png;base64,' in html_report
 
 
@@ -105,8 +124,9 @@ def write_model_analysis_fixture(tmp_path: Path) -> dict[str, Path]:
 def output_paths(tmp_path: Path) -> dict[str, Path]:
     """Return all expected output paths for the synthetic config."""
     return {
-        "report": tmp_path / "reports/model_analysis/monterey_phase0_model_analysis.md",
-        "html_report": tmp_path / "reports/model_analysis/monterey_phase0_model_analysis.html",
+        "report": tmp_path / "reports/model_analysis/monterey_phase1_model_analysis.md",
+        "html_report": tmp_path / "reports/model_analysis/monterey_phase1_model_analysis.html",
+        "pdf_report": tmp_path / "reports/model_analysis/monterey_phase1_model_analysis.pdf",
         "manifest": tmp_path / "interim/model_analysis_manifest.json",
         "stage_distribution": tmp_path
         / "reports/tables/model_analysis_label_distribution_by_stage.csv",
@@ -122,6 +142,9 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/tables/model_analysis_spatial_holdout_readiness.csv",
         "feature_separability": tmp_path / "reports/tables/model_analysis_feature_separability.csv",
         "phase1_decision": tmp_path / "reports/tables/model_analysis_phase1_decision_matrix.csv",
+        "phase1_model_comparison": tmp_path
+        / "reports/tables/model_analysis_phase1_model_comparison.csv",
+        "data_health": tmp_path / "reports/tables/model_analysis_data_health.csv",
         "quarter_mapping": tmp_path / "reports/tables/model_analysis_quarter_mapping.csv",
         "label_distribution_figure": tmp_path
         / "reports/figures/model_analysis_label_distribution_by_stage.png",
@@ -186,6 +209,7 @@ reports:
   outputs:
     model_analysis_report: {paths["report"]}
     model_analysis_html_report: {paths["html_report"]}
+    model_analysis_pdf_report: {paths["pdf_report"]}
     model_analysis_manifest: {paths["manifest"]}
     model_analysis_label_distribution_by_stage: {paths["stage_distribution"]}
     model_analysis_target_framing_summary: {paths["target_framing"]}
@@ -196,6 +220,8 @@ reports:
     model_analysis_spatial_holdout_readiness: {paths["spatial_readiness"]}
     model_analysis_feature_separability: {paths["feature_separability"]}
     model_analysis_phase1_decision_matrix: {paths["phase1_decision"]}
+    model_analysis_phase1_model_comparison: {paths["phase1_model_comparison"]}
+    model_analysis_data_health: {paths["data_health"]}
     model_analysis_quarter_mapping: {paths["quarter_mapping"]}
     model_analysis_label_distribution_figure: {paths["label_distribution_figure"]}
     model_analysis_observed_predicted_figure: {paths["observed_predicted_figure"]}
