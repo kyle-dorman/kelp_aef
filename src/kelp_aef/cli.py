@@ -11,6 +11,7 @@ from kelp_aef.alignment.feature_label_table import align_features_labels
 from kelp_aef.alignment.full_grid import align_full_grid
 from kelp_aef.domain.noaa_cudem import download_noaa_cudem, query_noaa_cudem
 from kelp_aef.domain.noaa_cusp import download_noaa_cusp, query_noaa_cusp
+from kelp_aef.domain.usgs_3dep import download_usgs_3dep, query_usgs_3dep
 from kelp_aef.evaluation.baselines import predict_full_grid, train_baselines
 from kelp_aef.evaluation.model_analysis import analyze_model
 from kelp_aef.features.aef_catalog import query_aef_catalog
@@ -37,6 +38,8 @@ COMMANDS: dict[str, str] = {
     "download-noaa-cudem": "Download selected NOAA CUDEM tiles from the query manifest.",
     "query-noaa-cusp": "Query the NOAA CUSP shoreline source for the configured region.",
     "download-noaa-cusp": "Download selected NOAA CUSP shoreline sources from the query manifest.",
+    "query-usgs-3dep": "Query USGS 3DEP DEM sources for the configured region.",
+    "download-usgs-3dep": "Download selected USGS 3DEP DEM sources from the query manifest.",
     "inspect-kelpwatch": "Inspect Kelpwatch metadata for the configured region.",
     "visualize-kelpwatch": "Visualize downloaded Kelpwatch source data for QA.",
     "fetch-aef-chip": "Fetch or stage AlphaEarth embedding samples for the configured region.",
@@ -146,6 +149,10 @@ def build_parser() -> argparse.ArgumentParser:
             add_query_noaa_cusp_arguments(subparser)
         if command == "download-noaa-cusp":
             add_download_noaa_cusp_arguments(subparser)
+        if command == "query-usgs-3dep":
+            add_query_usgs_3dep_arguments(subparser)
+        if command == "download-usgs-3dep":
+            add_download_usgs_3dep_arguments(subparser)
         if command == "inspect-kelpwatch":
             add_inspect_kelpwatch_arguments(subparser)
         if command == "visualize-kelpwatch":
@@ -325,6 +332,67 @@ def add_download_noaa_cusp_arguments(parser: argparse.ArgumentParser) -> None:
         "--force",
         action="store_true",
         help="Download the CUSP source package even when a local file already exists.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=positive_float,
+        default=30.0,
+        help="HTTP timeout in seconds for remote checks and downloads.",
+    )
+
+
+def add_query_usgs_3dep_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add USGS 3DEP source-query options to the query-usgs-3dep subcommand."""
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build a query plan without calling TNMAccess or downloading DEM data.",
+    )
+    parser.add_argument(
+        "--manifest-output",
+        type=Path,
+        default=None,
+        help="Optional query manifest output path, useful for dry-run plans.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=positive_float,
+        default=30.0,
+        help="HTTP timeout in seconds for TNMAccess metadata requests.",
+    )
+
+
+def add_download_usgs_3dep_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add USGS 3DEP source-download options to the download-usgs-3dep subcommand."""
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Build a source manifest plan without downloading DEM data or updating "
+            "metadata_summary.json."
+        ),
+    )
+    parser.add_argument(
+        "--skip-remote-checks",
+        action="store_true",
+        help="Skip remote HEAD checks; useful for fast local validation.",
+    )
+    parser.add_argument(
+        "--manifest-output",
+        type=Path,
+        default=None,
+        help="Optional manifest output path, useful for dry-run plans.",
+    )
+    parser.add_argument(
+        "--query-manifest",
+        type=Path,
+        default=None,
+        help="Optional USGS 3DEP query manifest path override.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Download the 3DEP source raster even when a local file already exists.",
     )
     parser.add_argument(
         "--timeout-seconds",
@@ -514,6 +582,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif command == "download-noaa-cusp":
             exit_code = download_noaa_cusp(
+                config_path,
+                dry_run=bool(args.dry_run),
+                skip_remote_checks=bool(args.skip_remote_checks),
+                manifest_output=args.manifest_output,
+                query_manifest=args.query_manifest,
+                timeout_seconds=float(args.timeout_seconds),
+                force=bool(args.force),
+            )
+        elif command == "query-usgs-3dep":
+            exit_code = query_usgs_3dep(
+                config_path,
+                dry_run=bool(args.dry_run),
+                manifest_output=args.manifest_output,
+                timeout_seconds=float(args.timeout_seconds),
+            )
+        elif command == "download-usgs-3dep":
+            exit_code = download_usgs_3dep(
                 config_path,
                 dry_run=bool(args.dry_run),
                 skip_remote_checks=bool(args.skip_remote_checks),

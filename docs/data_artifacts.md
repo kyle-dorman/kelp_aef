@@ -165,3 +165,6 @@ artifacts and should not be tracked in git.
 | NOAA CUSP query manifest | `/Volumes/x10pro/kelp_aef/interim/noaa_cusp_query_manifest.json` | Selected CUSP regional package, local mirror path, source metadata, and Monterey coverage check. | Not tracked |
 | NOAA CUSP source package | `/Volumes/x10pro/kelp_aef/raw/domain/noaa_cusp/West.zip` | NOAA NSDE West regional CUSP shoreline shapefile ZIP for shoreline-side support. | Not tracked |
 | NOAA CUSP source manifest | `/Volumes/x10pro/kelp_aef/interim/noaa_cusp_source_manifest.json` | Transfer status, remote/local file size, vector metadata, and source provenance for the CUSP package. | Not tracked |
+| USGS 3DEP query manifest | `/Volumes/x10pro/kelp_aef/interim/usgs_3dep_query_manifest.json` | TNMAccess 3DEP 1/3 arc-second GeoTIFF product query, selected source URLs, local mirror paths, and Monterey coverage context. | Not tracked |
+| USGS 3DEP source rasters | `/Volumes/x10pro/kelp_aef/raw/domain/usgs_3dep/` | Selected USGS 3DEP land DEM fallback GeoTIFFs for Monterey-side domain filtering support. | Not tracked |
+| USGS 3DEP source manifest | `/Volumes/x10pro/kelp_aef/interim/usgs_3dep_source_manifest.json` | Transfer status, remote/local file size, raster metadata, and source provenance for selected 3DEP rasters. | Not tracked |

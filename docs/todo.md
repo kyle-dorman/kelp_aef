@@ -151,12 +151,19 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef query-noaa-cusp --config configs/monterey_smoke.yaml --dry-run --manifest-output /private/tmp/noaa_cusp_query_manifest_dry_run.json`,
     `uv run kelp-aef download-noaa-cusp --config configs/monterey_smoke.yaml --dry-run --query-manifest /private/tmp/noaa_cusp_query_manifest_dry_run.json --manifest-output /private/tmp/noaa_cusp_source_manifest_dry_run.json`,
     and `make check`.
-- [ ] P1-10c: Add USGS 3DEP land DEM fallback query and download scripts.
+- [x] P1-10c: Add USGS 3DEP land DEM fallback query and download scripts.
   - Goal: Create package-backed query and downloader commands for the U.S.
     land-side fallback.
   - Plan: `tasks/17_download_usgs_3dep.md`.
   - Validation: `make check` and a dry-run command that writes a manifest to
     `/private/tmp`.
+  - Validation passed:
+    `uv run pytest tests/test_usgs_3dep.py`,
+    `uv run kelp-aef query-usgs-3dep --config configs/monterey_smoke.yaml --dry-run --manifest-output /private/tmp/usgs_3dep_query_manifest_dry_run.json`,
+    `uv run kelp-aef download-usgs-3dep --config configs/monterey_smoke.yaml --dry-run --query-manifest /private/tmp/usgs_3dep_query_manifest_dry_run.json --manifest-output /private/tmp/usgs_3dep_source_manifest_dry_run.json`,
+    metadata-only query for inspection at `/private/tmp/usgs_3dep_query_manifest.json`,
+    download dry-run for that query at `/private/tmp/usgs_3dep_source_manifest.json`,
+    and `make check`.
 - [ ] P1-11: Align bathymetry and DEM to the 30 m target grid.
   - Goal: Produce one depth/elevation row per existing full-grid cell.
   - Output: aligned bathymetry/DEM table or raster plus QA summary.
