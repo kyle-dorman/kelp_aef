@@ -140,9 +140,9 @@ masking change should end with an updated model-analysis report.
   - Plan: `tasks/15_download_noaa_cudem.md`.
   - Validation: `make check` and a dry-run command that writes a manifest to
     `/private/tmp`.
-- [ ] P1-10b: Add a NOAA CUSP shoreline download script.
-  - Goal: Create one package-backed downloader for shoreline-side
-    classification.
+- [ ] P1-10b: Add NOAA CUSP shoreline query and download scripts.
+  - Goal: Create package-backed query and downloader commands for
+    shoreline-side classification.
   - Plan: `tasks/16_download_noaa_cusp.md`.
   - Validation: `make check` and a dry-run command that writes a manifest to
     `/private/tmp`.
