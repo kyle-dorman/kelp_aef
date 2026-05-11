@@ -2,8 +2,9 @@
 
 ## Goal
 
-Create the first package-backed query and download scripts for the preferred
-Monterey topo-bathy source from NOAA Coastal DEMs / CUDEM.
+Create the package-backed query and download scripts for NOAA Coastal DEMs /
+CUDEM as a higher-resolution topo-bathy QA/refinement source where coverage
+exists.
 
 This task should create exactly one dataset-specific query/download pair. It
 should not download CUSP, 3DEP, GEBCO, or Copernicus data.

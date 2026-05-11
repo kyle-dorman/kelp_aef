@@ -136,7 +136,7 @@ masking change should end with an updated model-analysis report.
   - Validation: docs-only diff inspection; no pipeline behavior changes yet.
 - [ ] P1-10a: Add NOAA CUDEM / Coastal DEM query and download scripts.
   - Goal: Create package-backed query and downloader commands for the
-    preferred Monterey topo-bathy source.
+    higher-resolution topo-bathy QA source where CUDEM coverage exists.
   - Plan: `tasks/15_download_noaa_cudem.md`.
   - Validation: `make check` and a dry-run command that writes a manifest to
     `/private/tmp`.
@@ -164,13 +164,27 @@ masking change should end with an updated model-analysis report.
     metadata-only query for inspection at `/private/tmp/usgs_3dep_query_manifest.json`,
     download dry-run for that query at `/private/tmp/usgs_3dep_source_manifest.json`,
     and `make check`.
-- [ ] P1-11: Align bathymetry and DEM to the 30 m target grid.
-  - Goal: Produce one depth/elevation row per existing full-grid cell.
-  - Output: aligned bathymetry/DEM table or raster plus QA summary.
+- [ ] P1-10d: Add NOAA CRM California mosaic query and download scripts.
+  - Goal: Query the current target-grid footprint against NOAA CRM Southern
+    California v2 and CRM Volume 7, then write a reviewable manifest before
+    any real CRM download.
+  - Plan: `tasks/18_query_download_noaa_crm.md`.
+  - Output: CRM query manifest, selected product/subset plan, and later source
+    manifest under `/Volumes/x10pro/kelp_aef`.
+  - Validation: `make check` and a dry-run query command that writes a manifest
+    to `/private/tmp`.
+  - Constraint: run the query/manifest step first; do not download CRM source
+    data until the manifest has been inspected.
+- [ ] P1-11: Align NOAA CRM California mosaic to the 30 m target grid.
+  - Goal: Produce one CRM-derived depth/elevation row per existing full-grid
+    cell, using the broad California topo-bathy source selected in P1-10d.
+  - Plan: `tasks/19_align_noaa_crm_to_target_grid.md`.
+  - Output: static aligned CRM table plus manifest and QA summary.
   - Validation: row counts match the full-grid target grid for configured
-    years or the static grid.
+    years or the static grid; fast-path command succeeds.
 - [ ] P1-12: Build the first plausible-kelp domain mask.
-  - Goal: Exclude land, implausibly deep water, and other impossible cells.
+  - Goal: Exclude land, very deep water, and other impossible cells, starting
+    with a permissive depth cutoff such as approximately 100 m.
   - Output: mask artifact with reason codes and coverage table.
   - Validation: report shows retained/dropped cells and retained Kelpwatch
     positives by year.

@@ -5,24 +5,50 @@ Status: accepted for P1-09 on 2026-05-11.
 ## Decision
 
 For the Monterey Phase 1 domain filter, use regional U.S. coastal sources
-before global products:
+before global products, but prioritize continuous coverage over maximum local
+resolution:
 
-1. NOAA CUDEM / Coastal DEM plus NOAA CUSP shoreline for the first Monterey
-   implementation.
-2. USGS 3DEP 1/3 arc-second DEM only as a U.S. land-side fallback.
-3. GEBCO_2026 only as a later global bathymetry fallback.
-4. Copernicus DEM GLO-30 only as a later global land-side fallback.
+1. NOAA Coastal Relief Model (CRM) Southern California v2 plus CRM Volume 7
+   Central Pacific as the first broad California topo-bathy source.
+2. NOAA CUSP shoreline for shoreline-side classification when the first mask
+   needs landward versus oceanward context.
+3. NOAA CUDEM / Coastal DEM only as a higher-resolution QA or refinement source
+   where the selected tiles actually cover the target grid.
+4. USGS 3DEP 1/3 arc-second DEM only as a U.S. land-side fallback.
+5. GEBCO_2026 only as a later global bathymetry fallback.
+6. Copernicus DEM GLO-30 only as a later global land-side fallback.
 
 This filter is a conservative candidate-area filter for Kelpwatch-style kelp
 mapping. It is not ecological truth, and it should not become a model predictor
 in Phase 1 unless a later decision explicitly changes that scope.
 
+Coverage update on 2026-05-11: the selected NOAA CUDEM tiles cover only about
+43% of the current AEF footprint and miss many Kelpwatch-positive cells south
+of Monterey. Treat those gaps as source coverage gaps, not as off-domain ocean.
+Do not use CUDEM as the primary Phase 1 mask input unless a later source query
+finds continuous coverage for the configured grid.
+
+Implementation update on 2026-05-11: add a query-first NOAA CRM California
+mosaic workflow. For now, query the configured target-grid footprint against
+the CRM product registry and write a reviewable manifest. Do not download CRM
+source data until the manifest has been inspected. P1-11 should align the CRM
+mosaic, not CUDEM, to the 30 m target grid.
+
 ## Why This Source Order
 
-NOAA Coastal DEMs / CUDEM are the preferred Monterey source because the NCEI
+NOAA CRM is the preferred first mask source because the current filtering need
+is coarse and coverage-sensitive. A permissive depth cutoff such as
+approximately 100 m should remove obviously deep offshore cells while retaining
+plausible kelp habitat. For that use, a continuous 1 arc-second coastal
+topo-bathy mosaic is more useful than a finer CUDEM source with large local
+coverage gaps.
+
+NOAA Coastal DEMs / CUDEM remain useful where available because the NCEI
 Coastal DEM catalog is explicitly coastal and includes tiled CUDEM
-bathymetric-topographic products at 1/9 and 1/3 arc-second access paths. This
-matches the nearshore problem better than starting with a global grid.
+bathymetric-topographic products at 1/9 and 1/3 arc-second access paths.
+However, the current selected CUDEM tile set is not continuous across the
+configured Monterey/Big Sur target grid, so CUDEM should be QA/refinement rather
+than the first primary mask input.
 
 NOAA CUSP is the shoreline-side source because it is a U.S. coastal shoreline
 product, distributed as ESRI shapefile, with national coastal coverage. It
@@ -57,9 +83,12 @@ download:
   `tasks/16_download_noaa_cusp.md`.
 - `P1-10c`: USGS 3DEP fallback query/download pair,
   `tasks/17_download_usgs_3dep.md`.
+- `P1-10d`: NOAA CRM California mosaic query/download pair,
+  `tasks/18_query_download_noaa_crm.md`.
 
-Do not add GEBCO or Copernicus downloader tasks for Monterey unless NOAA
-coverage is unavailable or unsuitable after source inspection.
+Do not add GEBCO or Copernicus downloader tasks for Monterey unless NOAA CRM
+coverage is unavailable or unsuitable after source inspection. Do not run a real
+CRM download until the P1-10d query manifest has been inspected.
 
 ## Expected Artifacts
 
@@ -69,17 +98,20 @@ Raw source files should remain outside the code repo:
 /Volumes/x10pro/kelp_aef/raw/domain/noaa_cudem/
 /Volumes/x10pro/kelp_aef/raw/domain/noaa_cusp/
 /Volumes/x10pro/kelp_aef/raw/domain/usgs_3dep/
+/Volumes/x10pro/kelp_aef/raw/domain/noaa_crm/
 ```
 
-CUSP and 3DEP source manifests should be written under:
+CUSP, 3DEP, and CRM source manifests should be written under:
 
 ```text
 /Volumes/x10pro/kelp_aef/interim/noaa_cusp_source_manifest.json
 /Volumes/x10pro/kelp_aef/interim/usgs_3dep_source_manifest.json
+/Volumes/x10pro/kelp_aef/interim/noaa_crm_source_manifest.json
 ```
 
-The NOAA CUDEM, CUSP, and 3DEP tasks use separate query and download manifests
-because selected artifacts should come from the configured Monterey geometry:
+The NOAA CUDEM, CUSP, 3DEP, and CRM tasks use separate query and download
+manifests because selected artifacts should come from the configured Monterey
+geometry:
 
 ```text
 /Volumes/x10pro/kelp_aef/interim/noaa_cudem_tile_query_manifest.json
@@ -88,6 +120,8 @@ because selected artifacts should come from the configured Monterey geometry:
 /Volumes/x10pro/kelp_aef/interim/noaa_cusp_source_manifest.json
 /Volumes/x10pro/kelp_aef/interim/usgs_3dep_query_manifest.json
 /Volumes/x10pro/kelp_aef/interim/usgs_3dep_source_manifest.json
+/Volumes/x10pro/kelp_aef/interim/noaa_crm_query_manifest.json
+/Volumes/x10pro/kelp_aef/interim/noaa_crm_source_manifest.json
 ```
 
 Small Monterey coverage footprints or indexes, if needed, may be written under:
@@ -114,8 +148,9 @@ Every P1-10 source manifest should record:
 - Raster resolution or vector scale/resolution notes.
 - File size or checksum.
 - License/access notes.
-- Source role: preferred topo-bathy, shoreline-side source, land-side fallback,
-  global bathymetry fallback, or global land-side fallback.
+- Source role: primary broad topo-bathy, higher-resolution QA topo-bathy,
+  shoreline-side source, land-side fallback, global bathymetry fallback, or
+  global land-side fallback.
 
 The CUSP manifest should clearly distinguish shoreline-side data from
 topo-bathy/elevation data.
@@ -128,11 +163,15 @@ negative is ocean depth, unless selected source metadata proves otherwise.
 ```text
 depth_m = max(0, -elevation_m)
 
-strict kelp candidate:
+broad first-pass kelp candidate:
+  oceanward of shoreline
+  depth_m between 0 and 100 m
+
+strict kelp candidate for later QA:
   oceanward of shoreline
   depth_m between 0 and 40 m
 
-QA/permissive candidate:
+intermediate QA candidate:
   oceanward of shoreline
   depth_m between 0 and 50 m
 
@@ -148,8 +187,9 @@ Do not use `elevation_m > 0` alone as a hard coastline rule. Datums, tides,
 beaches, marshes, cliffs, and mixed pixels make the immediate shoreline noisy.
 
 After the aligned mask exists, validate known Kelpwatch-positive labels by
-depth. Any positives deeper than 40 m should be inspected before tightening the
-cutoff.
+depth. The first CRM-backed mask may use approximately 100 m as a permissive
+cutoff. Any positives deeper than 40-50 m should be inspected before tightening
+the cutoff, not dropped automatically during the first broad filter.
 
 ## Non-Goals
 
@@ -160,6 +200,8 @@ cutoff.
 - Do not use bathymetry/DEM as model predictors in Phase 1.
 - Do not start full West Coast or global source work in the Monterey Phase 1
   domain-filter tasks.
+- Do not bulk-download full NOAA CRM regional products before inspecting the
+  CRM query manifest for the configured target-grid intersection.
 - Do not bulk-download global GEBCO or Copernicus products for Monterey unless
   the source decision is revised.
 
@@ -169,6 +211,12 @@ Checked on 2026-05-11:
 
 - NOAA Coastal DEMs / CUDEM:
   <https://www.ncei.noaa.gov/products/coastal-elevation-models>.
+- NOAA Coastal Relief Model:
+  <https://www.ncei.noaa.gov/products/coastal-relief-model>.
+- NOAA Southern California CRM version 2:
+  <https://www.ncei.noaa.gov/access/metadata/landing-page/bin/iso?id=gov.noaa.ngdc.mgg.dem%3A4970>.
+- NOAA CRM THREDDS catalog:
+  <https://www.ngdc.noaa.gov/thredds/catalog/crm/cudem/catalog.html>.
 - NOAA CUSP:
   <https://coast.noaa.gov/digitalcoast/data/cusp.html>.
 - USGS 3DEP 1/3 arc-second DEM:
