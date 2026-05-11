@@ -134,9 +134,9 @@ masking change should end with an updated model-analysis report.
   - Plan: `tasks/14_bathymetry_dem_source_plan.md`.
   - Completed: `docs/phase1_bathymetry_dem_source_decision.md`.
   - Validation: docs-only diff inspection; no pipeline behavior changes yet.
-- [ ] P1-10a: Add a NOAA CUDEM / Coastal DEM download script.
-  - Goal: Create one package-backed downloader for the preferred Monterey
-    topo-bathy source.
+- [ ] P1-10a: Add NOAA CUDEM / Coastal DEM query and download scripts.
+  - Goal: Create package-backed query and downloader commands for the
+    preferred Monterey topo-bathy source.
   - Plan: `tasks/15_download_noaa_cudem.md`.
   - Validation: `make check` and a dry-run command that writes a manifest to
     `/private/tmp`.

@@ -2,11 +2,11 @@
 
 ## Goal
 
-Create the first package-backed script for downloading or registering the
-preferred Monterey topo-bathy source from NOAA Coastal DEMs / CUDEM.
+Create the first package-backed query and download scripts for the preferred
+Monterey topo-bathy source from NOAA Coastal DEMs / CUDEM.
 
-This task should create exactly one dataset-specific downloader. It should not
-download CUSP, 3DEP, GEBCO, or Copernicus data.
+This task should create exactly one dataset-specific query/download pair. It
+should not download CUSP, 3DEP, GEBCO, or Copernicus data.
 
 ## Inputs
 
@@ -21,14 +21,17 @@ download CUSP, 3DEP, GEBCO, or Copernicus data.
 
 ## Outputs
 
-- New package module for the CUDEM downloader, for example:
+- New package module for the CUDEM query/download workflow, for example:
   `src/kelp_aef/domain/noaa_cudem.py`.
-- CLI command wired through `src/kelp_aef/cli.py`, for example:
+- CLI commands wired through `src/kelp_aef/cli.py`, for example:
+  `kelp-aef query-noaa-cudem`.
   `kelp-aef download-noaa-cudem`.
 - Raw CUDEM/Coastal DEM artifact under:
   `/Volumes/x10pro/kelp_aef/raw/domain/noaa_cudem/`.
-- CUDEM source manifest under:
-  `/Volumes/x10pro/kelp_aef/interim/noaa_cudem_source_manifest.json`.
+- CUDEM tile query manifest under:
+  `/Volumes/x10pro/kelp_aef/interim/noaa_cudem_tile_query_manifest.json`.
+- CUDEM tile download manifest under:
+  `/Volumes/x10pro/kelp_aef/interim/noaa_cudem_tile_manifest.json`.
 - Unit tests for manifest construction, dry-run behavior, and local path
   derivation.
 
@@ -43,23 +46,32 @@ Do not add CUSP or 3DEP paths in this task.
 
 Brief implementation plan before editing code. Include:
 
-- Exact NOAA CUDEM/Coastal DEM product or artifact selected for Monterey.
-- Expected source URI and local mirror path.
-- Whether the task downloads the source file or registers an already-downloaded
-  file.
+- Exact NOAA CUDEM/Coastal DEM tile product selected for Monterey.
+- How the command queries the tile index with the configured region geometry.
+- Expected tile index URI, query manifest path, tile source URI fields, and
+  local mirror path policy.
+- Whether the query task downloads only the small tile index or uses a
+  pre-registered local tile index.
+- Whether the download task downloads tile files or registers
+  already-downloaded files.
 - Dry-run behavior.
 - Idempotency and checksum/file-size validation.
 
 ## Implementation Plan
 
-- Add a small package-backed downloader module. Avoid notebook-only workflow.
-- Add one CLI command for this source with `--dry-run`, `--manifest-output`,
-  `--force`, and timeout options if remote downloads are used.
+- Add a small package-backed query/download module. Avoid notebook-only
+  workflow.
+- Add one CLI command to query the CUDEM tile index using the configured region
+  geometry.
+- Add one CLI command to download or register only the tiles selected by the
+  query manifest.
+- Both commands should include `--dry-run`, `--manifest-output`, `--force`, and
+  timeout options where relevant.
 - Use structured logging for progress, selected source, local path decisions,
   and validation status.
 - Write transfers to a temporary sibling path such as `*.part`, then replace
   the final path only after validation succeeds.
-- Build a source manifest even in dry-run mode.
+- Build query/download manifests even in dry-run mode.
 - Inspect local raster metadata with maintained geospatial libraries, not ad
   hoc parsing.
 - Add docstrings to every new function, including private helpers and test
@@ -71,7 +83,8 @@ Focused validation:
 
 ```bash
 uv run pytest tests/test_noaa_cudem.py
-kelp-aef download-noaa-cudem --config configs/monterey_smoke.yaml --dry-run --manifest-output /private/tmp/noaa_cudem_source_manifest_dry_run.json
+kelp-aef query-noaa-cudem --config configs/monterey_smoke.yaml --dry-run --manifest-output /private/tmp/noaa_cudem_tile_query_manifest_dry_run.json
+kelp-aef download-noaa-cudem --config configs/monterey_smoke.yaml --dry-run --skip-remote-checks --query-manifest /private/tmp/noaa_cudem_tile_query_manifest_dry_run.json --manifest-output /private/tmp/noaa_cudem_tile_manifest_dry_run.json
 ```
 
 Full validation if code/config changes are made:
@@ -83,6 +96,7 @@ make check
 Real data command, to run only after reviewing the dry-run plan:
 
 ```bash
+kelp-aef query-noaa-cudem --config configs/monterey_smoke.yaml --download-index
 kelp-aef download-noaa-cudem --config configs/monterey_smoke.yaml
 ```
 
@@ -94,10 +108,13 @@ kelp-aef download-noaa-cudem --config configs/monterey_smoke.yaml
 
 ## Acceptance Criteria
 
-- Adds one package-backed CUDEM downloader command.
-- Dry-run writes a manifest without downloading large data.
-- Real run downloads or registers only the selected Monterey CUDEM/Coastal DEM
-  source.
+- Adds one package-backed CUDEM tile-query command and one package-backed CUDEM
+  tile-download command.
+- Dry-run writes manifests without downloading tile data.
+- Query output selects tiles by intersection with the configured Monterey
+  geometry.
+- Real download/register run downloads or registers only the selected Monterey
+  CUDEM/Coastal DEM tiles.
 - Manifest records source name, source URI, local path, date accessed, CRS,
   vertical datum when available, bounds, units, elevation/depth sign convention,
   raster resolution, file size or checksum, and license/access notes.

@@ -80,6 +80,26 @@ alignment:
     summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table.fast_summary.csv
     comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table.fast_method_comparison.csv
 
+domain:
+  noaa_cudem:
+    source_name: NOAA NCEI Continuously Updated DEM 1/9 Arc-Second Topobathy Tiles
+    source_role: preferred_topo_bathy
+    product_id: gov.noaa.ngdc.mgg.dem:199919
+    metadata_url: https://www.ncei.noaa.gov/access/metadata/landing-page/bin/iso?id=gov.noaa.ngdc.mgg.dem%3A199919
+    bulk_url: https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/
+    tile_index_url: https://noaa-nos-coastal-lidar-pds.s3.amazonaws.com/dem/NCEI_ninth_Topobathy_2014_8483/tileindex_NCEI_ninth_Topobathy_2014.zip
+    url_list_url: https://noaa-nos-coastal-lidar-pds.s3.amazonaws.com/dem/NCEI_ninth_Topobathy_2014_8483/urllist8483.txt
+    tile_index_path: /Volumes/x10pro/kelp_aef/raw/domain/noaa_cudem/tileindex_NCEI_ninth_Topobathy_2014.zip
+    local_tile_root: /Volumes/x10pro/kelp_aef/raw/domain/noaa_cudem/tiles
+    query_manifest: /Volumes/x10pro/kelp_aef/interim/noaa_cudem_tile_query_manifest.json
+    tile_manifest: /Volumes/x10pro/kelp_aef/interim/noaa_cudem_tile_manifest.json
+    horizontal_crs: EPSG:4269
+    vertical_datum: NAVD88
+    units: meters
+    resolution: 1/9 arc-second
+    grid_spacing_arc_seconds: 0.1111111111
+    elevation_sign_convention: positive land elevation and negative ocean depth
+
 splits:
   train_years: [2018, 2019, 2020]
   validation_years: [2021]

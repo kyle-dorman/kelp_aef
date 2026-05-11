@@ -48,7 +48,7 @@ where 3DEP is available.
 
 Implement one package-backed script per selected near-term source:
 
-- `P1-10a`: NOAA CUDEM / Coastal DEM downloader,
+- `P1-10a`: NOAA CUDEM / Coastal DEM query/download pair,
   `tasks/15_download_noaa_cudem.md`.
 - `P1-10b`: NOAA CUSP shoreline downloader,
   `tasks/16_download_noaa_cusp.md`.
@@ -68,12 +68,19 @@ Raw source files should remain outside the code repo:
 /Volumes/x10pro/kelp_aef/raw/domain/usgs_3dep/
 ```
 
-Source manifests should be written under:
+Non-CUDEM source manifests should be written under:
 
 ```text
-/Volumes/x10pro/kelp_aef/interim/noaa_cudem_source_manifest.json
 /Volumes/x10pro/kelp_aef/interim/noaa_cusp_source_manifest.json
 /Volumes/x10pro/kelp_aef/interim/usgs_3dep_source_manifest.json
+```
+
+The NOAA CUDEM task uses separate query and download manifests because the
+selected tiles should come from the configured Monterey geometry:
+
+```text
+/Volumes/x10pro/kelp_aef/interim/noaa_cudem_tile_query_manifest.json
+/Volumes/x10pro/kelp_aef/interim/noaa_cudem_tile_manifest.json
 ```
 
 Small Monterey coverage footprints or indexes, if needed, may be written under:
