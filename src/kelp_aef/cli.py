@@ -10,6 +10,7 @@ from pathlib import Path
 from kelp_aef.alignment.feature_label_table import align_features_labels
 from kelp_aef.alignment.full_grid import align_full_grid
 from kelp_aef.domain.noaa_cudem import download_noaa_cudem, query_noaa_cudem
+from kelp_aef.domain.noaa_cusp import download_noaa_cusp, query_noaa_cusp
 from kelp_aef.evaluation.baselines import predict_full_grid, train_baselines
 from kelp_aef.evaluation.model_analysis import analyze_model
 from kelp_aef.features.aef_catalog import query_aef_catalog
@@ -34,6 +35,8 @@ COMMANDS: dict[str, str] = {
     "download-aef": "Download selected AEF tile assets from the catalog query.",
     "query-noaa-cudem": "Query the NOAA CUDEM tile index for the configured region.",
     "download-noaa-cudem": "Download selected NOAA CUDEM tiles from the query manifest.",
+    "query-noaa-cusp": "Query the NOAA CUSP shoreline source for the configured region.",
+    "download-noaa-cusp": "Download selected NOAA CUSP shoreline sources from the query manifest.",
     "inspect-kelpwatch": "Inspect Kelpwatch metadata for the configured region.",
     "visualize-kelpwatch": "Visualize downloaded Kelpwatch source data for QA.",
     "fetch-aef-chip": "Fetch or stage AlphaEarth embedding samples for the configured region.",
@@ -139,6 +142,10 @@ def build_parser() -> argparse.ArgumentParser:
             add_query_noaa_cudem_arguments(subparser)
         if command == "download-noaa-cudem":
             add_download_noaa_cudem_arguments(subparser)
+        if command == "query-noaa-cusp":
+            add_query_noaa_cusp_arguments(subparser)
+        if command == "download-noaa-cusp":
+            add_download_noaa_cusp_arguments(subparser)
         if command == "inspect-kelpwatch":
             add_inspect_kelpwatch_arguments(subparser)
         if command == "visualize-kelpwatch":
@@ -252,6 +259,72 @@ def add_query_noaa_cudem_arguments(parser: argparse.ArgumentParser) -> None:
         "--force",
         action="store_true",
         help="Download the tile index even when a local file already exists.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=positive_float,
+        default=30.0,
+        help="HTTP timeout in seconds for remote checks and downloads.",
+    )
+
+
+def add_query_noaa_cusp_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add NOAA CUSP source-query options to the query-noaa-cusp subcommand."""
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build a query plan without checking or downloading the CUSP source package.",
+    )
+    parser.add_argument(
+        "--manifest-output",
+        type=Path,
+        default=None,
+        help="Optional query manifest output path, useful for dry-run plans.",
+    )
+    parser.add_argument(
+        "--skip-remote-checks",
+        action="store_true",
+        help="Skip remote HEAD checks during non-dry-run queries.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=positive_float,
+        default=30.0,
+        help="HTTP timeout in seconds for remote checks.",
+    )
+
+
+def add_download_noaa_cusp_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add NOAA CUSP source-download options to the download-noaa-cusp subcommand."""
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Build a source manifest plan without downloading data or updating "
+            "metadata_summary.json."
+        ),
+    )
+    parser.add_argument(
+        "--skip-remote-checks",
+        action="store_true",
+        help="Skip remote HEAD checks; useful for fast local validation.",
+    )
+    parser.add_argument(
+        "--manifest-output",
+        type=Path,
+        default=None,
+        help="Optional manifest output path, useful for dry-run plans.",
+    )
+    parser.add_argument(
+        "--query-manifest",
+        type=Path,
+        default=None,
+        help="Optional NOAA CUSP query manifest path override.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Download the CUSP source package even when a local file already exists.",
     )
     parser.add_argument(
         "--timeout-seconds",
@@ -423,6 +496,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif command == "download-noaa-cudem":
             exit_code = download_noaa_cudem(
+                config_path,
+                dry_run=bool(args.dry_run),
+                skip_remote_checks=bool(args.skip_remote_checks),
+                manifest_output=args.manifest_output,
+                query_manifest=args.query_manifest,
+                timeout_seconds=float(args.timeout_seconds),
+                force=bool(args.force),
+            )
+        elif command == "query-noaa-cusp":
+            exit_code = query_noaa_cusp(
+                config_path,
+                dry_run=bool(args.dry_run),
+                manifest_output=args.manifest_output,
+                timeout_seconds=float(args.timeout_seconds),
+                skip_remote_checks=bool(args.skip_remote_checks),
+            )
+        elif command == "download-noaa-cusp":
+            exit_code = download_noaa_cusp(
                 config_path,
                 dry_run=bool(args.dry_run),
                 skip_remote_checks=bool(args.skip_remote_checks),

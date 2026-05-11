@@ -16,6 +16,8 @@ def test_cli_imports() -> None:
         "download-aef",
         "query-noaa-cudem",
         "download-noaa-cudem",
+        "query-noaa-cusp",
+        "download-noaa-cusp",
         "inspect-kelpwatch",
         "visualize-kelpwatch",
         "fetch-aef-chip",

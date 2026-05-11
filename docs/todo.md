@@ -140,12 +140,17 @@ masking change should end with an updated model-analysis report.
   - Plan: `tasks/15_download_noaa_cudem.md`.
   - Validation: `make check` and a dry-run command that writes a manifest to
     `/private/tmp`.
-- [ ] P1-10b: Add NOAA CUSP shoreline query and download scripts.
+- [x] P1-10b: Add NOAA CUSP shoreline query and download scripts.
   - Goal: Create package-backed query and downloader commands for
     shoreline-side classification.
   - Plan: `tasks/16_download_noaa_cusp.md`.
   - Validation: `make check` and a dry-run command that writes a manifest to
     `/private/tmp`.
+  - Validation passed:
+    `uv run pytest tests/test_noaa_cusp.py`,
+    `uv run kelp-aef query-noaa-cusp --config configs/monterey_smoke.yaml --dry-run --manifest-output /private/tmp/noaa_cusp_query_manifest_dry_run.json`,
+    `uv run kelp-aef download-noaa-cusp --config configs/monterey_smoke.yaml --dry-run --query-manifest /private/tmp/noaa_cusp_query_manifest_dry_run.json --manifest-output /private/tmp/noaa_cusp_source_manifest_dry_run.json`,
+    and `make check`.
 - [ ] P1-10c: Add USGS 3DEP land DEM fallback query and download scripts.
   - Goal: Create package-backed query and downloader commands for the U.S.
     land-side fallback.

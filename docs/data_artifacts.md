@@ -25,6 +25,7 @@ Expected directory layout:
     kelpwatch/
     aef/
     aef_samples/
+    domain/
   geos/
   interim/
   processed/
@@ -153,3 +154,14 @@ The high-level artifact categories are defined in
 `docs/phase1_model_domain_hardening.md`. Add exact artifact rows here only when
 the corresponding implementation task defines concrete paths in
 `configs/monterey_smoke.yaml`.
+
+## Phase 1 Domain Source Outputs
+
+These outputs support the Monterey domain-filter tasks. They are generated
+artifacts and should not be tracked in git.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| NOAA CUSP query manifest | `/Volumes/x10pro/kelp_aef/interim/noaa_cusp_query_manifest.json` | Selected CUSP regional package, local mirror path, source metadata, and Monterey coverage check. | Not tracked |
+| NOAA CUSP source package | `/Volumes/x10pro/kelp_aef/raw/domain/noaa_cusp/West.zip` | NOAA NSDE West regional CUSP shoreline shapefile ZIP for shoreline-side support. | Not tracked |
+| NOAA CUSP source manifest | `/Volumes/x10pro/kelp_aef/interim/noaa_cusp_source_manifest.json` | Transfer status, remote/local file size, vector metadata, and source provenance for the CUSP package. | Not tracked |

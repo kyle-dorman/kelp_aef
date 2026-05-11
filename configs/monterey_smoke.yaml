@@ -99,6 +99,28 @@ domain:
     resolution: 1/9 arc-second
     grid_spacing_arc_seconds: 0.1111111111
     elevation_sign_convention: positive land elevation and negative ocean depth
+  noaa_cusp:
+    source_name: NOAA NGS Continually Updated Shoreline Product
+    source_role: shoreline_side_source
+    product_id: gov.noaa.nmfs.inport:60812
+    metadata_url: https://www.fisheries.noaa.gov/inport/item/60812
+    source_page_url: https://coast.noaa.gov/digitalcoast/data/cusp.html
+    viewer_url: https://nsde.ngs.noaa.gov/
+    package_region: West
+    source_uri: https://geodesy.noaa.gov/dist_shoreline/West.zip
+    local_source_root: /Volumes/x10pro/kelp_aef/raw/domain/noaa_cusp
+    query_manifest: /Volumes/x10pro/kelp_aef/interim/noaa_cusp_query_manifest.json
+    source_manifest: /Volumes/x10pro/kelp_aef/interim/noaa_cusp_source_manifest.json
+    horizontal_crs: EPSG:4269
+    data_format: ESRI shapefile ZIP
+    shoreline_reference: proxy mean high water
+    scale: variable; 1:1,000-1:24,000
+    geometry_type: line shoreline vectors
+    package_bounds:
+      west: -125.0
+      south: 32.0
+      east: -114.0
+      north: 49.5
 
 splits:
   train_years: [2018, 2019, 2020]
