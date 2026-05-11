@@ -96,6 +96,7 @@ models:
     drop_missing_features: true
     use_sample_weight: false
     ridge_model: /Volumes/x10pro/kelp_aef/models/baselines/ridge_kelp_fraction.joblib
+    geographic_model: /Volumes/x10pro/kelp_aef/models/baselines/geographic_ridge_lon_lat_year.joblib
     sample_predictions: /Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet
     predictions: /Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet
     prediction_manifest: /Volumes/x10pro/kelp_aef/interim/baseline_full_grid_prediction_manifest.json
@@ -129,6 +130,8 @@ reports:
     ridge_residual_interactive: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.html
     area_bias_by_year: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv
     area_bias_by_latitude_band: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_latitude_band.csv
+    reference_baseline_fallback_summary: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_fallback_summary.csv
+    reference_baseline_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.csv
     top_residual_stations: /Volumes/x10pro/kelp_aef/reports/tables/top_residual_stations.csv
     map_residuals_manifest: /Volumes/x10pro/kelp_aef/interim/map_residuals_manifest.json
     model_analysis_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md

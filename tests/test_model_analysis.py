@@ -27,6 +27,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         "feature_separability",
         "phase1_decision",
         "phase1_model_comparison",
+        "reference_area_calibration",
         "data_health",
         "quarter_mapping",
         "label_distribution_figure",
@@ -82,11 +83,12 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert fixture["pdf_report"].stat().st_size > 0
     assert "Phase 1 Harness Status" in report
     assert "Model Comparison" in report
+    assert "Reference Baseline Ranking" in report
     assert "Phase 1 Coverage Gaps" in report
     assert "Phase 0 Decision Evidence" not in report
     assert "failed ridge objective" in report
     assert "sampling/objective calibration problem" in report
-    assert "previous-year kelp" in report
+    assert "previous-year persistence" in report
     assert "Observed, Predicted, And Error Map" in report
     assert "![Observed, predicted, and residual map]" in report
     assert "ridge_2022_residual_interactive.html" in report
@@ -144,6 +146,8 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         "phase1_decision": tmp_path / "reports/tables/model_analysis_phase1_decision_matrix.csv",
         "phase1_model_comparison": tmp_path
         / "reports/tables/model_analysis_phase1_model_comparison.csv",
+        "reference_area_calibration": tmp_path
+        / "reports/tables/reference_baseline_area_calibration.csv",
         "data_health": tmp_path / "reports/tables/model_analysis_data_health.csv",
         "quarter_mapping": tmp_path / "reports/tables/model_analysis_quarter_mapping.csv",
         "label_distribution_figure": tmp_path
@@ -221,6 +225,7 @@ reports:
     model_analysis_feature_separability: {paths["feature_separability"]}
     model_analysis_phase1_decision_matrix: {paths["phase1_decision"]}
     model_analysis_phase1_model_comparison: {paths["phase1_model_comparison"]}
+    reference_baseline_area_calibration: {paths["reference_area_calibration"]}
     model_analysis_data_health: {paths["data_health"]}
     model_analysis_quarter_mapping: {paths["quarter_mapping"]}
     model_analysis_label_distribution_figure: {paths["label_distribution_figure"]}

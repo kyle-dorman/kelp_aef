@@ -20,6 +20,47 @@ AEF ridge model using the existing year holdout:
 - Validation: 2021.
 - Test: 2022.
 
+## Fast/Simple Implementation Direction
+
+Do this with cached baseline state and small summary artifacts, not by writing a
+giant full-grid prediction dataset for every reference model.
+
+The fast shape is:
+
+- Fit each baseline once and cache the model/output state needed for reuse.
+- Use Polars lazy scans for large Parquet inputs whenever possible.
+- Build station/sample predictions and metrics on the existing sampled model
+  input.
+- Build full-grid area calibration as aggregate summary rows, not row-level
+  predictions for every reference baseline.
+- Keep `predict-full-grid` as the map-oriented inference path for models that
+  need row-level full-grid maps. Do not make it materialize no-skill,
+  previous-year, climatology, and geographic prediction rows across the full
+  grid just to compute area totals.
+- Keep `analyze-model` as the analysis/report consumer. It should read cached
+  model, prediction, fallback, and area-calibration artifacts; it should not
+  retrain models or redo expensive full-grid joins.
+
+Why this matters:
+
+- The full-grid table is tens of millions of rows. Multiplying it by every
+  reference model turns a simple baseline comparison into a huge write.
+- Previous-year and climatology need cell-key lookups, but those lookups should
+  be built once and cached, or computed once as a lazy aggregate. They should
+  not be rebuilt or joined inside every streamed `predict-full-grid` batch.
+- Full-grid calibration only needs sums, counts, and errors by model, split,
+  year, and label source. It does not require a per-cell prediction artifact for
+  every reference baseline.
+
+Prefer a Polars implementation for the large-table pieces:
+
+- Add `polars` as a dependency if it is not already present.
+- Use `pl.scan_parquet(...)` for full-grid inputs.
+- Use lazy joins/group-bys and streaming collection for aggregate outputs.
+- Convert to pandas only at small boundaries where existing report code expects
+  pandas DataFrames.
+- Keep pandas acceptable for small sample artifacts and tests.
+
 ## Inputs
 
 - Config: `configs/monterey_smoke.yaml`.
@@ -55,25 +96,35 @@ AEF ridge model using the existing year holdout:
 - Updated sample prediction table containing the current no-skill/ridge rows
   plus reference-baseline rows:
   `/Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet`.
-- Updated full-grid prediction dataset containing ridge and all full-grid
-  reference baselines:
-  `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet`.
+- Cached reference-baseline artifacts for fast reuse:
+  - train-mean no-skill scalar in the ridge model payload;
+  - sample prediction rows for no-skill, ridge, previous-year, climatology, and
+    geography;
+  - fallback summary rows for previous-year and climatology availability;
+  - geographic lat/lon/year model payload;
+  - compact full-grid area-calibration rows with a freshness check so
+    `analyze-model` can reuse the CSV when model/config/inference inputs have
+    not changed.
 - Updated baseline metrics table with matching station/sample metrics for all
   models:
   `/Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.csv`.
 - New reference-baseline fallback summary table:
   `/Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_fallback_summary.csv`.
-- Updated full-grid area-bias tables:
-  `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv`.
-  `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_latitude_band.csv`.
+- New reference-baseline full-grid area-calibration summary:
+  `/Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.csv`.
+  This should be a compact aggregate table, not a row-level prediction dataset.
+- Existing ridge map/full-grid prediction artifacts remain map-oriented:
+  `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet`.
+  Do not expand this dataset to contain every reference baseline unless a later
+  task explicitly asks for full-grid maps for those baselines.
 - Updated Phase 1 model-comparison table:
   `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_phase1_model_comparison.csv`.
 - Updated Phase 1 model-analysis report in Markdown, HTML, and PDF.
-- Updated manifests for baseline training, full-grid prediction, residual maps,
-  and model analysis.
+- Updated manifests for baseline-state caching, reference area calibration, and
+  model analysis.
 - Unit tests covering previous-year alignment, climatology fallback behavior,
-  geographic baseline training, full-grid area-calibration rows, and report
-  ranking.
+  geographic baseline training, full-grid area-calibration summaries, and
+  report ranking.
 - Updated `docs/todo.md` checkboxes for P1-04 through P1-08 only after the
   corresponding implementation and validation pass.
 
@@ -91,6 +142,7 @@ Expected config addition under `reports.outputs`:
 
 ```yaml
 reference_baseline_fallback_summary: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_fallback_summary.csv
+reference_baseline_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.csv
 ```
 
 If a separate geographic model artifact is needed, add it under
@@ -100,9 +152,14 @@ If a separate geographic model artifact is needed, add it under
 geographic_model: /Volumes/x10pro/kelp_aef/models/baselines/geographic_ridge_lon_lat_year.joblib
 ```
 
-Do not add a new CLI command for this task. Extend the existing
-`train-baselines`, `predict-full-grid`, `map-residuals`, and `analyze-model`
-loop.
+Do not add a new CLI command unless the implementation becomes awkward without
+one. The preferred shape is:
+
+- `train-baselines`: fit/cache model state and sample predictions.
+- `analyze-model`: consume cached model state, sample metrics, fallback
+  summaries, and full-grid area-calibration summaries for reporting.
+- `predict-full-grid`: continue to produce row-level map predictions for the
+  configured map model, not every reference baseline.
 
 ## Plan/Spec Requirement
 
@@ -113,6 +170,10 @@ Before editing code, confirm that the current prediction schema, model-analysis
 table contract, and residual map grouping still match this task. If the current
 checkout has already added equivalent baseline surfaces, reuse them instead of
 adding duplicates.
+
+Also check whether a prior interrupted `predict-full-grid` run left a partial
+`baseline_full_grid_predictions.parquet` dataset. Treat such output as invalid
+until it is regenerated by the corrected map-oriented path.
 
 Write a separate decision note only if implementation changes one of these
 policy choices:
@@ -149,6 +210,9 @@ Implementation notes:
 - Add reference-baseline helpers in a small module such as
   `src/kelp_aef/evaluation/reference_baselines.py`, or split helpers out of
   `baselines.py` if that is cleaner.
+- Prefer Polars lazy scans/joins for large lookup construction and aggregation.
+  Pandas is fine for the sampled model frame if that keeps the existing metric
+  code simple.
 - Use a stable cell key for year-to-year joins. Prefer `aef_grid_cell_id`; fall
   back to `aef_grid_row` plus `aef_grid_col`; fail clearly if neither key is
   available.
@@ -164,6 +228,8 @@ Implementation notes:
   residual columns, and provenance columns.
 - Add a fallback/missing-history summary row for previous-year prediction
   counts, even if all validation/test rows are covered.
+- Keep reusable outputs cached. Do not add a separate lookup-state directory
+  unless the lazy full-grid calibration becomes a measured bottleneck.
 
 Focused validation:
 
@@ -182,36 +248,43 @@ Acceptance:
 
 ### P1-05: Previous-Year Full-Grid Area Calibration
 
-Extend the previous-year baseline to full-grid inference.
+Extend the previous-year baseline to full-grid area calibration without writing
+row-level full-grid predictions for the previous-year model.
 
 Implementation notes:
 
-- Extend `predict-full-grid` so the shared full-grid prediction dataset includes
-  `previous_year_annual_max` rows in addition to `ridge_regression`.
-- Compute full-grid persistence by joining each full-grid year to the previous
-  year using the same stable cell key selected for P1-04.
+- Do not extend `predict-full-grid` to write `previous_year_annual_max` rows
+  across the full grid.
+- Use Polars lazy scans over
+  `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet`.
+- Compute previous-year full-grid area calibration with one lazy self-join, or
+  an equivalent cached lookup, using the same stable cell key selected for
+  P1-04.
+- Aggregate directly to summary rows by model, split, year, and label source.
 - Do not emit 2018 full-grid persistence rows unless a configured 2017 input is
   available, which is out of scope for Phase 1.
-- Keep `label_source` and `is_kelpwatch_observed` provenance in full-grid
-  prediction rows.
-- Update full-grid area-bias logic so `area_bias_by_year.csv` includes the
-  previous-year model and separates `kelpwatch_station` from
-  `assumed_background` in report/table outputs where appropriate.
+- Keep `label_source` and `is_kelpwatch_observed` provenance in aggregate
+  grouping where available.
+- Write previous-year rows to
+  `reference_baseline_area_calibration.csv`.
+- Keep the existing `baseline_full_grid_predictions.parquet` path reserved for
+  row-level map predictions.
 
 Focused validation:
 
 ```bash
 uv run pytest tests/test_baselines.py tests/test_model_analysis.py
-uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
-uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
 ```
 
 Acceptance:
 
-- Full-grid prediction rows include `previous_year_annual_max`.
-- The test-year full-grid comparison uses 2021 -> 2022.
+- The compact area-calibration table includes `previous_year_annual_max`.
+- The test-year full-grid calibration uses 2021 -> 2022.
 - The report or companion tables separate Kelpwatch-station rows from
   assumed-background rows for area calibration.
+- `baseline_full_grid_predictions.parquet` is not multiplied by reference
+  models.
 
 ### P1-06: Grid-Cell Climatology Baseline
 
@@ -231,19 +304,26 @@ Implementation notes:
   3. global training mean.
 - Write fallback counts by split, year, label source, and fallback reason to
   `reference_baseline_fallback_summary.csv`.
-- Use the same prediction schema for station/sample and full-grid predictions.
+- Use the existing prediction schema for station/sample predictions.
+- For full-grid calibration, aggregate lazily to
+  `reference_baseline_area_calibration.csv` instead of writing row-level
+  climatology predictions.
+- Cache the fallback summary and full-grid area-calibration output. Rebuild the
+  climatology lookup lazily only when the compact calibration table is missing
+  or stale.
 
 Focused validation:
 
 ```bash
 uv run pytest tests/test_baselines.py tests/test_model_analysis.py
 uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml
-uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
 ```
 
 Acceptance:
 
-- Sample and full-grid predictions include `grid_cell_climatology`.
+- Sample predictions include `grid_cell_climatology`.
+- Full-grid area calibration includes `grid_cell_climatology`.
 - Fallback counts are written and linked from the report.
 - Area calibration is reported for validation and test years.
 
@@ -258,23 +338,29 @@ Implementation notes:
 - Use the existing ridge alpha grid unless a separate
   `geographic_alpha_grid` is added to config.
 - Select alpha on validation RMSE only. Do not tune on the 2022 test split.
-- Save a compact model payload if needed for `predict-full-grid`.
-- Emit `geographic_ridge_lon_lat_year` rows into sample and full-grid
-  prediction artifacts.
+- Save a compact model payload for reuse.
+- Emit `geographic_ridge_lon_lat_year` rows into sample predictions.
+- For full-grid calibration, either:
+  - use Polars expressions from cached linear coefficients if straightforward;
+  - or stream feature batches through the cached model and aggregate metrics
+    without writing row-level predictions.
 - Keep missing-feature and missing-coordinate diagnostics explicit in the
   baseline manifest.
+- Only write row-level full-grid geographic predictions if a later task asks
+  for geographic baseline maps.
 
 Focused validation:
 
 ```bash
 uv run pytest tests/test_baselines.py
 uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml
-uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
 ```
 
 Acceptance:
 
-- Sample and full-grid predictions include `geographic_ridge_lon_lat_year`.
+- Sample predictions include `geographic_ridge_lon_lat_year`.
+- Full-grid area calibration includes `geographic_ridge_lon_lat_year`.
 - Validation alpha selection is recorded.
 - Metrics use the same split, label-source grouping, and thresholds as ridge.
 
@@ -287,6 +373,9 @@ Implementation notes:
 
 - Update `model_analysis_phase1_model_comparison.csv` so it includes every
   model listed above for station/sample metrics and full-grid area calibration.
+- Read full-grid calibration from
+  `reference_baseline_area_calibration.csv`, not from a giant multi-model
+  full-grid prediction dataset.
 - Add ranking columns or a stable sort policy that makes the key comparison
   explicit:
   - primary station skill: validation/test MAE or RMSE on
@@ -306,7 +395,6 @@ Focused validation:
 
 ```bash
 uv run pytest tests/test_model_analysis.py
-uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml
 uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
 ```
 
@@ -318,6 +406,8 @@ Acceptance:
 - Pixel skill and full-grid area calibration are visible for every baseline
   where the metric is meaningful.
 - The report separates Kelpwatch-station and assumed-background interpretation.
+- `analyze-model` uses cached/small artifacts and does not rerun expensive
+  full-grid model prediction.
 - P1-04 through P1-08 can be marked complete in `docs/todo.md`.
 
 ## Validation Command
@@ -328,10 +418,12 @@ Reference Baselines task, run:
 ```bash
 make check
 uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml
-uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
-uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml
 uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
 ```
+
+Run `predict-full-grid` and `map-residuals` only when validating that the
+configured map-oriented ridge prediction artifact still works. They should not
+be required just to add or compare reference baselines.
 
 Inspect the updated Phase 1 Markdown report and the model-comparison CSV after
 the final `analyze-model` run.
@@ -351,12 +443,16 @@ the final `analyze-model` run.
 
 - Previous-year station predictions exist and use 2020 -> 2021 for validation
   and 2021 -> 2022 for test.
-- Previous-year full-grid predictions exist and area calibration is reported by
-  split/year and label source.
-- Grid-cell climatology predictions exist for sample and full-grid outputs.
+- Previous-year full-grid area calibration is reported by split/year and label
+  source without materializing row-level previous-year full-grid predictions.
+- Grid-cell climatology predictions exist for sample outputs, and full-grid
+  climatology area calibration exists as compact summary rows.
 - Climatology fallback counts are written and reported.
 - The geographic baseline trains only on lat/lon/year and uses the same split
   policy as ridge.
+- The geographic baseline has sample predictions and full-grid area
+  calibration, without row-level full-grid geographic predictions unless maps
+  are explicitly needed.
 - The model-comparison table ranks no-skill, ridge, previous-year,
   climatology, and geography under the same metric contract.
 - The Phase 1 report includes a short interpretation of whether AEF ridge adds
@@ -372,6 +468,10 @@ the final `analyze-model` run.
 - Do not add alternative seasonal targets in this task.
 - Do not introduce bathymetry/DEM masking in this task.
 - Do not add binary, hurdle, tree, MLP, or deep spatial models in this task.
+- Do not expand `baseline_full_grid_predictions.parquet` into a multi-model
+  reference-baseline dataset.
+- Do not rebuild previous-year or climatology joins inside every streamed
+  prediction batch.
 - Do not start full West Coast scale-up.
 - Do not bulk-download any new AlphaEarth collection.
 - Do not tune model choices on the 2022 test split.

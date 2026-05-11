@@ -28,11 +28,13 @@ from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
 from kelp_aef.config import load_yaml_config, require_mapping, require_string
 from kelp_aef.evaluation.baselines import (
     KELPWATCH_PIXEL_AREA_M2,
+    load_baseline_config,
     parse_bands,
     percent_bias,
     precision_recall_f1,
     root_mean_squared_error,
     safe_ratio,
+    write_reference_area_calibration,
 )
 from kelp_aef.labels.kelpwatch import NETCDF_ENGINE
 
@@ -258,6 +260,21 @@ PHASE1_MODEL_COMPARISON_FIELDS = (
     "predicted_canopy_area",
     "area_pct_bias",
 )
+REFERENCE_AREA_CALIBRATION_FIELDS = (
+    "model_name",
+    "split",
+    "year",
+    "label_source",
+    "row_count",
+    "observed_canopy_area",
+    "predicted_canopy_area",
+    "area_bias",
+    "area_pct_bias",
+    "mae",
+    "rmse",
+    "r2",
+    "f1_ge_10pct",
+)
 DATA_HEALTH_FIELDS = (
     "check_name",
     "split",
@@ -308,6 +325,8 @@ class ModelAnalysisConfig:
     phase1_decision_path: Path
     phase1_model_comparison_path: Path
     data_health_path: Path
+    reference_area_calibration_path: Path
+    fallback_summary_path: Path
     quarter_mapping_path: Path
     label_distribution_figure: Path
     observed_predicted_figure: Path
@@ -337,6 +356,7 @@ class AnalysisTables:
     phase1_model_comparison: list[dict[str, object]]
     data_health: list[dict[str, object]]
     quarter_mapping: list[dict[str, object]]
+    reference_area_calibration: list[dict[str, object]]
 
 
 @dataclass(frozen=True)
@@ -358,7 +378,8 @@ def analyze_model(config_path: Path) -> int:
     analysis_config = load_model_analysis_config(config_path)
     LOGGER.info("Loading model-analysis inputs")
     data = load_analysis_data(analysis_config)
-    tables = build_analysis_tables(data, analysis_config)
+    reference_area_calibration = build_or_load_reference_area_calibration(analysis_config)
+    tables = build_analysis_tables(data, analysis_config, reference_area_calibration)
     write_analysis_tables(tables, analysis_config)
     write_analysis_figures(data, tables, analysis_config)
     write_report(data, tables, analysis_config)
@@ -528,6 +549,16 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             "model_analysis_data_health",
             tables_dir / "model_analysis_data_health.csv",
         ),
+        reference_area_calibration_path=output_path(
+            outputs,
+            "reference_baseline_area_calibration",
+            tables_dir / "reference_baseline_area_calibration.csv",
+        ),
+        fallback_summary_path=output_path(
+            outputs,
+            "reference_baseline_fallback_summary",
+            tables_dir / "reference_baseline_fallback_summary.csv",
+        ),
         quarter_mapping_path=output_path(
             outputs,
             "model_analysis_quarter_mapping",
@@ -695,6 +726,78 @@ def load_analysis_data(analysis_config: ModelAnalysisConfig) -> AnalysisData:
     )
 
 
+def build_or_load_reference_area_calibration(
+    analysis_config: ModelAnalysisConfig,
+) -> list[dict[str, object]]:
+    """Build cached full-grid reference area rows, falling back to an existing table."""
+    cached_rows = fresh_reference_area_calibration_rows(analysis_config)
+    if cached_rows is not None:
+        return cached_rows
+    try:
+        return write_reference_area_calibration(analysis_config.config_path)
+    except FileNotFoundError as error:
+        LOGGER.info("Skipping reference area calibration; input artifact is missing: %s", error)
+    except ValueError as error:
+        if not is_skippable_reference_calibration_error(error):
+            raise
+        LOGGER.info("Skipping reference area calibration; config is incomplete: %s", error)
+    return read_reference_area_calibration(analysis_config.reference_area_calibration_path)
+
+
+def fresh_reference_area_calibration_rows(
+    analysis_config: ModelAnalysisConfig,
+) -> list[dict[str, object]] | None:
+    """Return cached reference area rows when the output is newer than its inputs."""
+    output_path = analysis_config.reference_area_calibration_path
+    if not output_path.exists():
+        return None
+    try:
+        baseline_config = load_baseline_config(analysis_config.config_path)
+    except ValueError as error:
+        if not is_skippable_reference_calibration_error(error):
+            raise
+        LOGGER.info("Using existing reference area calibration: %s", output_path)
+        return read_reference_area_calibration(output_path)
+    input_paths = [
+        analysis_config.config_path,
+        baseline_config.model_output_path,
+        baseline_config.geographic_model_output_path,
+    ]
+    if baseline_config.inference_table_path is not None:
+        input_paths.append(baseline_config.inference_table_path)
+    output_mtime = output_path.stat().st_mtime
+    for input_path in input_paths:
+        if input_path.exists() and input_path.stat().st_mtime > output_mtime:
+            return None
+    LOGGER.info("Using cached reference area calibration: %s", output_path)
+    return read_reference_area_calibration(output_path)
+
+
+def is_skippable_reference_calibration_error(error: ValueError) -> bool:
+    """Return whether a config error means the optional calibration stage is unavailable."""
+    message = str(error)
+    return any(
+        token in message
+        for token in (
+            "models.baselines.target",
+            "models.baselines.alpha_grid",
+            "models.baselines.ridge_model",
+            "models.baselines.input_table",
+            "models.baselines.metrics",
+            "splits.train_years",
+            "splits.validation_years",
+            "splits.test_years",
+        )
+    )
+
+
+def read_reference_area_calibration(path: Path) -> list[dict[str, object]]:
+    """Read an existing reference area-calibration table when available."""
+    if not path.exists():
+        return []
+    return cast(list[dict[str, object]], pd.read_csv(path).to_dict("records"))
+
+
 def read_model_prediction_rows(analysis_config: ModelAnalysisConfig) -> pd.DataFrame:
     """Read prediction rows needed for model analysis without loading all partitions."""
     columns = available_prediction_columns(analysis_config.predictions_path)
@@ -825,7 +928,9 @@ def attach_target_framings(
 
 
 def build_analysis_tables(
-    data: AnalysisData, analysis_config: ModelAnalysisConfig
+    data: AnalysisData,
+    analysis_config: ModelAnalysisConfig,
+    reference_area_calibration: list[dict[str, object]],
 ) -> AnalysisTables:
     """Build all analysis tables from loaded inputs."""
     prediction_distribution = build_prediction_distribution(data.model_predictions)
@@ -850,7 +955,9 @@ def build_analysis_tables(
         spatial_readiness=spatial_readiness,
         feature_separability=feature_separability,
     )
-    phase1_model_comparison = build_phase1_model_comparison(data, analysis_config)
+    phase1_model_comparison = build_phase1_model_comparison(
+        data, analysis_config, reference_area_calibration
+    )
     data_health = build_data_health_rows(data, analysis_config)
     quarter_mapping = build_quarter_mapping(analysis_config)
     data.aligned.attrs["model_analysis_projection_frame"] = projection_frame
@@ -867,6 +974,7 @@ def build_analysis_tables(
         phase1_model_comparison=phase1_model_comparison,
         data_health=data_health,
         quarter_mapping=quarter_mapping,
+        reference_area_calibration=reference_area_calibration,
     )
 
 
@@ -1464,9 +1572,9 @@ def build_phase1_decision_matrix(
         {
             "branch": "Baseline-hardening Phase 1",
             "evidence_status": "strong",
-            "triggering_evidence": "Current implemented references are train-mean no-skill and ridge; previous-year, climatology, and geographic baselines remain missing.",
-            "proposed_next_tasks": "Add previous-year, station climatology, and lat/lon/year-only baselines; compare pixel skill and area calibration.",
-            "expected_artifacts": "Expanded baseline predictions, metrics tables, and calibration summaries.",
+            "triggering_evidence": "Reference-baseline rows now include train-mean no-skill, previous-year persistence, grid-cell climatology, lat/lon/year geography, and AEF ridge once the Phase 1 baseline loop is rerun.",
+            "proposed_next_tasks": "Interpret whether AEF ridge beats persistence, site memory, and geography before moving to domain masks or imbalance-aware models.",
+            "expected_artifacts": "Ranked baseline predictions, metrics tables, fallback summaries, and calibration rows.",
             "decision_unlocked": "Interpret whether AEF embeddings beat meaningful non-embedding references.",
         },
         {
@@ -1506,7 +1614,9 @@ def build_phase1_decision_matrix(
 
 
 def build_phase1_model_comparison(
-    data: AnalysisData, analysis_config: ModelAnalysisConfig
+    data: AnalysisData,
+    analysis_config: ModelAnalysisConfig,
+    reference_area_calibration: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     """Build the Phase 1 compact model comparison rows."""
     rows: list[dict[str, object]] = []
@@ -1518,7 +1628,54 @@ def build_phase1_model_comparison(
         )
         if comparison_row:
             rows.append(comparison_row)
-    rows.extend(full_grid_comparison_rows(data.model_predictions, analysis_config))
+    rows.extend(reference_area_calibration_comparison_rows(reference_area_calibration))
+    if not any(row.get("evaluation_scope") == "full_grid_prediction" for row in rows):
+        rows.extend(full_grid_comparison_rows(data.model_predictions, analysis_config))
+    return rows
+
+
+def reference_area_calibration_comparison_rows(
+    reference_area_calibration: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Convert compact reference area-calibration rows into comparison rows."""
+    required = {
+        "model_name",
+        "split",
+        "year",
+        "label_source",
+        "row_count",
+        "mae",
+        "rmse",
+        "r2",
+        "f1_ge_10pct",
+        "observed_canopy_area",
+        "predicted_canopy_area",
+        "area_pct_bias",
+    }
+    rows: list[dict[str, object]] = []
+    for row in reference_area_calibration:
+        row_dict = row
+        if not required.issubset(row_dict):
+            continue
+        rows.append(
+            {
+                "model_name": row_dict.get("model_name", ""),
+                "split": row_dict.get("split", ""),
+                "year": row_dict.get("year", ""),
+                "mask_status": "unmasked",
+                "evaluation_scope": "full_grid_prediction",
+                "label_source": row_dict.get("label_source", "all"),
+                "row_count": row_dict.get("row_count", ""),
+                "mae": row_dict.get("mae", math.nan),
+                "rmse": row_dict.get("rmse", math.nan),
+                "r2": row_dict.get("r2", math.nan),
+                "spearman": math.nan,
+                "f1_ge_10pct": row_dict.get("f1_ge_10pct", math.nan),
+                "observed_canopy_area": row_dict.get("observed_canopy_area", math.nan),
+                "predicted_canopy_area": row_dict.get("predicted_canopy_area", math.nan),
+                "area_pct_bias": row_dict.get("area_pct_bias", math.nan),
+            }
+        )
     return rows
 
 
@@ -1996,6 +2153,11 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
         analysis_config.phase1_model_comparison_path,
         PHASE1_MODEL_COMPARISON_FIELDS,
     )
+    write_csv(
+        tables.reference_area_calibration,
+        analysis_config.reference_area_calibration_path,
+        REFERENCE_AREA_CALIBRATION_FIELDS,
+    )
     write_csv(tables.data_health, analysis_config.data_health_path, DATA_HEALTH_FIELDS)
     write_csv(tables.quarter_mapping, analysis_config.quarter_mapping_path, QUARTER_MAPPING_FIELDS)
 
@@ -2293,6 +2455,10 @@ def write_report(
         "",
         model_comparison_markdown(tables.phase1_model_comparison, analysis_config),
         "",
+        "## Reference Baseline Ranking",
+        "",
+        reference_baseline_ranking_markdown(tables.phase1_model_comparison, analysis_config),
+        "",
         baseline_comparison_markdown(data.metrics, analysis_config),
         "",
         baseline_calibration_markdown(data.metrics, analysis_config),
@@ -2361,7 +2527,7 @@ def write_report(
         "",
         "## Phase 1 Coverage Gaps",
         "",
-        "Implemented rows currently cover train-mean no-skill and ridge regression. Missing rows that should appear in this same report as Phase 1 progresses: previous-year kelp, per-station climatology, lat/lon/year-only geographic baseline, bathymetry/DEM mask variants, and imbalance-aware model variants.",
+        "Implemented rows currently cover train-mean no-skill, previous-year persistence, grid-cell climatology, lat/lon/year geography, and AEF ridge regression after the reference-baseline task has been rerun. Missing rows that should appear in this same report as Phase 1 progresses: bathymetry/DEM mask variants and imbalance-aware model variants.",
         "",
         "## Interpretation",
         "",
@@ -2375,6 +2541,8 @@ def write_report(
         f"- Residual by persistence table: `{analysis_config.residual_by_persistence_path}`",
         f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
+        f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
+        f"- Reference area calibration table: `{analysis_config.reference_area_calibration_path}`",
         f"- Phase 1 PDF report: `{analysis_config.pdf_report_path}`",
         "",
         "Validation command:",
@@ -3038,6 +3206,72 @@ def model_comparison_markdown(
     return "\n".join(lines)
 
 
+def reference_baseline_ranking_markdown(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build Markdown ranking reference baselines against the AEF ridge model."""
+    station_rows = sorted(
+        [
+            row
+            for row in rows
+            if row.get("split") == analysis_config.analysis_split
+            and row.get("evaluation_scope") == "kelpwatch_station_sample"
+        ],
+        key=lambda row: row_float(row, "rmse", default=math.inf),
+    )
+    full_grid_rows = sorted(
+        [
+            row
+            for row in rows
+            if row.get("split") == analysis_config.analysis_split
+            and row.get("evaluation_scope") == "full_grid_prediction"
+            and row.get("label_source") in {"all", "kelpwatch_station", "assumed_background"}
+        ],
+        key=lambda row: (
+            str(row.get("label_source", "")),
+            abs(row_float(row, "area_pct_bias", default=math.inf)),
+        ),
+    )
+    if not station_rows and not full_grid_rows:
+        return "Reference-baseline ranking rows are not available yet."
+    lines = [
+        "Lower RMSE is better for Kelpwatch-station pixel skill; lower absolute area percent bias is better for full-grid calibration. These comparisons evaluate Kelpwatch-style label reproduction, not independent field truth.",
+        "",
+    ]
+    if station_rows:
+        lines.extend(
+            [
+                "| Station rank | Model | Rows | RMSE | MAE | F1 at 10% |",
+                "|---:|---|---:|---:|---:|---:|",
+            ]
+        )
+        for rank, row in enumerate(station_rows[:8], start=1):
+            lines.append(
+                f"| {rank} | {row.get('model_name', '')} | "
+                f"{row.get('row_count', '')} | "
+                f"{format_decimal(row_float(row, 'rmse'), 4)} | "
+                f"{format_decimal(row_float(row, 'mae'), 4)} | "
+                f"{format_decimal(row_float(row, 'f1_ge_10pct'), 3)} |"
+            )
+        lines.append("")
+    if full_grid_rows:
+        lines.extend(
+            [
+                "| Area rank | Label source | Model | Rows | Area pct bias | Predicted area |",
+                "|---:|---|---|---:|---:|---:|",
+            ]
+        )
+        for rank, row in enumerate(full_grid_rows[:12], start=1):
+            lines.append(
+                f"| {rank} | {row.get('label_source', '')} | "
+                f"{row.get('model_name', '')} | "
+                f"{row.get('row_count', '')} | "
+                f"{format_percent(row_float(row, 'area_pct_bias'), 2)} | "
+                f"{format_decimal(row_float(row, 'predicted_canopy_area'), 1)} |"
+            )
+    return "\n".join(lines)
+
+
 def data_health_markdown(
     rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
 ) -> str:
@@ -3286,6 +3520,7 @@ def write_manifest(
             "prediction_distribution": str(analysis_config.prediction_distribution_path),
             "phase1_decision": str(analysis_config.phase1_decision_path),
             "phase1_model_comparison": str(analysis_config.phase1_model_comparison_path),
+            "reference_area_calibration": str(analysis_config.reference_area_calibration_path),
             "data_health": str(analysis_config.data_health_path),
             "manifest": str(analysis_config.manifest_path),
         },
@@ -3298,6 +3533,7 @@ def write_manifest(
             "target_framing": len(tables.target_framing),
             "phase1_decision": len(tables.phase1_decision),
             "phase1_model_comparison": len(tables.phase1_model_comparison),
+            "reference_area_calibration": len(tables.reference_area_calibration),
             "data_health": len(tables.data_health),
         },
     }
