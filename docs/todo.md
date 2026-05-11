@@ -131,14 +131,25 @@ masking change should end with an updated model-analysis report.
 
 - [ ] P1-09: Choose the bathymetry and DEM source inputs for Monterey.
   - Goal: Record allowed domain-filter inputs and thresholds before coding.
-  - Output: short decision note or config fields for source paths, CRS, units,
-    depth/elevation conventions, and threshold assumptions.
-  - Validation: no pipeline behavior changes yet.
-- [ ] P1-10: Download or register the bathymetry and DEM artifacts.
-  - Goal: Put external domain-filter inputs under `/Volumes/x10pro/kelp_aef`.
-  - Output: raw/interim artifacts plus source manifest.
-  - Validation: manifest records source URI, local path, CRS, bounds, units,
-    resolution, and date accessed.
+  - Plan: `tasks/14_bathymetry_dem_source_plan.md`.
+  - Validation: docs-only diff inspection; no pipeline behavior changes yet.
+- [ ] P1-10a: Add a NOAA CUDEM / Coastal DEM download script.
+  - Goal: Create one package-backed downloader for the preferred Monterey
+    topo-bathy source.
+  - Plan: `tasks/15_download_noaa_cudem.md`.
+  - Validation: `make check` and a dry-run command that writes a manifest to
+    `/private/tmp`.
+- [ ] P1-10b: Add a NOAA CUSP shoreline download script.
+  - Goal: Create one package-backed downloader for shoreline-side
+    classification.
+  - Plan: `tasks/16_download_noaa_cusp.md`.
+  - Validation: `make check` and a dry-run command that writes a manifest to
+    `/private/tmp`.
+- [ ] P1-10c: Add a USGS 3DEP land DEM fallback download script.
+  - Goal: Create one package-backed downloader for the U.S. land-side fallback.
+  - Plan: `tasks/17_download_usgs_3dep.md`.
+  - Validation: `make check` and a dry-run command that writes a manifest to
+    `/private/tmp`.
 - [ ] P1-11: Align bathymetry and DEM to the 30 m target grid.
   - Goal: Produce one depth/elevation row per existing full-grid cell.
   - Output: aligned bathymetry/DEM table or raster plus QA summary.
