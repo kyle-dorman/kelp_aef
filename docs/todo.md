@@ -146,8 +146,9 @@ masking change should end with an updated model-analysis report.
   - Plan: `tasks/16_download_noaa_cusp.md`.
   - Validation: `make check` and a dry-run command that writes a manifest to
     `/private/tmp`.
-- [ ] P1-10c: Add a USGS 3DEP land DEM fallback download script.
-  - Goal: Create one package-backed downloader for the U.S. land-side fallback.
+- [ ] P1-10c: Add USGS 3DEP land DEM fallback query and download scripts.
+  - Goal: Create package-backed query and downloader commands for the U.S.
+    land-side fallback.
   - Plan: `tasks/17_download_usgs_3dep.md`.
   - Validation: `make check` and a dry-run command that writes a manifest to
     `/private/tmp`.

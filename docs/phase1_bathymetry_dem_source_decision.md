@@ -55,7 +55,7 @@ download:
   `tasks/15_download_noaa_cudem.md`.
 - `P1-10b`: NOAA CUSP shoreline query/download pair,
   `tasks/16_download_noaa_cusp.md`.
-- `P1-10c`: USGS 3DEP fallback downloader,
+- `P1-10c`: USGS 3DEP fallback query/download pair,
   `tasks/17_download_usgs_3dep.md`.
 
 Do not add GEBCO or Copernicus downloader tasks for Monterey unless NOAA
@@ -78,14 +78,16 @@ CUSP and 3DEP source manifests should be written under:
 /Volumes/x10pro/kelp_aef/interim/usgs_3dep_source_manifest.json
 ```
 
-The NOAA CUDEM and CUSP tasks use separate query and download manifests because
-selected artifacts should come from the configured Monterey geometry:
+The NOAA CUDEM, CUSP, and 3DEP tasks use separate query and download manifests
+because selected artifacts should come from the configured Monterey geometry:
 
 ```text
 /Volumes/x10pro/kelp_aef/interim/noaa_cudem_tile_query_manifest.json
 /Volumes/x10pro/kelp_aef/interim/noaa_cudem_tile_manifest.json
 /Volumes/x10pro/kelp_aef/interim/noaa_cusp_query_manifest.json
 /Volumes/x10pro/kelp_aef/interim/noaa_cusp_source_manifest.json
+/Volumes/x10pro/kelp_aef/interim/usgs_3dep_query_manifest.json
+/Volumes/x10pro/kelp_aef/interim/usgs_3dep_source_manifest.json
 ```
 
 Small Monterey coverage footprints or indexes, if needed, may be written under:

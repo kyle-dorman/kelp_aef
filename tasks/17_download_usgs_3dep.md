@@ -1,13 +1,13 @@
-# Task 17: Download USGS 3DEP Land DEM Fallback
+# Task 17: Query And Download USGS 3DEP Land DEM Fallback
 
 ## Goal
 
-Create one package-backed script for downloading or registering the USGS 3DEP
+Create package-backed query and download scripts for the USGS 3DEP
 1/3 arc-second DEM as the U.S. land-side fallback for the Monterey domain
 filter.
 
-This task should create exactly one dataset-specific downloader. It should not
-download CUDEM, CUSP, GEBCO, or Copernicus data.
+This task should create exactly one dataset-specific query/download pair. It
+should not download CUDEM, CUSP, GEBCO, or Copernicus data.
 
 ## Inputs
 
@@ -22,12 +22,15 @@ download CUDEM, CUSP, GEBCO, or Copernicus data.
 
 ## Outputs
 
-- New package module for the 3DEP downloader, for example:
+- New package module for the 3DEP query/download workflow, for example:
   `src/kelp_aef/domain/usgs_3dep.py`.
-- CLI command wired through `src/kelp_aef/cli.py`, for example:
+- CLI commands wired through `src/kelp_aef/cli.py`, for example:
+  `kelp-aef query-usgs-3dep`.
   `kelp-aef download-usgs-3dep`.
 - Raw 3DEP artifact under:
   `/Volumes/x10pro/kelp_aef/raw/domain/usgs_3dep/`.
+- 3DEP query manifest under:
+  `/Volumes/x10pro/kelp_aef/interim/usgs_3dep_query_manifest.json`.
 - 3DEP source manifest under:
   `/Volumes/x10pro/kelp_aef/interim/usgs_3dep_source_manifest.json`.
 - Unit tests for manifest construction, dry-run behavior, and local path
@@ -45,22 +48,32 @@ not add CUDEM or CUSP paths in this task.
 Brief implementation plan before editing code. Include:
 
 - Exact USGS 3DEP artifact selected for Monterey.
-- Expected source URI and local mirror path.
-- Whether the task downloads the source file or registers an already-downloaded
-  file.
+- How the command queries the available 3DEP source index, package listing,
+  service, or metadata endpoint with the configured region geometry.
+- Expected query manifest path, selected source URI fields, and local mirror
+  path policy.
+- Whether the query task downloads only a small source index or uses a
+  pre-registered local source index.
+- Whether the download task downloads selected DEM artifact(s) or registers
+  already-downloaded files.
 - Dry-run behavior.
 - Idempotency and checksum/file-size validation.
 
 ## Implementation Plan
 
-- Add a small package-backed downloader module. Avoid notebook-only workflow.
-- Add one CLI command for this source with `--dry-run`, `--manifest-output`,
-  `--force`, and timeout options if remote downloads are used.
+- Add a small package-backed query/download module. Avoid notebook-only
+  workflow.
+- Add one CLI command to query 3DEP source metadata using the configured region
+  geometry and write a selected-artifact manifest for review.
+- Add one CLI command to download or register only the 3DEP artifact(s) selected
+  by the query manifest.
+- Both commands should include `--dry-run`, `--manifest-output`, `--force`, and
+  timeout options where relevant.
 - Use structured logging for progress, selected source, local path decisions,
   and validation status.
 - Write transfers to a temporary sibling path such as `*.part`, then replace
   the final path only after validation succeeds.
-- Build a source manifest even in dry-run mode.
+- Build query/download manifests even in dry-run mode.
 - Inspect local raster metadata with maintained geospatial libraries, not ad
   hoc parsing.
 - Mark 3DEP manifest entries as land-side fallback, not preferred topo-bathy,
@@ -74,7 +87,8 @@ Focused validation:
 
 ```bash
 uv run pytest tests/test_usgs_3dep.py
-kelp-aef download-usgs-3dep --config configs/monterey_smoke.yaml --dry-run --manifest-output /private/tmp/usgs_3dep_source_manifest_dry_run.json
+kelp-aef query-usgs-3dep --config configs/monterey_smoke.yaml --dry-run --manifest-output /private/tmp/usgs_3dep_query_manifest_dry_run.json
+kelp-aef download-usgs-3dep --config configs/monterey_smoke.yaml --dry-run --query-manifest /private/tmp/usgs_3dep_query_manifest_dry_run.json --manifest-output /private/tmp/usgs_3dep_source_manifest_dry_run.json
 ```
 
 Full validation if code/config changes are made:
@@ -86,6 +100,7 @@ make check
 Real data command, to run only after reviewing the dry-run plan:
 
 ```bash
+kelp-aef query-usgs-3dep --config configs/monterey_smoke.yaml
 kelp-aef download-usgs-3dep --config configs/monterey_smoke.yaml
 ```
 
@@ -97,14 +112,19 @@ kelp-aef download-usgs-3dep --config configs/monterey_smoke.yaml
 
 ## Acceptance Criteria
 
-- Adds one package-backed 3DEP downloader command.
-- Dry-run writes a manifest without downloading large data.
-- Real run downloads or registers only the selected Monterey 3DEP source.
-- Manifest records source name, source URI, local path, date accessed, CRS,
-  vertical datum when available, bounds, units, elevation sign convention,
-  raster resolution, file size or checksum, and license/access notes.
-- Manifest includes a Monterey coverage check.
-- Manifest marks the source as a land-only fallback, not the preferred
+- Adds one package-backed 3DEP query command and one package-backed 3DEP
+  download command.
+- Dry-run writes manifests without downloading large data.
+- Query output selects 3DEP artifact(s) by intersection or coverage with the
+  configured Monterey geometry.
+- Real download/register run downloads or registers only the selected Monterey
+  3DEP artifact(s).
+- Query and download manifests record source name, source URI, local path, date
+  accessed, CRS, vertical datum when available, bounds, units, elevation sign
+  convention, raster resolution, file size or checksum, and license/access
+  notes.
+- Manifests include a Monterey coverage check.
+- Manifests mark the source as a land-only fallback, not the preferred
   topo-bathy source.
 - Re-running the command skips already valid local files unless `--force` is
   passed.
