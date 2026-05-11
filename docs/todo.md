@@ -129,9 +129,10 @@ masking change should end with an updated model-analysis report.
 
 ## Bathymetry And DEM Domain Filter
 
-- [ ] P1-09: Choose the bathymetry and DEM source inputs for Monterey.
+- [x] P1-09: Choose the bathymetry and DEM source inputs for Monterey.
   - Goal: Record allowed domain-filter inputs and thresholds before coding.
   - Plan: `tasks/14_bathymetry_dem_source_plan.md`.
+  - Completed: `docs/phase1_bathymetry_dem_source_decision.md`.
   - Validation: docs-only diff inspection; no pipeline behavior changes yet.
 - [ ] P1-10a: Add a NOAA CUDEM / Coastal DEM download script.
   - Goal: Create one package-backed downloader for the preferred Monterey
