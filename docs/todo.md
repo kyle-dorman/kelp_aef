@@ -1,132 +1,193 @@
-# First Feasibility Milestone TODO
+# Phase 1 TODO
 
-Status: Phase 0 is complete for now as of 2026-05-08.
+Status: Phase 1 planning is active as of 2026-05-08.
 
-This file records the completed Monterey feasibility checklist. Use
-`docs/backlog.md` for durable candidate work. Do not start or assume a Phase 1
-direction from this file; choose it explicitly after reviewing the Phase 0
-report and current project priorities.
+Phase 1 theme: harden the Monterey annual-max pipeline before scale-up. The
+goal is to make each model comparison answer whether AlphaEarth embeddings add
+value beyond persistence, site memory, and geography inside a physically
+plausible kelp domain.
 
-Final Phase 0 report:
+Phase 1 plan:
+
+```text
+docs/phase1_model_domain_hardening.md
+```
+
+Phase 0 report:
 
 ```text
 /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase0_model_analysis.md
 ```
 
-Final validation:
+Default validation loop for implemented Phase 1 tasks:
 
 ```bash
 make check
+uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml
+uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
+uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
 ```
 
-## Scope Decisions
+Use the relevant subset when a task touches only one stage, but every model or
+masking change should end with an updated model-analysis report.
 
-- [x] Choose the first smoke-test region.
-  - Selected: Monterey Peninsula.
-- [x] Define the region geometry.
-  - Use a small GeoJSON footprint extracted from one AlphaEarth tile.
-  - Config path:
-    `/Volumes/x10pro/kelp_aef/geos/monterey_aef_10n_8192_8192_footprint.geojson`.
-  - Do not keep provisional bbox bounds as the active smoke geometry.
-- [x] Choose the first year window.
-  - Use the currently identified AlphaEarth/Kelpwatch overlap window:
-    2018-2022.
-- [x] Choose the initial label target.
-  - Use `kelp_max_y`, Kelpwatch annual max canopy.
-  - Binary thresholds were kept diagnostic-only in Phase 0.
-- [x] Choose the initial feature product and access path.
-  - Use Source Cooperative AlphaEarth/AEF v1 annual GeoTIFFs for one `10N` grid
-    tile.
-  - Query the Source Cooperative AEF STAC GeoParquet catalog to identify the
-    specific assets to download:
-    `https://data.source.coop/tge-labs/aef/v1/annual/aef_index_stac_geoparquet.parquet`.
-  - Mirror the S3 key layout under
-    `/Volumes/x10pro/kelp_aef/raw/aef/v1/annual/{year}/10N/`.
-  - Known source examples:
-    `s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2018/10N/xdz8z3a9znk5b1j75-0000008192-0000008192.tiff`
-    and
-    `s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000008192-0000008192.tiff`.
-- [x] Confirm the first alignment policy.
-  - Aggregate AlphaEarth 10 m embeddings to the Kelpwatch 30 m grid.
-- [x] Choose the first split policy.
-  - Year holdout: train 2018-2020, validate 2021, test 2022.
+## Phase 1 Scope
 
-## Config And Artifacts
+- [x] Select Phase 1 direction.
+  - Selected: model and domain hardening for the Monterey annual-max pipeline.
+- [x] Keep the label input fixed.
+  - Use Kelpwatch annual max canopy, `kelp_max_y` / `kelp_fraction_y`.
+  - Alternative temporal labels such as annual mean, fall-only, winter-only, or
+    multi-season persistence are out of scope for Phase 1.
+  - Binary targets derived by thresholding annual max are in scope.
+- [x] Keep the smoke region and years fixed unless a later task explicitly
+  chooses a second small region.
+  - Region: Monterey Peninsula.
+  - Years: 2018-2022.
+  - Split: train 2018-2020, validate 2021, test 2022.
+- [x] Keep scale-up out of scope.
+  - Do not start full West Coast processing in Phase 1.
 
-- [x] Revise `configs/monterey_smoke.yaml` after the scope decisions above.
-  - Config now references the footprint GeoJSON and S3-mirrored AEF raw layout.
-- [x] Confirm the expected output artifact paths.
-  - AEF tile footprint GeoJSON.
-  - AEF catalog query result.
-  - AEF tile manifest.
-  - Kelpwatch source manifest.
-  - Metadata summary.
-  - Annual label table.
-  - AlphaEarth feature/sample table.
-  - Aligned training table.
-  - Split manifest.
-  - Predicted map.
-  - Residual map.
-  - Area-bias summary.
-  - Full-grid aligned table.
-  - Background-inclusive sampled model input.
-  - Full-grid prediction dataset.
-  - Phase 0 model-analysis report.
-- [x] Confirm whether any tiny QA samples should be tracked.
-  - Current policy: none are tracked by default.
+## Planning And Harness
 
-## Task Contracts
+- [ ] P1-01: Add a Phase 1 run/report harness.
+  - Goal: Make each implemented change visible in the report without changing
+    model behavior yet.
+  - Output: Phase 1 report sections or tables that can show current model,
+    reference baselines, domain mask status, pixel metrics, and area
+    calibration.
+  - Validation: rerun `analyze-model` and confirm the report still reproduces
+    the Phase 0 ridge result.
+- [ ] P1-02: Add a compact model comparison table contract.
+  - Goal: Standardize columns for model name, split, label source, mask status,
+    pixel skill, threshold skill, and area calibration.
+  - Output: report table contract and generated comparison table.
+  - Validation: existing no-skill and ridge rows appear unchanged.
+- [ ] P1-03: Add stage-to-stage row-count and drop-rate checks to the report.
+  - Goal: Catch data plumbing changes before interpreting model changes.
+  - Output: row-count, missing-feature, label-source, and mask-status summary.
+  - Validation: report shows current Phase 0 row counts and missing-feature
+    drop rates.
 
-- [x] Write the Phase 0 implementation spec or decision note.
-  - Include goal, scope, non-goals, selected config values, artifact paths,
-    validation plan, and open questions.
-- [x] Create one task file per agent-sized unit of work.
-  - Suggested location: `tasks/`.
-- [x] For each task file, include:
-  - Goal.
-  - Inputs.
-  - Outputs.
-  - Config file.
-  - Plan/spec requirement.
-  - Validation command.
-  - Smoke-test region and years.
-  - Acceptance criteria.
-  - Known constraints or non-goals.
+## Reference Baselines
 
-## Initial Task Sequence
+- [ ] P1-04: Add a previous-year annual-max baseline on Kelpwatch-station rows.
+  - Goal: Test whether AEF beats one-year persistence.
+  - Output: previous-year predictions and station-row metrics.
+  - Validation: validation uses 2020 -> 2021 and test uses 2021 -> 2022.
+- [ ] P1-05: Extend previous-year baseline to full-grid area calibration.
+  - Goal: Compare persistence against ridge on full-grid annual area totals.
+  - Output: previous-year full-grid prediction table and area-bias rows.
+  - Validation: report separates Kelpwatch-station and assumed-background rows.
+- [ ] P1-06: Add a station or grid-cell climatology baseline.
+  - Goal: Test whether AEF beats site memory from training years.
+  - Output: climatology predictions and fallback policy for cells without
+    training history.
+  - Validation: report documents fallback counts and area calibration.
+- [ ] P1-07: Add a lat/lon/year-only geographic baseline.
+  - Goal: Test whether AEF beats spatial and temporal location alone.
+  - Output: geographic baseline model, predictions, and metrics.
+  - Validation: same splits and report metrics as ridge.
+- [ ] P1-08: Update the report to rank all reference baselines against ridge.
+  - Goal: Make the "AEF adds value" question explicit.
+  - Output: comparison table and short interpretation section.
+  - Validation: report includes pixel skill and area calibration for every
+    baseline.
 
-- [x] Extract AlphaEarth tile footprint GeoJSON.
-- [x] Query the AEF STAC GeoParquet catalog for Monterey smoke assets.
-- [x] Download the selected AEF tile assets from the catalog query.
-- [x] Inspect Kelpwatch source format and write downloader/reader.
-- [x] Visualize downloaded Kelpwatch source data for Monterey QA.
-- [x] Build initial annual label derivation.
-  - Plan: `tasks/06_build_annual_labels.md`.
-- [x] Align features and labels into the first parquet table.
-  - Plan: `tasks/07_align_features_labels.md`.
-- [x] Train and evaluate first simple baselines.
-  - Plan: `tasks/08_train_evaluate_baselines.md`.
-- [x] Make first predicted/residual maps and area-bias table.
-  - Plan: `tasks/09_map_residuals_area_bias.md`.
-- [x] Analyze smoke-test model behavior and write the Phase 0 report.
-  - Plan: `tasks/10_model_analysis_report.md`.
-- [x] Correct the aligned training table to include full-grid/background rows,
-  then rerun the downstream Phase 0 workflow.
-  - Plan: `tasks/11_correct_full_grid_background_alignment.md`.
-  - This reopens Phase 0 after Task 10 because the first aligned table sampled
-    AEF only at Kelpwatch station centers.
+## Bathymetry And DEM Domain Filter
 
-## Phase 0 Closeout Notes
+- [ ] P1-09: Choose the bathymetry and DEM source inputs for Monterey.
+  - Goal: Record allowed domain-filter inputs and thresholds before coding.
+  - Output: short decision note or config fields for source paths, CRS, units,
+    depth/elevation conventions, and threshold assumptions.
+  - Validation: no pipeline behavior changes yet.
+- [ ] P1-10: Download or register the bathymetry and DEM artifacts.
+  - Goal: Put external domain-filter inputs under `/Volumes/x10pro/kelp_aef`.
+  - Output: raw/interim artifacts plus source manifest.
+  - Validation: manifest records source URI, local path, CRS, bounds, units,
+    resolution, and date accessed.
+- [ ] P1-11: Align bathymetry and DEM to the 30 m target grid.
+  - Goal: Produce one depth/elevation row per existing full-grid cell.
+  - Output: aligned bathymetry/DEM table or raster plus QA summary.
+  - Validation: row counts match the full-grid target grid for configured
+    years or the static grid.
+- [ ] P1-12: Build the first plausible-kelp domain mask.
+  - Goal: Exclude land, implausibly deep water, and other impossible cells.
+  - Output: mask artifact with reason codes and coverage table.
+  - Validation: report shows retained/dropped cells and retained Kelpwatch
+    positives by year.
+- [ ] P1-13: Apply the domain mask to full-grid inference/reporting first.
+  - Goal: Measure how much area leakage is off-domain before retraining.
+  - Output: masked full-grid area-bias rows and residual maps.
+  - Validation: unmasked and masked area calibration appear side by side.
+- [ ] P1-14: Apply the domain mask to training and sampling.
+  - Goal: Train only on physically plausible cells unless explicitly comparing
+    against the unmasked run.
+  - Output: masked model-input sample and manifest.
+  - Validation: rerun baselines and report the effect on station skill and
+    full-grid calibration.
+- [ ] P1-15: Add mask-aware residual diagnostics.
+  - Goal: Explain false positives and underprediction by domain-mask reason,
+    depth/elevation bin, label source, and observed canopy bin.
+  - Output: residual taxonomy tables and report figures.
+  - Validation: top residuals have mask/depth/elevation context.
 
-- The station-centered alignment artifact remains useful for QA, but it is not
-  the primary Phase 0 model input.
-- The corrected full-grid artifact includes Kelpwatch-station rows and
-  `assumed_background` rows.
-- The final simple ridge baseline is trained on the background-inclusive sample
-  without background expansion weights.
-- Full-grid prediction and mapping run end to end, but full-grid calibration is
-  poor because small positive predictions across many assumed-background cells
-  accumulate into large area overprediction.
-- Kelpwatch-station rows still show underprediction of high canopy magnitude.
-- Phase 1 is intentionally undecided. Candidate next questions live in
-  `docs/backlog.md`, not here.
+## Imbalance-Robust Models
+
+- [ ] P1-16: Add class and target-balance diagnostics for annual max.
+  - Goal: Make imbalance visible before changing objectives.
+  - Output: positive-rate, high-canopy-rate, and background-rate summaries by
+    split, label source, and mask status.
+  - Validation: report reproduces Phase 0 class imbalance.
+- [ ] P1-17: Add annual-max binary threshold comparison on the validation year.
+  - Goal: Choose candidate binary targets derived only from annual max.
+  - Output: threshold table for 1%, 5%, 10%, and any retained diagnostic
+    thresholds.
+  - Validation: threshold choice uses validation data, not the 2022 test split.
+- [ ] P1-18: Train a balanced binary presence model.
+  - Goal: Reduce background leakage with an objective designed for imbalance.
+  - Output: class-weighted or balanced-sampling classifier and probability
+    predictions.
+  - Validation: report includes AUROC, AUPRC, precision-recall, selected
+    threshold, and full-grid positive-area behavior.
+- [ ] P1-19: Calibrate binary probabilities and thresholds on validation.
+  - Goal: Separate ranking skill from area calibration.
+  - Output: calibrated probabilities or selected thresholds plus calibration
+    tables.
+  - Validation: calibration is fit on 2021 and evaluated on 2022.
+- [ ] P1-20: Train a conditional canopy model for positive or likely-positive
+  cells.
+  - Goal: Address high-canopy shrinkage separately from presence detection.
+  - Output: conditional continuous model and positive-cell residual table.
+  - Validation: report shows high-canopy residual bins against the ridge
+    baseline.
+- [ ] P1-21: Compose a first hurdle model.
+  - Goal: Combine presence probability and conditional canopy amount into a
+    full-grid annual-max prediction.
+  - Output: hurdle predictions, maps, metrics, and area-bias rows.
+  - Validation: compare against previous-year, climatology, geographic, and
+    ridge baselines.
+- [ ] P1-22: Test one capped-weight or stratified-background continuous model.
+  - Goal: Check whether a simpler continuous objective can compete with the
+    hurdle model without collapsing or leaking positives.
+  - Output: weighted or stratified model comparison row.
+  - Validation: report shows station skill, background leakage, and full-grid
+    area calibration.
+- [ ] P1-23: Select the best Phase 1 model policy or document failure.
+  - Goal: Close Phase 1 with a defensible model/mask/calibration decision.
+  - Output: Phase 1 closeout section in the report and updated decision note.
+  - Validation: the selected policy beats meaningful reference baselines or the
+    report clearly explains why it does not.
+
+## Explicit Non-Goals
+
+- Do not evaluate alternative temporal label inputs beyond annual max.
+- Do not use fall-only, winter-only, annual mean, or multi-season persistence
+  labels as Phase 1 targets.
+- Do not start full West Coast scale-up.
+- Do not introduce deep spatial models before the tabular and calibration
+  questions are resolved.
+- Do not treat bathymetry/DEM as predictors in Phase 1 unless explicitly
+  approved later; use them first for domain filtering and diagnostics.
+- Do not tune on the 2022 test split.

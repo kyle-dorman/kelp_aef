@@ -252,7 +252,24 @@ contracts are stable.
 
 ## Phase 1 Boundary
 
-No Phase 1 architecture has been selected. The next phase might focus on
-sampling/calibration, target framing, stronger baselines, spatial evaluation, or
-another question that follows from reviewing the Phase 0 report. Architecture
-changes should wait for that decision rather than assuming a scale-up path.
+Phase 1 has been selected as model and domain hardening for the Monterey
+annual-max pipeline. The planning note is:
+
+```text
+docs/phase1_model_domain_hardening.md
+```
+
+Architectural changes should stay narrow and report-visible. The expected shape
+is:
+
+- Add reference baselines under the existing model/evaluation path.
+- Add bathymetry/DEM domain-filter artifacts and manifests under the external
+  artifact root.
+- Keep bathymetry/DEM as filtering and diagnostic inputs unless explicitly
+  promoted to model predictors later.
+- Add imbalance-aware tabular models before any deep spatial model work.
+- Keep the same Monterey annual-max label input; alternative temporal labels
+  are out of scope for Phase 1.
+- Rerun the model-analysis report after each implemented model or mask change.
+
+Do not assume this phase includes full West Coast scale-up.

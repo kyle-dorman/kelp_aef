@@ -42,7 +42,41 @@ Phase 0 closed with a useful but imperfect smoke result:
   canopy magnitude on Kelpwatch-supported rows.
 - Full-grid calibration remains poor because small positive predictions over a
   very large assumed-background area accumulate into large area overprediction.
-- No Phase 1 direction has been selected yet.
+- Phase 1 has been selected as model and domain hardening for the Monterey
+  annual-max pipeline.
+
+## Phase 1 Status
+
+Phase 1 is active planning as of 2026-05-08. The selected theme is:
+
+```text
+Harden the Monterey annual-max pipeline before scale-up.
+```
+
+Phase 1 keeps the Phase 0 label input fixed as Kelpwatch annual max canopy. The
+main work is to add meaningful reference baselines, filter the prediction domain
+with bathymetry/DEM data, and evaluate imbalance-aware models that are less
+likely to leak small positives across large background areas.
+
+Primary Phase 1 questions:
+
+- Does AlphaEarth beat previous-year, station-climatology, and lat/lon/year-only
+  baselines?
+- Does a physically plausible kelp-domain mask improve full-grid area
+  calibration without discarding real Kelpwatch-supported canopy?
+- Can a binary or hurdle-style annual-max model handle imbalance better than the
+  Phase 0 ridge baseline?
+- Can each pipeline rerun update the report in a way that makes the latest
+  improvement or regression visible?
+
+Phase 1 non-goals:
+
+- Do not evaluate alternative temporal label inputs beyond annual max.
+- Do not use fall-only, winter-only, annual mean, or multi-season persistence
+  labels as Phase 1 targets.
+- Do not start full West Coast scale-up.
+- Do not use bathymetry/DEM as model predictors unless that is explicitly
+  approved later; use them first for filtering and diagnostics.
 
 ## Success Criteria
 
@@ -101,8 +135,7 @@ Key Phase 0 artifacts:
 - Do not let one random-pixel split stand in for temporal or spatial
   generalization.
 - Do not treat the current Phase 0 ridge model as a production target.
-- Do not assume the Phase 1 direction before reviewing the Phase 0 report and
-  choosing the next question.
+- Do not tune on the 2022 test split.
 
 ## Evaluation Priorities
 
@@ -125,6 +158,6 @@ Useful metrics:
 - Ecological products: annual max area error, fall persistence agreement,
   two-year fall change error, and collapse/recovery classification.
 
-Phase 1 evaluation priorities remain undecided. Candidate directions include
-target framing, sampling and calibration, stronger baselines, spatial holdouts,
-and nonlinear tabular models, but none is committed as the next phase here.
+Phase 1 evaluation priorities are reference-baseline comparison, domain-mask
+effects, imbalance-aware model behavior, and area calibration. Alternative
+temporal target framing remains deferred.

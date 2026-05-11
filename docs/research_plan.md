@@ -47,7 +47,8 @@ Phase 0 outcome:
 
 ## Candidate Next Work: Data Ingestion Hardening
 
-This is not selected as Phase 1 yet. It is one possible direction.
+This is not the main Phase 1 direction, except for narrow bathymetry/DEM
+manifesting needed by the Monterey domain filter.
 
 Inputs:
 
@@ -80,7 +81,8 @@ Expected artifacts:
 
 ## Candidate Next Work: Derived Labels
 
-This is not selected as Phase 1 yet. It is one possible direction.
+Alternative temporal labels are deferred until after Phase 1. Binary labels
+derived by thresholding annual max are in scope for Phase 1.
 
 Turn seasonal Kelpwatch into annual or multi-year targets compatible with annual AlphaEarth embeddings.
 
@@ -111,7 +113,9 @@ Generate label diagnostics:
 
 ## Candidate Next Work: Alignment
 
-This is not selected as Phase 1 yet. It is one possible direction.
+The main AEF/Kelpwatch alignment path is already implemented for Monterey.
+Phase 1 alignment work should be limited to domain-mask QA and bathymetry/DEM
+alignment to the existing 30 m grid.
 
 Align into the AlphaEarth coordinate frame, then decide whether labels are upsampled from 30 m to 10 m or AlphaEarth embeddings are aggregated from 10 m to 30 m.
 
@@ -138,7 +142,8 @@ Y = kelp label chip
 
 ## Candidate Next Work: Splits
 
-This is not selected as Phase 1 yet. It is one possible direction.
+Expanded split families are deferred until after Phase 1 hardens the Monterey
+annual-max pipeline. The current Phase 1 default remains the year holdout.
 
 Use multiple split families, not one split.
 
@@ -164,7 +169,9 @@ Main results should emphasize year and space holdouts, not random pixels, becaus
 
 ## Candidate Next Work: Models And Calibration
 
-This is not selected as Phase 1 yet. It is one possible direction.
+A subset of this section is selected for Phase 1: reference baselines,
+imbalance-aware annual-max models, and calibration. Deep spatial models and
+alternative temporal labels remain deferred.
 
 Start simple.
 
@@ -199,6 +206,33 @@ Phase 0-specific model lesson:
   predictions accumulate over many assumed-background cells.
 - Sampling, objective weighting, and calibration should be treated as explicit
   research questions if selected next.
+
+## Phase 1: Model And Domain Hardening
+
+Status: selected for planning as of 2026-05-08.
+
+Phase 1 keeps the Monterey annual-max label input fixed and hardens the data
+domain, reference baselines, model objective, and report loop before scale-up.
+The plan is:
+
+```text
+docs/phase1_model_domain_hardening.md
+```
+
+Selected work:
+
+- Add previous-year, station-climatology, and lat/lon/year-only baselines.
+- Use bathymetry/DEM inputs to build a plausible-kelp domain mask.
+- Evaluate binary annual-max and hurdle-style imbalance-aware models.
+- Compare pixel skill, background leakage, and full-grid area calibration in
+  every report rerun.
+
+Explicitly deferred work:
+
+- Alternative temporal label inputs such as annual mean, fall-only, winter-only,
+  or multi-season persistence targets.
+- Full West Coast scale-up.
+- Deep spatial models.
 
 ## Candidate Next Work: Evaluation
 
@@ -268,7 +302,7 @@ kelp-aef commands:
 
 configs/
   monterey_smoke.yaml
-  # future configs should be named only after the next phase is selected
+  # future configs should be added only when a phase task needs them
 
 external artifact root: /Volumes/x10pro/kelp_aef/
   raw/
@@ -280,7 +314,8 @@ external artifact root: /Volumes/x10pro/kelp_aef/
     tables/
 ```
 
-Future agent-sized work should be defined only after the next phase is selected:
+Phase 1 agent-sized work is outlined in `docs/todo.md`. Future agent-sized work
+should use this contract shape:
 
 ```text
 Goal:
@@ -316,8 +351,14 @@ Split: year holdout
 Output: predicted map, residual map, and area-bias summary
 ```
 
-Do not assume the next step is full U.S. West Coast scale-up. The next phase
-must be chosen explicitly from the current evidence.
+Next active milestone:
+
+```text
+Phase 1: harden Monterey annual-max baselines, domain filtering, imbalance-aware
+models, and report calibration before scale-up.
+```
+
+Do not assume the next step is full U.S. West Coast scale-up.
 
 ## Sources
 

@@ -146,5 +146,8 @@ with population-expanded background weights, but it is still not calibrated on
 the full grid. In the final report, station-supported Kelpwatch rows and
 assumed-background rows are interpreted separately.
 
-No Phase 1 artifact contract is defined yet. Add new artifact rows only after
-the next phase is explicitly chosen.
+Phase 1 has been selected as Monterey annual-max model and domain hardening.
+The high-level artifact categories are defined in
+`docs/phase1_model_domain_hardening.md`. Add exact artifact rows here only when
+the corresponding implementation task defines concrete paths in
+`configs/monterey_smoke.yaml`.
