@@ -410,6 +410,7 @@ masking change should end with an updated model-analysis report.
 - [ ] P1-21: Compose a first hurdle model.
   - Goal: Combine presence probability and conditional canopy amount into a
     full-grid annual-max prediction.
+  - Plan: `tasks/29_compose_first_hurdle_model.md`.
   - Output: hurdle predictions, maps, metrics, and area-bias rows.
   - Validation: compare against previous-year, climatology, geographic, and
     ridge baselines.
