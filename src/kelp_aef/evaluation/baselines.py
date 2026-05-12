@@ -23,6 +23,14 @@ from sklearn.pipeline import Pipeline  # type: ignore[import-untyped]
 from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
 
 from kelp_aef.config import load_yaml_config, require_mapping, require_string
+from kelp_aef.domain.reporting_mask import (
+    ReportingDomainMask,
+    evaluation_scope,
+    filter_polars_to_reporting_domain,
+    load_reporting_domain_mask,
+    mask_status,
+    masked_output_path,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -100,6 +108,8 @@ AREA_CALIBRATION_FIELDS = (
     "model_name",
     "split",
     "year",
+    "mask_status",
+    "evaluation_scope",
     "label_source",
     "row_count",
     "observed_canopy_area",
@@ -149,6 +159,7 @@ class BaselineConfig:
     drop_missing_features: bool
     use_sample_weight: bool
     sample_weight_column: str
+    reporting_domain_mask: ReportingDomainMask | None
 
 
 @dataclass(frozen=True)
@@ -351,7 +362,15 @@ def load_baseline_config(config_path: Path) -> BaselineConfig:
     )
     geographic_model_value = baseline.get("geographic_model")
     fallback_summary_value = outputs.get("reference_baseline_fallback_summary")
-    area_calibration_value = outputs.get("reference_baseline_area_calibration")
+    reporting_domain_mask = load_reporting_domain_mask(config)
+    area_calibration_path = masked_output_path(
+        outputs,
+        unmasked_key="reference_baseline_area_calibration",
+        masked_key="reference_baseline_area_calibration_masked",
+        default=Path(require_string(baseline.get("metrics"), "models.baselines.metrics")).parent
+        / "reference_baseline_area_calibration.csv",
+        mask_config=reporting_domain_mask,
+    )
     return BaselineConfig(
         config_path=config_path,
         aligned_table_path=Path(
@@ -415,17 +434,7 @@ def load_baseline_config(config_path: Path) -> BaselineConfig:
             else Path(require_string(baseline.get("metrics"), "models.baselines.metrics")).parent
             / "reference_baseline_fallback_summary.csv"
         ),
-        area_calibration_path=(
-            Path(
-                require_string(
-                    area_calibration_value,
-                    "reports.outputs.reference_baseline_area_calibration",
-                )
-            )
-            if area_calibration_value is not None
-            else Path(require_string(baseline.get("metrics"), "models.baselines.metrics")).parent
-            / "reference_baseline_area_calibration.csv"
-        ),
+        area_calibration_path=area_calibration_path,
         target_column=require_string(baseline.get("target"), "models.baselines.target"),
         feature_columns=parse_bands(baseline.get("features") or features.get("bands")),
         train_years=read_year_list(splits, "train_years"),
@@ -443,6 +452,7 @@ def load_baseline_config(config_path: Path) -> BaselineConfig:
             default=False,
         ),
         sample_weight_column=str(baseline.get("sample_weight_column", "sample_weight")),
+        reporting_domain_mask=reporting_domain_mask,
     )
 
 
@@ -1587,6 +1597,10 @@ def build_reference_area_calibration_rows(
     if not baseline_config.model_output_path.exists():
         return []
     inference = pl.scan_parquet(str(baseline_config.inference_table_path))
+    inference = filter_polars_to_reporting_domain(
+        inference,
+        baseline_config.reporting_domain_mask,
+    )
     schema_names = tuple(inference.collect_schema().names())
     key_columns = cell_key_columns_from_names(schema_names)
     base = full_grid_area_base_frame(inference, baseline_config, schema_names)
@@ -1621,7 +1635,7 @@ def build_reference_area_calibration_rows(
     if not summaries:
         return []
     summary = pl.concat(summaries, how="vertical").collect()
-    return finalized_area_rows(summary)
+    return finalized_area_rows(summary, baseline_config)
 
 
 def full_grid_area_base_frame(
@@ -1818,7 +1832,9 @@ def area_summary_aggregations(baseline_config: BaselineConfig) -> list[pl.Expr]:
     ]
 
 
-def finalized_area_rows(summary: pl.DataFrame) -> list[dict[str, object]]:
+def finalized_area_rows(
+    summary: pl.DataFrame, baseline_config: BaselineConfig
+) -> list[dict[str, object]]:
     """Convert aggregate Polars rows into the stable area-calibration schema."""
     rows: list[dict[str, object]] = []
     for row in summary.to_dicts():
@@ -1837,6 +1853,8 @@ def finalized_area_rows(summary: pl.DataFrame) -> list[dict[str, object]]:
                 "model_name": row["model_name"],
                 "split": row["split"],
                 "year": int(cast(Any, row["year"])),
+                "mask_status": mask_status(baseline_config.reporting_domain_mask),
+                "evaluation_scope": evaluation_scope(baseline_config.reporting_domain_mask),
                 "label_source": row["label_source"],
                 "row_count": row_count,
                 "observed_canopy_area": observed_area,

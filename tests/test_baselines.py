@@ -102,7 +102,33 @@ def test_reference_area_calibration_writes_compact_full_grid_rows(tmp_path: Path
     assert "test" in set(calibration["split"])
 
 
-def write_baseline_fixture(tmp_path: Path, *, include_full_grid: bool = False) -> dict[str, Path]:
+def test_reference_area_calibration_filters_to_reporting_domain_mask(tmp_path: Path) -> None:
+    """Verify compact full-grid calibration uses the configured reporting mask."""
+    fixture = write_baseline_fixture(
+        tmp_path,
+        include_full_grid=True,
+        include_domain_mask=True,
+    )
+
+    assert main(["train-baselines", "--config", str(fixture["config_path"])]) == 0
+    rows = write_reference_area_calibration(fixture["config_path"])
+
+    calibration = pd.read_csv(fixture["area_calibration"])
+    ridge_test_all = calibration.query(
+        "model_name == 'ridge_regression' and split == 'test' and label_source == 'all'"
+    ).iloc[0]
+    assert len(rows) == len(calibration)
+    assert int(ridge_test_all["row_count"]) == 2
+    assert set(calibration["mask_status"]) == {"plausible_kelp_domain"}
+    assert set(calibration["evaluation_scope"]) == {"full_grid_masked"}
+
+
+def write_baseline_fixture(
+    tmp_path: Path,
+    *,
+    include_full_grid: bool = False,
+    include_domain_mask: bool = False,
+) -> dict[str, Path]:
     """Write a synthetic aligned table and minimal baseline training config."""
     aligned_table = tmp_path / "interim/aligned_training_table.parquet"
     full_grid_table = tmp_path / "interim/aligned_full_grid_training_table.parquet"
@@ -113,13 +139,39 @@ def write_baseline_fixture(tmp_path: Path, *, include_full_grid: bool = False) -
     prediction_manifest = tmp_path / "interim/baseline_prediction_manifest.json"
     metrics = tmp_path / "reports/tables/baseline_metrics.csv"
     fallback_summary = tmp_path / "reports/tables/reference_baseline_fallback_summary.csv"
-    area_calibration = tmp_path / "reports/tables/reference_baseline_area_calibration.csv"
+    area_calibration = tmp_path / (
+        "reports/tables/reference_baseline_area_calibration.masked.csv"
+        if include_domain_mask
+        else "reports/tables/reference_baseline_area_calibration.csv"
+    )
+    unmasked_area_calibration = tmp_path / "reports/tables/reference_baseline_area_calibration.csv"
+    domain_mask = tmp_path / "interim/plausible_kelp_domain_mask.parquet"
+    domain_manifest = tmp_path / "interim/plausible_kelp_domain_mask_manifest.json"
     manifest = tmp_path / "interim/baseline_eval_manifest.json"
     geographic_model = tmp_path / "models/baselines/geographic_ridge_lon_lat_year.joblib"
     config_path = tmp_path / "config.yaml"
     write_aligned_table(aligned_table)
     if include_full_grid:
         write_aligned_table(full_grid_table)
+    if include_domain_mask:
+        write_baseline_domain_mask(domain_mask, domain_manifest)
+    domain_mask_config = (
+        f"""
+  domain_mask:
+    primary_full_grid_domain: plausible_kelp_domain
+    mask_status: plausible_kelp_domain
+    evaluation_scope: full_grid_masked
+    mask_table: {domain_mask}
+    mask_manifest: {domain_manifest}
+"""
+        if include_domain_mask
+        else ""
+    )
+    masked_area_output = (
+        f"    reference_baseline_area_calibration_masked: {area_calibration}\n"
+        if include_domain_mask
+        else ""
+    )
     config_path.write_text(
         f"""
 alignment:
@@ -150,9 +202,11 @@ models:
     metrics: {metrics}
     manifest: {manifest}
 reports:
+{domain_mask_config}
   outputs:
     reference_baseline_fallback_summary: {fallback_summary}
-    reference_baseline_area_calibration: {area_calibration}
+    reference_baseline_area_calibration: {unmasked_area_calibration}
+{masked_area_output}
 """.lstrip()
     )
     return {
@@ -202,3 +256,18 @@ def write_aligned_table(path: Path) -> None:
             )
     rows[-1]["A00"] = np.nan
     pd.DataFrame(rows).to_parquet(path, index=False)
+
+
+def write_baseline_domain_mask(mask_path: Path, manifest_path: Path) -> None:
+    """Write a tiny mask that retains two of three fixture target-grid cells."""
+    mask_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "aef_grid_cell_id": [0, 1, 2],
+            "is_plausible_kelp_domain": [True, True, False],
+            "domain_mask_reason": ["retained", "retained", "dropped_too_deep"],
+            "domain_mask_detail": ["fixture"] * 3,
+            "domain_mask_version": ["test_mask_v1"] * 3,
+        }
+    ).to_parquet(mask_path, index=False)
+    manifest_path.write_text(json.dumps({"mask_version": "test_mask_v1"}))

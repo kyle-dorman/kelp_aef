@@ -53,22 +53,75 @@ def test_map_residuals_writes_exploration_artifacts(tmp_path: Path) -> None:
     assert manifest["residual_sign"] == "observed minus predicted"
 
 
-def write_residual_map_fixture(tmp_path: Path) -> dict[str, Path]:
+def test_map_residuals_filters_full_grid_rows_to_domain_mask(tmp_path: Path) -> None:
+    """Verify map-residuals uses the plausible-kelp domain as the reporting scope."""
+    fixture = write_residual_map_fixture(tmp_path, include_domain_mask=True)
+
+    assert main(["map-residuals", "--config", str(fixture["config_path"])]) == 0
+
+    area_by_year = pd.read_csv(fixture["area_by_year"])
+    test_row = area_by_year.query(
+        "model_name == 'ridge_regression' and split == 'test' and year == 2022"
+    ).iloc[0]
+    assert int(test_row["row_count"]) == 2
+    assert set(area_by_year["mask_status"]) == {"plausible_kelp_domain"}
+    assert set(area_by_year["evaluation_scope"]) == {"full_grid_masked"}
+
+    manifest = json.loads(fixture["manifest"].read_text())
+    audit = pd.read_csv(fixture["off_domain_audit"])
+    assert manifest["map_row_count"] == 2
+    assert manifest["mask_status"] == "plausible_kelp_domain"
+    assert set(audit["domain_mask_reason"]) == {"dropped_too_deep"}
+
+
+def write_residual_map_fixture(
+    tmp_path: Path, *, include_domain_mask: bool = False
+) -> dict[str, Path]:
     """Write synthetic residual-map inputs and return configured artifact paths."""
     predictions = tmp_path / "processed/baseline_predictions.parquet"
     metrics = tmp_path / "reports/tables/baseline_metrics.csv"
     footprint = tmp_path / "geos/footprint.geojson"
-    static_map = tmp_path / "reports/figures/ridge_2022_observed_predicted_residual.png"
-    scatter = tmp_path / "reports/figures/ridge_observed_vs_predicted.png"
-    interactive_html = tmp_path / "reports/figures/ridge_2022_residual_interactive.html"
-    area_by_year = tmp_path / "reports/tables/area_bias_by_year.csv"
-    area_by_latitude = tmp_path / "reports/tables/area_bias_by_latitude_band.csv"
+    suffix = ".masked" if include_domain_mask else ""
+    static_map = tmp_path / f"reports/figures/ridge_2022_observed_predicted_residual{suffix}.png"
+    scatter = tmp_path / f"reports/figures/ridge_observed_vs_predicted{suffix}.png"
+    interactive_html = tmp_path / f"reports/figures/ridge_2022_residual_interactive{suffix}.html"
+    area_by_year = tmp_path / f"reports/tables/area_bias_by_year{suffix}.csv"
+    area_by_latitude = tmp_path / f"reports/tables/area_bias_by_latitude_band{suffix}.csv"
     top_residuals = tmp_path / "reports/tables/top_residual_stations.csv"
+    domain_mask = tmp_path / "interim/plausible_kelp_domain_mask.parquet"
+    domain_manifest = tmp_path / "interim/plausible_kelp_domain_mask_manifest.json"
+    off_domain_audit = tmp_path / "reports/tables/off_domain_prediction_leakage_audit.csv"
     manifest = tmp_path / "interim/map_residuals_manifest.json"
     config_path = tmp_path / "config.yaml"
     write_prediction_table(predictions)
     write_metrics_table(metrics)
     write_footprint(footprint)
+    if include_domain_mask:
+        write_domain_mask(domain_mask, domain_manifest)
+    domain_mask_config = (
+        f"""
+  domain_mask:
+    primary_full_grid_domain: plausible_kelp_domain
+    mask_status: plausible_kelp_domain
+    evaluation_scope: full_grid_masked
+    mask_table: {domain_mask}
+    mask_manifest: {domain_manifest}
+    off_domain_audit_table: {off_domain_audit}
+"""
+        if include_domain_mask
+        else ""
+    )
+    masked_outputs = (
+        f"""
+    ridge_observed_predicted_residual_map_masked: {static_map}
+    ridge_observed_vs_predicted_masked: {scatter}
+    ridge_residual_interactive_masked: {interactive_html}
+    area_bias_by_year_masked: {area_by_year}
+    area_bias_by_latitude_band_masked: {area_by_latitude}
+"""
+        if include_domain_mask
+        else ""
+    )
     config_path.write_text(
         f"""
 data_root: {tmp_path}
@@ -82,6 +135,7 @@ models:
 reports:
   figures_dir: {tmp_path / "reports/figures"}
   tables_dir: {tmp_path / "reports/tables"}
+{domain_mask_config}
   map_residuals:
     model_name: ridge_regression
     split: test
@@ -94,6 +148,7 @@ reports:
     ridge_residual_interactive: {interactive_html}
     area_bias_by_year: {area_by_year}
     area_bias_by_latitude_band: {area_by_latitude}
+{masked_outputs}
     top_residual_stations: {top_residuals}
     map_residuals_manifest: {manifest}
 """.lstrip()
@@ -106,6 +161,7 @@ reports:
         "area_by_year": area_by_year,
         "area_by_latitude": area_by_latitude,
         "top_residuals": top_residuals,
+        "off_domain_audit": off_domain_audit,
         "manifest": manifest,
     }
 
@@ -141,6 +197,9 @@ def prediction_row(
         "year": year,
         "split": split,
         "kelpwatch_station_id": station_id,
+        "aef_grid_cell_id": station_id,
+        "aef_grid_row": station_id,
+        "aef_grid_col": station_id,
         "longitude": longitude,
         "latitude": latitude,
         "kelp_fraction_y": observed_fraction,
@@ -154,6 +213,29 @@ def prediction_row(
         "residual_kelp_fraction_y_clipped": observed_fraction - predicted_fraction,
         "residual_kelp_max_y": observed_area - predicted_area,
     }
+
+
+def write_domain_mask(mask_path: Path, manifest_path: Path) -> None:
+    """Write a tiny mask that drops one selected test prediction row."""
+    mask_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "aef_grid_cell_id": [1, 2, 3, 4, 5, 6, 7],
+            "is_plausible_kelp_domain": [True, False, True, False, True, False, True],
+            "domain_mask_reason": [
+                "retained",
+                "dropped_too_deep",
+                "retained",
+                "dropped_too_deep",
+                "retained",
+                "dropped_too_deep",
+                "retained",
+            ],
+            "domain_mask_detail": ["fixture"] * 7,
+            "domain_mask_version": ["test_mask_v1"] * 7,
+        }
+    ).to_parquet(mask_path, index=False)
+    manifest_path.write_text(json.dumps({"mask_version": "test_mask_v1"}))
 
 
 def write_metrics_table(path: Path) -> None:

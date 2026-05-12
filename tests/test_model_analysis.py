@@ -98,7 +98,29 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert 'src="data:image/png;base64,' in html_report
 
 
-def write_model_analysis_fixture(tmp_path: Path) -> dict[str, Path]:
+def test_analyze_model_treats_domain_mask_as_primary_full_grid_scope(
+    tmp_path: Path,
+) -> None:
+    """Verify model-analysis labels masked full-grid rows as the primary scope."""
+    fixture = write_model_analysis_fixture(tmp_path, include_domain_mask=True)
+
+    assert main(["analyze-model", "--config", str(fixture["config_path"])]) == 0
+
+    model_comparison = pd.read_csv(fixture["phase1_model_comparison"])
+    full_grid = model_comparison.query("evaluation_scope == 'full_grid_masked'")
+    assert set(full_grid["mask_status"]) == {"plausible_kelp_domain"}
+    assert int(full_grid.iloc[0]["row_count"]) == 2
+
+    manifest = json.loads(fixture["manifest"].read_text())
+    report = fixture["report"].read_text()
+    assert manifest["mask_status"] == "plausible_kelp_domain"
+    assert manifest["evaluation_scope"] == "full_grid_masked"
+    assert "plausible_kelp_domain" in report
+
+
+def write_model_analysis_fixture(
+    tmp_path: Path, *, include_domain_mask: bool = False
+) -> dict[str, Path]:
     """Write synthetic model-analysis inputs and configured output paths."""
     labels = tmp_path / "interim/labels_annual.parquet"
     label_manifest = tmp_path / "interim/labels_annual_manifest.json"
@@ -107,17 +129,30 @@ def write_model_analysis_fixture(tmp_path: Path) -> dict[str, Path]:
     predictions = tmp_path / "processed/baseline_predictions.parquet"
     metrics = tmp_path / "reports/tables/baseline_metrics.csv"
     paths = output_paths(tmp_path)
+    domain_mask = tmp_path / "interim/plausible_kelp_domain_mask.parquet"
+    domain_manifest = tmp_path / "interim/plausible_kelp_domain_mask_manifest.json"
     write_labels(labels)
     write_aligned(aligned)
     write_split_manifest(split_manifest)
     write_predictions(predictions)
     write_metrics(metrics)
+    if include_domain_mask:
+        write_model_analysis_domain_mask(domain_mask, domain_manifest)
     label_manifest.parent.mkdir(parents=True, exist_ok=True)
     label_manifest.write_text(json.dumps({"spatial": {"crs": "EPSG:4326"}}))
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         config_text(
-            tmp_path, labels, label_manifest, aligned, split_manifest, predictions, metrics, paths
+            tmp_path,
+            labels,
+            label_manifest,
+            aligned,
+            split_manifest,
+            predictions,
+            metrics,
+            paths,
+            domain_mask=domain_mask if include_domain_mask else None,
+            domain_manifest=domain_manifest if include_domain_mask else None,
         )
     )
     return {"config_path": config_path, **paths}
@@ -178,8 +213,27 @@ def config_text(
     predictions: Path,
     metrics: Path,
     paths: dict[str, Path],
+    domain_mask: Path | None = None,
+    domain_manifest: Path | None = None,
 ) -> str:
     """Build a minimal workflow config for model analysis."""
+    domain_mask_config = (
+        f"""
+  domain_mask:
+    primary_full_grid_domain: plausible_kelp_domain
+    mask_status: plausible_kelp_domain
+    evaluation_scope: full_grid_masked
+    mask_table: {domain_mask}
+    mask_manifest: {domain_manifest}
+"""
+        if domain_mask is not None and domain_manifest is not None
+        else ""
+    )
+    masked_outputs = (
+        f"    reference_baseline_area_calibration_masked: {paths['reference_area_calibration']}\n"
+        if domain_mask is not None
+        else ""
+    )
     return f"""
 data_root: {tmp_path}
 labels:
@@ -200,6 +254,7 @@ models:
 reports:
   figures_dir: {tmp_path / "reports/figures"}
   tables_dir: {tmp_path / "reports/tables"}
+{domain_mask_config}
   model_analysis:
     model_name: ridge_regression
     split: test
@@ -226,6 +281,7 @@ reports:
     model_analysis_phase1_decision_matrix: {paths["phase1_decision"]}
     model_analysis_phase1_model_comparison: {paths["phase1_model_comparison"]}
     reference_baseline_area_calibration: {paths["reference_area_calibration"]}
+{masked_outputs}
     model_analysis_data_health: {paths["data_health"]}
     model_analysis_quarter_mapping: {paths["quarter_mapping"]}
     model_analysis_label_distribution_figure: {paths["label_distribution_figure"]}
@@ -296,6 +352,9 @@ def write_split_manifest(path: Path) -> None:
                 {
                     "year": year,
                     "kelpwatch_station_id": station_id,
+                    "aef_grid_cell_id": station_id,
+                    "aef_grid_row": station_id,
+                    "aef_grid_col": station_id,
                     "longitude": -122.0 + station_id * 0.001,
                     "latitude": 36.0 + station_id * 0.01,
                     "kelp_fraction_y": fraction,
@@ -310,6 +369,21 @@ def write_split_manifest(path: Path) -> None:
     pd.DataFrame(rows).to_parquet(path, index=False)
 
 
+def write_model_analysis_domain_mask(mask_path: Path, manifest_path: Path) -> None:
+    """Write a tiny domain mask that drops the middle fixture station."""
+    mask_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "aef_grid_cell_id": [1, 2, 3],
+            "is_plausible_kelp_domain": [True, False, True],
+            "domain_mask_reason": ["retained", "dropped_too_deep", "retained"],
+            "domain_mask_detail": ["fixture"] * 3,
+            "domain_mask_version": ["test_mask_v1"] * 3,
+        }
+    ).to_parquet(mask_path, index=False)
+    manifest_path.write_text(json.dumps({"mask_version": "test_mask_v1"}))
+
+
 def write_predictions(path: Path) -> None:
     """Write ridge prediction rows with saturated underprediction."""
     rows = []
@@ -322,6 +396,9 @@ def write_predictions(path: Path) -> None:
                     "year": year,
                     "split": split,
                     "kelpwatch_station_id": station_id,
+                    "aef_grid_cell_id": station_id,
+                    "aef_grid_row": station_id,
+                    "aef_grid_col": station_id,
                     "longitude": -122.0 + station_id * 0.001,
                     "latitude": 36.0 + station_id * 0.01,
                     "kelp_fraction_y": observed,

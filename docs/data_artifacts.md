@@ -181,3 +181,17 @@ artifacts and should not be tracked in git.
 | Plausible kelp domain mask Kelpwatch retention | `/Volumes/x10pro/kelp_aef/reports/tables/plausible_kelp_domain_mask_kelpwatch_retention.csv` | Kelpwatch-positive retained/dropped counts by year, label source, and mask reason. | Not tracked |
 | Plausible kelp domain mask depth bins | `/Volumes/x10pro/kelp_aef/reports/tables/plausible_kelp_domain_mask_depth_bins.csv` | Mask coverage and Kelpwatch-positive counts by land, ambiguous-coast, shallow-depth, intermediate-depth, and deep-water bins. | Not tracked |
 | Plausible kelp domain mask visual QA | `/Volumes/x10pro/kelp_aef/reports/figures/plausible_kelp_domain_mask_qa.png` | Three-panel visual QA showing mask reasons, CRM elevation context, and Kelpwatch-positive retained/dropped overlay. | Not tracked |
+
+## Phase 1 Masked Reporting Outputs
+
+These outputs apply the P1-12 plausible-kelp domain mask to full-grid reporting
+without changing the training or sampling artifacts.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| Masked residual map | `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.masked.png` | Three-panel observed, predicted, and residual map restricted to retained plausible-kelp cells for the configured report year. | Not tracked |
+| Masked residual interactive map | `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.masked.html` | Interactive full-grid residual review restricted to retained plausible-kelp cells. | Not tracked |
+| Masked area bias by year | `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.masked.csv` | Ridge full-grid area-bias rows filtered to `mask_status = plausible_kelp_domain` and `evaluation_scope = full_grid_masked`. | Not tracked |
+| Masked area bias by latitude band | `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_latitude_band.masked.csv` | Ridge full-grid area-bias rows by latitude band inside the retained plausible-kelp domain. | Not tracked |
+| Masked reference baseline area calibration | `/Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.masked.csv` | Compact reference-baseline and ridge area calibration rows computed inside the retained plausible-kelp domain. | Not tracked |
+| Off-domain prediction leakage audit | `/Volumes/x10pro/kelp_aef/reports/tables/off_domain_prediction_leakage_audit.csv` | Separate diagnostic for predicted area on cells dropped by the domain mask, grouped by model, split, year, and mask reason. | Not tracked |

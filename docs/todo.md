@@ -221,7 +221,7 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef build-domain-mask --config configs/monterey_smoke.yaml --fast`,
     `uv run kelp-aef build-domain-mask --config configs/monterey_smoke.yaml`,
     and `make check`.
-- [ ] P1-13: Apply the domain mask to full-grid inference/reporting first.
+- [x] P1-13: Apply the domain mask to full-grid inference/reporting first.
   - Goal: Make the P1-12 plausible-kelp mask the default full-grid reporting
     domain before retraining.
   - Plan: `tasks/21_apply_domain_mask_to_reporting.md`.
@@ -230,6 +230,19 @@ masking change should end with an updated model-analysis report.
   - Validation: masked-domain area calibration is the primary report scope;
     any unmasked/off-domain numbers are isolated as migration/audit diagnostics
     instead of recurring `all` headline rows.
+  - Completed: added reporting-only domain-mask config and shared mask joins for
+    residual maps, compact reference area calibration, and model-analysis report
+    rows. Training and sampling inputs remain unchanged for P1-14.
+  - Result: masked 2022 residual-map/reporting scope retains 999,519 cells;
+    masked full-grid report rows use `mask_status = plausible_kelp_domain` and
+    `evaluation_scope = full_grid_masked`. Off-domain prediction leakage is
+    isolated in
+    `/Volumes/x10pro/kelp_aef/reports/tables/off_domain_prediction_leakage_audit.csv`.
+  - Validation passed:
+    `uv run pytest tests/test_residual_maps.py tests/test_model_analysis.py tests/test_baselines.py`,
+    `uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
+    and `make check`.
 - [ ] P1-14: Apply the domain mask to training and sampling.
   - Goal: Train only on physically plausible cells unless explicitly comparing
     against the unmasked run.

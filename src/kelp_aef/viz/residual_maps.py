@@ -21,6 +21,17 @@ import pyarrow.dataset as ds
 from shapely.geometry import MultiPolygon, Polygon
 
 from kelp_aef.config import load_yaml_config, require_mapping, require_string
+from kelp_aef.domain.reporting_mask import (
+    MASK_KEY_COLUMN,
+    MASK_RETAIN_COLUMN,
+    ReportingDomainMask,
+    apply_reporting_domain_mask,
+    evaluation_scope,
+    load_reporting_domain_mask,
+    mask_status,
+    masked_output_path,
+    read_mask_frame,
+)
 from kelp_aef.evaluation.baselines import (
     percent_bias,
     r2_score,
@@ -66,6 +77,8 @@ AREA_BIAS_YEAR_FIELDS = (
     "model_name",
     "split",
     "year",
+    "mask_status",
+    "evaluation_scope",
     "row_count",
     "observed_canopy_area",
     "predicted_canopy_area",
@@ -79,6 +92,8 @@ AREA_BIAS_LATITUDE_FIELDS = (
     "model_name",
     "split",
     "year",
+    "mask_status",
+    "evaluation_scope",
     "latitude_band",
     "latitude_min",
     "latitude_max",
@@ -104,6 +119,16 @@ TOP_RESIDUAL_FIELDS = (
     "residual_kelp_max_y",
     "abs_residual_kelp_max_y",
 )
+OFF_DOMAIN_AUDIT_FIELDS = (
+    "model_name",
+    "split",
+    "year",
+    "domain_mask_reason",
+    "row_count",
+    "observed_canopy_area",
+    "predicted_canopy_area",
+    "predicted_fraction_sum",
+)
 
 
 @dataclass(frozen=True)
@@ -126,6 +151,7 @@ class ResidualMapConfig:
     area_bias_by_latitude_path: Path
     top_residuals_path: Path
     manifest_path: Path
+    domain_mask: ReportingDomainMask | None
 
 
 @dataclass
@@ -142,6 +168,16 @@ class AreaAccumulator:
     observed_fraction_squared_sum: float = 0.0
 
 
+@dataclass
+class OffDomainAccumulator:
+    """Streaming sums for one off-domain prediction leakage audit row."""
+
+    row_count: int = 0
+    observed_canopy_area: float = 0.0
+    predicted_canopy_area: float = 0.0
+    predicted_fraction_sum: float = 0.0
+
+
 def map_residuals(config_path: Path) -> int:
     """Write prediction maps, residual figures, and area-bias QA tables."""
     map_config = load_residual_map_config(config_path)
@@ -153,8 +189,13 @@ def map_residuals(config_path: Path) -> int:
         raise ValueError(msg)
     footprint = read_footprint(map_config.footprint_path)
     area_by_year = area_bias_by_year_from_predictions(map_config)
-    area_by_latitude = area_bias_by_latitude_band(map_rows, map_config.latitude_band_count)
+    area_by_latitude = area_bias_by_latitude_band(
+        map_rows,
+        map_config.latitude_band_count,
+        map_config.domain_mask,
+    )
     top_residuals = top_residual_stations(map_rows, map_config.top_residual_count)
+    off_domain_audit = off_domain_audit_rows_from_predictions(map_config)
 
     write_static_map(map_rows, footprint, map_config.static_map_path, map_config)
     write_observed_vs_predicted(map_rows, map_config.scatter_path, map_config)
@@ -162,12 +203,19 @@ def map_residuals(config_path: Path) -> int:
     write_csv(area_by_year, map_config.area_bias_by_year_path, AREA_BIAS_YEAR_FIELDS)
     write_csv(area_by_latitude, map_config.area_bias_by_latitude_path, AREA_BIAS_LATITUDE_FIELDS)
     write_csv(top_residuals, map_config.top_residuals_path, TOP_RESIDUAL_FIELDS)
+    if map_config.domain_mask is not None and map_config.domain_mask.off_domain_audit_path:
+        write_csv(
+            off_domain_audit,
+            map_config.domain_mask.off_domain_audit_path,
+            OFF_DOMAIN_AUDIT_FIELDS,
+        )
     write_manifest(
         map_config=map_config,
         map_rows=map_rows,
         area_by_year=area_by_year,
         area_by_latitude=area_by_latitude,
         top_residuals=top_residuals,
+        off_domain_audit=off_domain_audit,
     )
     LOGGER.info("Wrote residual static map: %s", map_config.static_map_path)
     LOGGER.info("Wrote observed-vs-predicted figure: %s", map_config.scatter_path)
@@ -175,6 +223,11 @@ def map_residuals(config_path: Path) -> int:
     LOGGER.info("Wrote area bias by year: %s", map_config.area_bias_by_year_path)
     LOGGER.info("Wrote area bias by latitude band: %s", map_config.area_bias_by_latitude_path)
     LOGGER.info("Wrote top residual stations: %s", map_config.top_residuals_path)
+    if map_config.domain_mask is not None and map_config.domain_mask.off_domain_audit_path:
+        LOGGER.info(
+            "Wrote off-domain prediction leakage audit: %s",
+            map_config.domain_mask.off_domain_audit_path,
+        )
     LOGGER.info("Wrote map residuals manifest: %s", map_config.manifest_path)
     return 0
 
@@ -187,7 +240,10 @@ def read_selected_prediction_rows(map_config: ResidualMapConfig) -> pd.DataFrame
         model_predictions = predictions.loc[
             predictions["model_name"] == map_config.model_name
         ].copy()
-        return selected_map_rows(model_predictions, map_config)
+        return apply_reporting_domain_mask(
+            selected_map_rows(model_predictions, map_config),
+            map_config.domain_mask,
+        )
     dataset = ds.dataset(map_config.predictions_path, format="parquet")  # type: ignore[no-untyped-call]
     available_columns = set(dataset.schema.names)
     selected_columns = [column for column in columns if column in available_columns]
@@ -205,7 +261,9 @@ def read_selected_prediction_rows(map_config: ResidualMapConfig) -> pd.DataFrame
         map_config.map_split,
         map_config.map_year,
     )
-    return cast(pd.DataFrame, selected)
+    masked = apply_reporting_domain_mask(cast(pd.DataFrame, selected), map_config.domain_mask)
+    LOGGER.info("Retained %s map rows after reporting domain mask", len(masked))
+    return masked
 
 
 def prediction_columns(path: Path) -> list[str]:
@@ -231,6 +289,7 @@ def load_residual_map_config(config_path: Path) -> ResidualMapConfig:
     reports = require_mapping(config.get("reports"), "reports")
     outputs = require_mapping(reports.get("outputs"), "reports.outputs")
     map_settings = optional_mapping(reports.get("map_residuals"), "reports.map_residuals")
+    domain_mask = load_reporting_domain_mask(config)
     figures_dir = Path(require_string(reports.get("figures_dir"), "reports.figures_dir"))
     tables_dir = Path(require_string(reports.get("tables_dir"), "reports.tables_dir"))
     return ResidualMapConfig(
@@ -257,30 +316,40 @@ def load_residual_map_config(config_path: Path) -> ResidualMapConfig:
             "reports.map_residuals.top_residual_count",
             DEFAULT_TOP_RESIDUAL_COUNT,
         ),
-        static_map_path=output_path(
+        static_map_path=masked_output_path(
             outputs,
-            "ridge_observed_predicted_residual_map",
-            figures_dir / "ridge_2022_observed_predicted_residual.png",
+            unmasked_key="ridge_observed_predicted_residual_map",
+            masked_key="ridge_observed_predicted_residual_map_masked",
+            default=figures_dir / "ridge_2022_observed_predicted_residual.png",
+            mask_config=domain_mask,
         ),
-        scatter_path=output_path(
+        scatter_path=masked_output_path(
             outputs,
-            "ridge_observed_vs_predicted",
-            figures_dir / "ridge_observed_vs_predicted.png",
+            unmasked_key="ridge_observed_vs_predicted",
+            masked_key="ridge_observed_vs_predicted_masked",
+            default=figures_dir / "ridge_observed_vs_predicted.png",
+            mask_config=domain_mask,
         ),
-        interactive_html_path=output_path(
+        interactive_html_path=masked_output_path(
             outputs,
-            "ridge_residual_interactive",
-            figures_dir / "ridge_2022_residual_interactive.html",
+            unmasked_key="ridge_residual_interactive",
+            masked_key="ridge_residual_interactive_masked",
+            default=figures_dir / "ridge_2022_residual_interactive.html",
+            mask_config=domain_mask,
         ),
-        area_bias_by_year_path=output_path(
+        area_bias_by_year_path=masked_output_path(
             outputs,
-            "area_bias_by_year",
-            tables_dir / "area_bias_by_year.csv",
+            unmasked_key="area_bias_by_year",
+            masked_key="area_bias_by_year_masked",
+            default=tables_dir / "area_bias_by_year.csv",
+            mask_config=domain_mask,
         ),
-        area_bias_by_latitude_path=output_path(
+        area_bias_by_latitude_path=masked_output_path(
             outputs,
-            "area_bias_by_latitude_band",
-            tables_dir / "area_bias_by_latitude_band.csv",
+            unmasked_key="area_bias_by_latitude_band",
+            masked_key="area_bias_by_latitude_band_masked",
+            default=tables_dir / "area_bias_by_latitude_band.csv",
+            mask_config=domain_mask,
         ),
         top_residuals_path=output_path(
             outputs,
@@ -293,6 +362,7 @@ def load_residual_map_config(config_path: Path) -> ResidualMapConfig:
             Path(require_string(config.get("data_root"), "data_root"))
             / "interim/map_residuals_manifest.json",
         ),
+        domain_mask=domain_mask,
     )
 
 
@@ -356,7 +426,9 @@ def read_footprint(path: Path) -> Polygon | MultiPolygon | None:
     return None
 
 
-def area_bias_by_year(dataframe: pd.DataFrame) -> list[dict[str, object]]:
+def area_bias_by_year(
+    dataframe: pd.DataFrame, mask_config: ReportingDomainMask | None
+) -> list[dict[str, object]]:
     """Build area-bias summary rows grouped by model, split, and year."""
     rows: list[dict[str, object]] = []
     for keys, group in dataframe.groupby(["model_name", "split", "year"], sort=True):
@@ -367,6 +439,7 @@ def area_bias_by_year(dataframe: pd.DataFrame) -> list[dict[str, object]]:
                 model_name=str(model_name),
                 split=str(split),
                 year=int(year),
+                mask_config=mask_config,
             )
         )
     return rows
@@ -384,7 +457,8 @@ def area_bias_by_year_from_predictions(
         model_predictions = predictions.loc[
             predictions["model_name"] == map_config.model_name
         ].copy()
-        return area_bias_by_year(model_predictions)
+        masked_predictions = apply_reporting_domain_mask(model_predictions, map_config.domain_mask)
+        return area_bias_by_year(masked_predictions, map_config.domain_mask)
     dataset = ds.dataset(map_config.predictions_path, format="parquet")  # type: ignore[no-untyped-call]
     columns = [
         "model_name",
@@ -395,6 +469,8 @@ def area_bias_by_year_from_predictions(
         "kelp_max_y",
         "pred_kelp_max_y",
     ]
+    if map_config.domain_mask is not None:
+        columns.append(MASK_KEY_COLUMN)
     available_columns = set(dataset.schema.names)
     missing = [column for column in columns if column not in available_columns]
     if missing:
@@ -404,9 +480,16 @@ def area_bias_by_year_from_predictions(
     accumulators: dict[tuple[str, str, int], AreaAccumulator] = {}
     for batch in dataset.to_batches(columns=columns, filter=expression, batch_size=100_000):
         batch_frame = batch.to_pandas()
+        batch_frame = apply_reporting_domain_mask(batch_frame, map_config.domain_mask)
         update_area_accumulators(accumulators, batch_frame)
     rows = [
-        area_metric_row_from_accumulator(model_name, split, year, accumulator)
+        area_metric_row_from_accumulator(
+            model_name,
+            split,
+            year,
+            accumulator,
+            map_config.domain_mask,
+        )
         for (model_name, split, year), accumulator in sorted(accumulators.items())
     ]
     LOGGER.info("Built %s streamed area-bias-by-year rows", len(rows))
@@ -440,17 +523,104 @@ def update_area_accumulators(
         )
 
 
+def off_domain_audit_rows_from_predictions(
+    map_config: ResidualMapConfig,
+) -> list[dict[str, object]]:
+    """Build a separate audit of prediction area dropped by the reporting mask."""
+    if map_config.domain_mask is None or map_config.domain_mask.off_domain_audit_path is None:
+        return []
+    mask = read_mask_frame(map_config.domain_mask)
+    dropped = mask.loc[
+        ~mask[MASK_RETAIN_COLUMN].astype(bool),
+        [MASK_KEY_COLUMN, "domain_mask_reason"],
+    ].set_index(MASK_KEY_COLUMN)
+    columns = [
+        "model_name",
+        "split",
+        "year",
+        MASK_KEY_COLUMN,
+        "kelp_max_y",
+        "pred_kelp_max_y",
+        "pred_kelp_fraction_y_clipped",
+    ]
+    accumulators: dict[tuple[str, str, int, str], OffDomainAccumulator] = {}
+    if not map_config.predictions_path.is_dir():
+        predictions = pd.read_parquet(map_config.predictions_path, columns=columns)
+        selected = predictions.loc[predictions["model_name"] == map_config.model_name].copy()
+        update_off_domain_accumulators(accumulators, selected, dropped)
+        return finalized_off_domain_audit_rows(accumulators)
+    dataset = ds.dataset(map_config.predictions_path, format="parquet")  # type: ignore[no-untyped-call]
+    available_columns = set(dataset.schema.names)
+    missing = [column for column in columns if column not in available_columns]
+    if missing:
+        msg = f"prediction dataset is missing required off-domain audit columns: {missing}"
+        raise ValueError(msg)
+    expression = dataset_field("model_name") == map_config.model_name
+    for batch in dataset.to_batches(columns=columns, filter=expression, batch_size=100_000):
+        update_off_domain_accumulators(accumulators, batch.to_pandas(), dropped)
+    return finalized_off_domain_audit_rows(accumulators)
+
+
+def update_off_domain_accumulators(
+    accumulators: dict[tuple[str, str, int, str], OffDomainAccumulator],
+    predictions: pd.DataFrame,
+    dropped_mask: pd.DataFrame,
+) -> None:
+    """Update off-domain audit sums from one prediction batch."""
+    joined = predictions.join(dropped_mask, on=MASK_KEY_COLUMN, how="inner")
+    for keys, group in joined.groupby(
+        ["model_name", "split", "year", "domain_mask_reason"], sort=True
+    ):
+        model_name, split, year, reason = cast(tuple[str, str, int, str], keys)
+        key = (str(model_name), str(split), int(year), str(reason))
+        accumulator = accumulators.setdefault(key, OffDomainAccumulator())
+        accumulator.row_count += int(len(group))
+        accumulator.observed_canopy_area += float(
+            np.nansum(group["kelp_max_y"].to_numpy(dtype=float))
+        )
+        accumulator.predicted_canopy_area += float(
+            np.nansum(group["pred_kelp_max_y"].to_numpy(dtype=float))
+        )
+        accumulator.predicted_fraction_sum += float(
+            np.nansum(group["pred_kelp_fraction_y_clipped"].to_numpy(dtype=float))
+        )
+
+
+def finalized_off_domain_audit_rows(
+    accumulators: dict[tuple[str, str, int, str], OffDomainAccumulator],
+) -> list[dict[str, object]]:
+    """Convert off-domain audit accumulators into stable CSV rows."""
+    rows: list[dict[str, object]] = []
+    for (model_name, split, year, reason), accumulator in sorted(accumulators.items()):
+        rows.append(
+            {
+                "model_name": model_name,
+                "split": split,
+                "year": year,
+                "domain_mask_reason": reason,
+                "row_count": accumulator.row_count,
+                "observed_canopy_area": accumulator.observed_canopy_area,
+                "predicted_canopy_area": accumulator.predicted_canopy_area,
+                "predicted_fraction_sum": accumulator.predicted_fraction_sum,
+            }
+        )
+    return rows
+
+
 def area_metric_row_from_accumulator(
     model_name: str,
     split: str,
     year: int,
     accumulator: AreaAccumulator,
+    mask_config: ReportingDomainMask | None,
 ) -> dict[str, object]:
     """Build one area-bias row from streaming accumulator state."""
     return {
         "model_name": model_name,
         "split": split,
         "year": year,
+        "mask_status": mask_status(mask_config),
+        "evaluation_scope": evaluation_scope(mask_config),
         "row_count": accumulator.row_count,
         "observed_canopy_area": accumulator.observed_canopy_area,
         "predicted_canopy_area": accumulator.predicted_canopy_area,
@@ -490,7 +660,9 @@ def r2_from_accumulator(accumulator: AreaAccumulator) -> float:
 
 
 def area_bias_by_latitude_band(
-    dataframe: pd.DataFrame, latitude_band_count: int
+    dataframe: pd.DataFrame,
+    latitude_band_count: int,
+    mask_config: ReportingDomainMask | None,
 ) -> list[dict[str, object]]:
     """Build area-bias summaries within deterministic latitude bands."""
     banded = dataframe.copy()
@@ -503,7 +675,13 @@ def area_bias_by_latitude_band(
         ["model_name", "split", "year", "latitude_band_index"], sort=True
     ):
         model_name, split, year, band_index = cast(tuple[str, str, int, int], keys)
-        row = area_metric_row(group, model_name=str(model_name), split=str(split), year=int(year))
+        row = area_metric_row(
+            group,
+            model_name=str(model_name),
+            split=str(split),
+            year=int(year),
+            mask_config=mask_config,
+        )
         latitude_min = float(group["latitude"].min())
         latitude_max = float(group["latitude"].max())
         row.update(
@@ -534,6 +712,7 @@ def area_metric_row(
     model_name: str,
     split: str,
     year: int,
+    mask_config: ReportingDomainMask | None,
 ) -> dict[str, object]:
     """Build one area-bias and regression-metric summary row."""
     observed_fraction = dataframe["kelp_fraction_y"].to_numpy(dtype=float)
@@ -544,6 +723,8 @@ def area_metric_row(
         "model_name": model_name,
         "split": split,
         "year": year,
+        "mask_status": mask_status(mask_config),
+        "evaluation_scope": evaluation_scope(mask_config),
         "row_count": int(len(dataframe)),
         "observed_canopy_area": observed_area,
         "predicted_canopy_area": predicted_area,
@@ -1087,6 +1268,7 @@ def write_manifest(
     area_by_year: list[dict[str, object]],
     area_by_latitude: list[dict[str, object]],
     top_residuals: list[dict[str, object]],
+    off_domain_audit: list[dict[str, object]],
 ) -> None:
     """Write a JSON manifest describing map residual QA outputs."""
     payload = {
@@ -1102,12 +1284,29 @@ def write_manifest(
         "residual_sign": "observed minus predicted",
         "latitude_band_count": map_config.latitude_band_count,
         "top_residual_count_per_sign": map_config.top_residual_count,
+        "mask_status": mask_status(map_config.domain_mask),
+        "evaluation_scope": evaluation_scope(map_config.domain_mask),
+        "domain_mask": (
+            {
+                "table": str(map_config.domain_mask.table_path),
+                "manifest": str(map_config.domain_mask.manifest_path)
+                if map_config.domain_mask.manifest_path is not None
+                else None,
+                "primary_domain": map_config.domain_mask.primary_domain,
+            }
+            if map_config.domain_mask is not None
+            else None
+        ),
         "outputs": {
             "static_map": str(map_config.static_map_path),
             "scatter": str(map_config.scatter_path),
             "interactive_html": str(map_config.interactive_html_path),
             "area_bias_by_year": str(map_config.area_bias_by_year_path),
             "area_bias_by_latitude_band": str(map_config.area_bias_by_latitude_path),
+            "off_domain_audit": str(map_config.domain_mask.off_domain_audit_path)
+            if map_config.domain_mask is not None
+            and map_config.domain_mask.off_domain_audit_path is not None
+            else None,
             "top_residuals": str(map_config.top_residuals_path),
             "manifest": str(map_config.manifest_path),
         },
@@ -1115,6 +1314,7 @@ def write_manifest(
             "area_bias_by_year": len(area_by_year),
             "area_bias_by_latitude_band": len(area_by_latitude),
             "top_residuals": len(top_residuals),
+            "off_domain_audit": len(off_domain_audit),
         },
     }
     write_json(map_config.manifest_path, payload)

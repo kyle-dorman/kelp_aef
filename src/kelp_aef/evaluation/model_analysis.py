@@ -26,6 +26,14 @@ from sklearn.decomposition import PCA  # type: ignore[import-untyped]
 from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
 
 from kelp_aef.config import load_yaml_config, require_mapping, require_string
+from kelp_aef.domain.reporting_mask import (
+    ReportingDomainMask,
+    apply_reporting_domain_mask,
+    evaluation_scope,
+    load_reporting_domain_mask,
+    mask_status,
+    masked_output_path,
+)
 from kelp_aef.evaluation.baselines import (
     KELPWATCH_PIXEL_AREA_M2,
     load_baseline_config,
@@ -264,6 +272,8 @@ REFERENCE_AREA_CALIBRATION_FIELDS = (
     "model_name",
     "split",
     "year",
+    "mask_status",
+    "evaluation_scope",
     "label_source",
     "row_count",
     "observed_canopy_area",
@@ -338,6 +348,7 @@ class ModelAnalysisConfig:
     spatial_readiness_figure: Path
     observed_predicted_residual_map_figure: Path
     residual_interactive_html: Path
+    domain_mask: ReportingDomainMask | None
 
 
 @dataclass(frozen=True)
@@ -405,6 +416,7 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
     reports = require_mapping(config.get("reports"), "reports")
     outputs = require_mapping(reports.get("outputs"), "reports.outputs")
     settings = optional_mapping(reports.get("model_analysis"), "reports.model_analysis")
+    domain_mask = load_reporting_domain_mask(config)
     figures_dir = Path(require_string(reports.get("figures_dir"), "reports.figures_dir"))
     tables_dir = Path(require_string(reports.get("tables_dir"), "reports.tables_dir"))
     report_dir = (
@@ -549,10 +561,12 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             "model_analysis_data_health",
             tables_dir / "model_analysis_data_health.csv",
         ),
-        reference_area_calibration_path=output_path(
+        reference_area_calibration_path=masked_output_path(
             outputs,
-            "reference_baseline_area_calibration",
-            tables_dir / "reference_baseline_area_calibration.csv",
+            unmasked_key="reference_baseline_area_calibration",
+            masked_key="reference_baseline_area_calibration_masked",
+            default=tables_dir / "reference_baseline_area_calibration.csv",
+            mask_config=domain_mask,
         ),
         fallback_summary_path=output_path(
             outputs,
@@ -604,16 +618,21 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             "model_analysis_spatial_readiness_figure",
             figures_dir / "model_analysis_spatial_holdout_readiness.png",
         ),
-        observed_predicted_residual_map_figure=output_path(
+        observed_predicted_residual_map_figure=masked_output_path(
             outputs,
-            "ridge_observed_predicted_residual_map",
-            figures_dir / "ridge_2022_observed_predicted_residual.png",
+            unmasked_key="ridge_observed_predicted_residual_map",
+            masked_key="ridge_observed_predicted_residual_map_masked",
+            default=figures_dir / "ridge_2022_observed_predicted_residual.png",
+            mask_config=domain_mask,
         ),
-        residual_interactive_html=output_path(
+        residual_interactive_html=masked_output_path(
             outputs,
-            "ridge_residual_interactive",
-            figures_dir / "ridge_2022_residual_interactive.html",
+            unmasked_key="ridge_residual_interactive",
+            masked_key="ridge_residual_interactive_masked",
+            default=figures_dir / "ridge_2022_residual_interactive.html",
+            mask_config=domain_mask,
         ),
+        domain_mask=domain_mask,
     )
 
 
@@ -765,6 +784,10 @@ def fresh_reference_area_calibration_rows(
     ]
     if baseline_config.inference_table_path is not None:
         input_paths.append(baseline_config.inference_table_path)
+    if analysis_config.domain_mask is not None:
+        input_paths.append(analysis_config.domain_mask.table_path)
+        if analysis_config.domain_mask.manifest_path is not None:
+            input_paths.append(analysis_config.domain_mask.manifest_path)
     output_mtime = output_path.stat().st_mtime
     for input_path in input_paths:
         if input_path.exists() and input_path.stat().st_mtime > output_mtime:
@@ -816,8 +839,13 @@ def read_model_prediction_rows(analysis_config: ModelAnalysisConfig) -> pd.DataF
         )
     table = dataset.to_table(columns=columns, filter=expression)
     frame = table.to_pandas()
-    LOGGER.info("Loaded %s prediction rows from %s", len(frame), analysis_config.predictions_path)
-    return cast(pd.DataFrame, frame)
+    masked = apply_reporting_domain_mask(cast(pd.DataFrame, frame), analysis_config.domain_mask)
+    LOGGER.info(
+        "Loaded %s prediction rows from %s after reporting-domain filtering",
+        len(masked),
+        analysis_config.predictions_path,
+    )
+    return masked
 
 
 def available_prediction_columns(path: Path) -> list[str]:
@@ -1662,8 +1690,8 @@ def reference_area_calibration_comparison_rows(
                 "model_name": row_dict.get("model_name", ""),
                 "split": row_dict.get("split", ""),
                 "year": row_dict.get("year", ""),
-                "mask_status": "unmasked",
-                "evaluation_scope": "full_grid_prediction",
+                "mask_status": row_dict.get("mask_status", "unmasked"),
+                "evaluation_scope": row_dict.get("evaluation_scope", "full_grid_prediction"),
                 "label_source": row_dict.get("label_source", "all"),
                 "row_count": row_dict.get("row_count", ""),
                 "mae": row_dict.get("mae", math.nan),
@@ -1781,8 +1809,8 @@ def full_grid_comparison_row(
         "model_name": model_name,
         "split": split,
         "year": year,
-        "mask_status": "unmasked",
-        "evaluation_scope": "full_grid_prediction",
+        "mask_status": mask_status(analysis_config.domain_mask),
+        "evaluation_scope": evaluation_scope(analysis_config.domain_mask),
         "label_source": "all",
         "row_count": int(len(group)),
         "mae": mean_absolute_error(observed, predicted),
@@ -3167,7 +3195,8 @@ def phase1_harness_status_markdown(
     return (
         "The Phase 1 harness is active for the current annual-max workflow. It adds stable "
         "table contracts for future reference baselines, domain-mask rows, and imbalance-aware "
-        "models without changing the current ridge predictions. "
+        "models without changing the current ridge predictions. Full-grid reporting now treats "
+        f"`{mask_status(analysis_config.domain_mask)}` as the primary area-calibration domain. "
         f"The model comparison table currently has `{comparison_count}` rows at "
         f"`{analysis_config.phase1_model_comparison_path}`. The data-health table has "
         f"`{data_health_count}` rows at `{analysis_config.data_health_path}`. Future tasks "
@@ -3224,10 +3253,11 @@ def reference_baseline_ranking_markdown(
             row
             for row in rows
             if row.get("split") == analysis_config.analysis_split
-            and row.get("evaluation_scope") == "full_grid_prediction"
+            and row.get("evaluation_scope") in {"full_grid_masked", "full_grid_prediction"}
             and row.get("label_source") in {"all", "kelpwatch_station", "assumed_background"}
         ],
         key=lambda row: (
+            0 if row.get("evaluation_scope") == "full_grid_masked" else 1,
             str(row.get("label_source", "")),
             abs(row_float(row, "area_pct_bias", default=math.inf)),
         ),
@@ -3235,7 +3265,7 @@ def reference_baseline_ranking_markdown(
     if not station_rows and not full_grid_rows:
         return "Reference-baseline ranking rows are not available yet."
     lines = [
-        "Lower RMSE is better for Kelpwatch-station pixel skill; lower absolute area percent bias is better for full-grid calibration. These comparisons evaluate Kelpwatch-style label reproduction, not independent field truth.",
+        "Lower RMSE is better for Kelpwatch-station pixel skill; lower absolute area percent bias is better for masked full-grid calibration. These comparisons evaluate Kelpwatch-style label reproduction, not independent field truth.",
         "",
     ]
     if station_rows:
@@ -3307,8 +3337,9 @@ def map_section_markdown(analysis_config: ModelAnalysisConfig) -> str:
     return (
         "The three-panel model review map uses the latest static map for the primary "
         f"`{analysis_config.analysis_split}` `{analysis_config.analysis_year}` split. The "
-        "observed and predicted panels use the same canopy-area scale, and the error panel "
-        "uses `observed - predicted`, so positive residuals are underprediction. The linked "
+        f"rows are filtered to `{mask_status(analysis_config.domain_mask)}` before plotting. "
+        "The observed and predicted panels use the same canopy-area scale, and the error "
+        "panel uses `observed - predicted`, so positive residuals are underprediction. The linked "
         f"interactive map is `{analysis_config.residual_interactive_html}`."
     )
 
@@ -3506,7 +3537,16 @@ def write_manifest(
             "split_manifest": str(analysis_config.split_manifest_path),
             "predictions": str(analysis_config.predictions_path),
             "metrics": str(analysis_config.metrics_path),
+            "domain_mask": str(analysis_config.domain_mask.table_path)
+            if analysis_config.domain_mask is not None
+            else None,
+            "domain_mask_manifest": str(analysis_config.domain_mask.manifest_path)
+            if analysis_config.domain_mask is not None
+            and analysis_config.domain_mask.manifest_path is not None
+            else None,
         },
+        "mask_status": mask_status(analysis_config.domain_mask),
+        "evaluation_scope": evaluation_scope(analysis_config.domain_mask),
         "outputs": {
             "report": str(analysis_config.report_path),
             "html_report": str(analysis_config.html_report_path),

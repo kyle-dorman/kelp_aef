@@ -295,6 +295,13 @@ models:
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures
   tables_dir: /Volumes/x10pro/kelp_aef/reports/tables
+  domain_mask:
+    primary_full_grid_domain: plausible_kelp_domain
+    mask_status: plausible_kelp_domain
+    evaluation_scope: full_grid_masked
+    mask_table: /Volumes/x10pro/kelp_aef/interim/plausible_kelp_domain_mask.parquet
+    mask_manifest: /Volumes/x10pro/kelp_aef/interim/plausible_kelp_domain_mask_manifest.json
+    off_domain_audit_table: /Volumes/x10pro/kelp_aef/reports/tables/off_domain_prediction_leakage_audit.csv
   map_residuals:
     model_name: ridge_regression
     split: test
@@ -315,12 +322,18 @@ reports:
   outputs:
     metadata_summary: /Volumes/x10pro/kelp_aef/interim/metadata_summary.json
     ridge_observed_predicted_residual_map: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png
+    ridge_observed_predicted_residual_map_masked: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.masked.png
     ridge_observed_vs_predicted: /Volumes/x10pro/kelp_aef/reports/figures/ridge_observed_vs_predicted.png
+    ridge_observed_vs_predicted_masked: /Volumes/x10pro/kelp_aef/reports/figures/ridge_observed_vs_predicted.masked.png
     ridge_residual_interactive: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.html
+    ridge_residual_interactive_masked: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.masked.html
     area_bias_by_year: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv
+    area_bias_by_year_masked: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.masked.csv
     area_bias_by_latitude_band: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_latitude_band.csv
+    area_bias_by_latitude_band_masked: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_latitude_band.masked.csv
     reference_baseline_fallback_summary: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_fallback_summary.csv
     reference_baseline_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.csv
+    reference_baseline_area_calibration_masked: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.masked.csv
     top_residual_stations: /Volumes/x10pro/kelp_aef/reports/tables/top_residual_stations.csv
     map_residuals_manifest: /Volumes/x10pro/kelp_aef/interim/map_residuals_manifest.json
     model_analysis_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md
