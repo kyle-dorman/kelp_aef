@@ -381,6 +381,7 @@ masking change should end with an updated model-analysis report.
 - [ ] P1-20: Train a conditional canopy model for positive or likely-positive
   cells.
   - Goal: Address high-canopy shrinkage separately from presence detection.
+  - Plan: `tasks/28_train_conditional_canopy_model.md`.
   - Output: conditional continuous model and positive-cell residual table.
   - Validation: report shows high-canopy residual bins against the ridge
     baseline.
