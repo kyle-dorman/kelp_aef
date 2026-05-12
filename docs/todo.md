@@ -272,8 +272,11 @@ masking change should end with an updated model-analysis report.
 - [ ] P1-15: Add mask-aware residual diagnostics.
   - Goal: Explain false positives and underprediction by domain-mask reason,
     depth/elevation bin, label source, and observed canopy bin.
+  - Plan: `tasks/23_mask_aware_residual_diagnostics.md`.
   - Output: residual taxonomy tables and report figures.
   - Validation: top residuals have mask/depth/elevation context.
+  - Note: this is the last task in the Bathymetry and DEM domain-filter block;
+    after it, move to imbalance-aware model diagnostics and objectives.
 
 ## Imbalance-Robust Models
 
