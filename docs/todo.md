@@ -474,6 +474,20 @@ masking change should end with an updated model-analysis report.
     and
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`;
     full repo validation passed with `make check`.
+- [ ] P1-21a: Complete CRM-stratified background sampling across all model
+  families.
+  - Goal: Make current versus CRM-stratified sample policy comparisons fair
+    across continuous baselines, binary presence, calibration, conditional
+    canopy, and hurdle outputs.
+  - Plan: `tasks/31_crm_stratified_all_model_comparison.md`.
+  - Output: sidecar model artifacts and a report-visible all-model comparison
+    table keyed by `sample_policy`.
+  - Validation: rerun the relevant model commands and the Phase 1 report, then
+    compare pixel skill, assumed-background leakage, full-grid area behavior,
+    and any Kelpwatch-station recall tradeoff under both sample policies.
+  - Constraint: CRM depth/elevation context remains a sampling input only, not
+    a model feature, and current default artifacts remain available until a
+    later policy-selection decision.
 - [ ] P1-22: Test one capped-weight or stratified-background continuous model.
   - Goal: Check whether a simpler continuous objective can compete with the
     hurdle model without collapsing or leaking positives.
