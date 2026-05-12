@@ -182,11 +182,13 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef download-noaa-crm --config configs/monterey_smoke.yaml --dry-run --query-manifest /private/tmp/noaa_crm_query_manifest.json --manifest-output /private/tmp/noaa_crm_source_manifest_dry_run.json`,
     and metadata-only query with THREDDS checks at
     `/private/tmp/noaa_crm_query_manifest_remote.json`.
-- [ ] P1-11: Align NOAA CRM California mosaic to the 30 m target grid.
+- [ ] P1-11: Align NOAA CRM and validate domain sources to the 30 m target grid.
   - Goal: Produce one CRM-derived depth/elevation row per existing full-grid
-    cell, using the broad California topo-bathy source selected in P1-10d.
+    cell, using the broad California topo-bathy source selected in P1-10d, and
+    validate against downloaded CUDEM, USGS 3DEP, and CUSP source coverage.
   - Plan: `tasks/19_align_noaa_crm_to_target_grid.md`.
-  - Output: static aligned CRM table plus manifest and QA summary.
+  - Output: static aligned CRM table plus manifest, QA summary, and
+    cross-source comparison table.
   - Validation: row counts match the full-grid target grid for configured
     years or the static grid; fast-path command succeeds.
 - [ ] P1-12: Build the first plausible-kelp domain mask.
