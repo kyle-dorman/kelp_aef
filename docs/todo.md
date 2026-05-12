@@ -407,13 +407,41 @@ masking change should end with an updated model-analysis report.
     and
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`;
     full repo validation passed with `make check`.
-- [ ] P1-21: Compose a first hurdle model.
+- [x] P1-21: Compose a first hurdle model.
   - Goal: Combine presence probability and conditional canopy amount into a
     full-grid annual-max prediction.
   - Plan: `tasks/29_compose_first_hurdle_model.md`.
   - Output: hurdle predictions, maps, metrics, and area-bias rows.
   - Validation: compare against previous-year, climatology, geographic, and
     ridge baselines.
+  - Completed: added `kelp-aef compose-hurdle-model`, configured
+    `models.hurdle`, loaded the saved Platt-calibrated binary probability
+    model and saved positive-only conditional ridge model without retraining,
+    and wrote expected-value plus hard-gated retained-domain full-grid
+    predictions.
+  - Result: in the 2022 retained-domain complete-feature scope, the primary
+    expected-value hurdle predicted `4,321,134 m2` against `4,163,014 m2`
+    observed area (`3.8%` area bias, F1 `0.756`). The hard-gated diagnostic
+    predicted `4,122,971 m2` (`-1.0%` area bias, F1 `0.774`). Both reduced
+    ridge full-grid leakage sharply, but previous-year persistence still had
+    better F1 and RMSE in this scope.
+  - Output details: wrote
+    `/Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.parquet`,
+    `/Volumes/x10pro/kelp_aef/interim/hurdle_prediction_manifest.json`,
+    `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_metrics.csv`,
+    `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_area_calibration.csv`,
+    `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_model_comparison.csv`,
+    `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_residual_by_observed_bin.csv`,
+    `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_assumed_background_leakage.csv`,
+    and
+    `/Volumes/x10pro/kelp_aef/reports/figures/hurdle_2022_observed_predicted_residual.png`.
+  - Validation passed:
+    `uv run pytest tests/test_hurdle.py tests/test_binary_presence.py tests/test_conditional_canopy.py tests/test_model_analysis.py tests/test_package.py`,
+    `uv run mypy src/kelp_aef/evaluation/hurdle.py src/kelp_aef/evaluation/model_analysis.py src/kelp_aef/cli.py`,
+    `uv run kelp-aef compose-hurdle-model --config configs/monterey_smoke.yaml`,
+    and
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`;
+    full repo validation passed with `make check`.
 - [ ] P1-22: Test one capped-weight or stratified-background continuous model.
   - Goal: Check whether a simpler continuous objective can compete with the
     hurdle model without collapsing or leaking positives.

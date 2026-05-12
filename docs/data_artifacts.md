@@ -127,6 +127,7 @@ artifact root. They are generated artifacts and should not be tracked in git.
 | Phase 1 Markdown report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md` | Active model-hardening report with model comparison and data-health sections. | Not tracked |
 | Phase 1 HTML report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.html` | Rendered Phase 1 report with embedded figures and model comparison. | Not tracked |
 | Phase 1 PDF report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.pdf` | PDF Phase 1 report with the same core model-comparison content. | Not tracked |
+| Pixel skill and area calibration figure | `/Volumes/x10pro/kelp_aef/reports/figures/model_analysis_pixel_skill_area_calibration.png` | Two-panel Phase 1 model comparison showing 10% annual-max F1 and full-grid signed area bias for the primary report split/year. | Not tracked |
 
 ## Phase 0 Artifact Counts
 
@@ -256,6 +257,24 @@ binary presence and do not compose a final full-grid hurdle prediction.
 | Conditional canopy full-grid likely-positive summary | `/Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_full_grid_likely_positive_summary.csv` | Compact count-only diagnostic of retained full-grid rows that would receive a conditional amount under the current calibrated binary gate. | Not tracked |
 | Conditional canopy residual figure | `/Volumes/x10pro/kelp_aef/reports/figures/conditional_canopy_positive_residuals.png` | Compact figure showing mean residual area across conditional positive-cell bins. | Not tracked |
 | Conditional canopy manifest | `/Volumes/x10pro/kelp_aef/interim/conditional_canopy_manifest.json` | Inputs, outputs, selected alpha, support row counts, and non-composition QA notes for the conditional stage. | Not tracked |
+
+## Phase 1 First Hurdle Model
+
+These outputs compose the saved calibrated binary annual-max presence
+probability with the saved positive-only conditional canopy amount model. They
+do not retrain either upstream model, refit Platt calibration, or tune
+thresholds on the 2022 test split.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| Hurdle full-grid predictions | `/Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.parquet` | Row-level retained-domain predictions for the expected-value primary policy and hard-gated diagnostic policy. | Not tracked |
+| Hurdle prediction manifest | `/Volumes/x10pro/kelp_aef/interim/hurdle_prediction_manifest.json` | Inputs, loaded payloads, row counts, selected threshold, non-refit flags, and output paths for the composed hurdle stage. | Not tracked |
+| Hurdle metrics | `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_metrics.csv` | Pixel and area metrics by split, year, label source, mask status, evaluation scope, and composition policy. | Not tracked |
+| Hurdle area calibration | `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_area_calibration.csv` | Full-grid retained-domain area calibration rows for expected-value and hard-gated hurdle predictions. | Not tracked |
+| Hurdle-vs-reference comparison | `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_model_comparison.csv` | Hurdle rows alongside ridge, previous-year, grid-cell climatology, geographic ridge, and train-mean reference rows. | Not tracked |
+| Hurdle residual by observed bin | `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_residual_by_observed_bin.csv` | Residual summaries by observed annual-max canopy area bin for each composition policy. | Not tracked |
+| Hurdle assumed-background leakage | `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_assumed_background_leakage.csv` | Assumed-background predicted area and predicted-positive leakage diagnostics for each composition policy. | Not tracked |
+| Hurdle 2022 map figure | `/Volumes/x10pro/kelp_aef/reports/figures/hurdle_2022_observed_predicted_residual.png` | Three-panel 2022 retained-domain expected-value map of observed, predicted, and residual area. | Not tracked |
 
 ## Phase 1 Masked Training Outputs
 

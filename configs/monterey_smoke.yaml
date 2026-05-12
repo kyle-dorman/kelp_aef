@@ -361,6 +361,37 @@ models:
     full_grid_likely_positive_summary: /Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_full_grid_likely_positive_summary.csv
     residual_figure: /Volumes/x10pro/kelp_aef/reports/figures/conditional_canopy_positive_residuals.png
     manifest: /Volumes/x10pro/kelp_aef/interim/conditional_canopy_manifest.json
+  hurdle:
+    inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
+    binary_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.parquet
+    binary_calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct_calibration.joblib
+    binary_calibrated_threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_calibrated_threshold_selection.csv
+    conditional_model: /Volumes/x10pro/kelp_aef/models/conditional_canopy/ridge_positive_annual_max.joblib
+    reference_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.masked.csv
+    model_name: calibrated_probability_x_conditional_canopy
+    hard_gate_model_name: calibrated_hard_gate_conditional_canopy
+    presence_model_name: logistic_annual_max_ge_10pct
+    presence_probability_source: platt_calibrated
+    presence_threshold_policy: validation_max_f1_calibrated
+    presence_threshold: 0.40
+    presence_target_label: annual_max_ge_10pct
+    presence_target_threshold_fraction: 0.10
+    conditional_model_name: ridge_positive_annual_max
+    target: kelp_fraction_y
+    target_area_column: kelp_max_y
+    cell_area_m2: 900.0
+    composition_policies: [expected_value, hard_gate]
+    features: A00-A63
+    drop_missing_features: true
+    batch_size: 100000
+    predictions: /Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.parquet
+    prediction_manifest: /Volumes/x10pro/kelp_aef/interim/hurdle_prediction_manifest.json
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_metrics.csv
+    area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_area_calibration.csv
+    model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_model_comparison.csv
+    residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_residual_by_observed_bin.csv
+    assumed_background_leakage: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_assumed_background_leakage.csv
+    map_figure: /Volumes/x10pro/kelp_aef/reports/figures/hurdle_2022_observed_predicted_residual.png
 
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures
@@ -434,6 +465,7 @@ reports:
     top_residual_stations_domain_context: /Volumes/x10pro/kelp_aef/reports/tables/top_residual_stations.domain_context.csv
     model_analysis_label_distribution_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_label_distribution_by_stage.png
     model_analysis_observed_predicted_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_observed_vs_predicted_distribution.png
+    model_analysis_pixel_skill_area_calibration_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_pixel_skill_area_calibration.png
     model_analysis_residual_by_bin_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_residual_by_observed_bin.png
     model_analysis_observed_900_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_observed_900_predictions.png
     model_analysis_residual_by_persistence_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_residual_by_persistence.png

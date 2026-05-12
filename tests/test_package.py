@@ -35,6 +35,7 @@ def test_cli_imports() -> None:
         "train-binary-presence",
         "calibrate-binary-presence",
         "train-conditional-canopy",
+        "compose-hurdle-model",
         "map-residuals",
         "analyze-model",
     }

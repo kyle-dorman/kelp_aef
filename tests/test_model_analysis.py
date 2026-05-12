@@ -50,6 +50,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         "quarter_mapping",
         "label_distribution_figure",
         "observed_predicted_figure",
+        "pixel_skill_area_calibration_figure",
         "residual_by_bin_figure",
         "observed_900_figure",
         "residual_by_persistence_figure",
@@ -137,6 +138,9 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert manifest["row_counts"]["model_predictions"] == 6
     assert manifest["outputs"]["html_report"] == str(fixture["html_report"])
     assert manifest["outputs"]["pdf_report"] == str(fixture["pdf_report"])
+    assert manifest["outputs"]["pixel_skill_area_calibration_figure"] == str(
+        fixture["pixel_skill_area_calibration_figure"]
+    )
     assert fixture["pdf_report"].stat().st_size > 0
     assert "Phase 1 Harness Status" in report
     assert "Model Comparison" in report
@@ -147,6 +151,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "sampling/objective calibration problem" in report
     assert "previous-year persistence" in report
     assert "Observed, Predicted, And Error Map" in report
+    assert "![Pixel skill and area calibration]" in report
     assert "Mask-Aware Residual Diagnostics" in report
     assert "Class And Target Balance" in report
     assert "Annual-Max Binary Threshold Comparison" in report
@@ -551,6 +556,8 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/figures/model_analysis_label_distribution_by_stage.png",
         "observed_predicted_figure": tmp_path
         / "reports/figures/model_analysis_observed_vs_predicted_distribution.png",
+        "pixel_skill_area_calibration_figure": tmp_path
+        / "reports/figures/model_analysis_pixel_skill_area_calibration.png",
         "residual_by_bin_figure": tmp_path
         / "reports/figures/model_analysis_residual_by_observed_bin.png",
         "observed_900_figure": tmp_path
@@ -601,6 +608,7 @@ def config_text(
         if domain_mask is not None
         else ""
     )
+    pixel_skill_area_figure = paths["pixel_skill_area_calibration_figure"]
     return f"""
 data_root: {tmp_path}
 labels:
@@ -678,6 +686,7 @@ reports:
     model_analysis_quarter_mapping: {paths["quarter_mapping"]}
     model_analysis_label_distribution_figure: {paths["label_distribution_figure"]}
     model_analysis_observed_predicted_figure: {paths["observed_predicted_figure"]}
+    model_analysis_pixel_skill_area_calibration_figure: {pixel_skill_area_figure}
     model_analysis_residual_by_bin_figure: {paths["residual_by_bin_figure"]}
     model_analysis_observed_900_figure: {paths["observed_900_figure"]}
     model_analysis_residual_by_persistence_figure: {paths["residual_by_persistence_figure"]}

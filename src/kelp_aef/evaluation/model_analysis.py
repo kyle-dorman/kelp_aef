@@ -78,6 +78,24 @@ PERSISTENCE_CLASS_ORDER = (
     "persistent_all_valid_quarters",
     "missing_quarters",
 )
+PHASE1_MODEL_DISPLAY_ORDER = (
+    "no_skill_train_mean",
+    "previous_year_annual_max",
+    "grid_cell_climatology",
+    "geographic_ridge_lon_lat_year",
+    "ridge_regression",
+    "calibrated_probability_x_conditional_canopy",
+    "calibrated_hard_gate_conditional_canopy",
+)
+PHASE1_MODEL_DISPLAY_LABELS = {
+    "no_skill_train_mean": "Train mean",
+    "previous_year_annual_max": "Previous year",
+    "grid_cell_climatology": "Cell climatology",
+    "geographic_ridge_lon_lat_year": "Geographic ridge",
+    "ridge_regression": "AEF ridge",
+    "calibrated_probability_x_conditional_canopy": "Hurdle expected",
+    "calibrated_hard_gate_conditional_canopy": "Hurdle hard gate",
+}
 PDF_PAGE_WIDTH_IN = 8.5
 PDF_PAGE_HEIGHT_IN = 11.0
 PDF_MARGIN_X = 0.055
@@ -556,6 +574,13 @@ class ModelAnalysisConfig:
     conditional_canopy_full_grid_likely_positive_summary_path: Path | None
     conditional_canopy_residual_figure: Path | None
     conditional_canopy_manifest_path: Path | None
+    hurdle_metrics_path: Path | None
+    hurdle_area_calibration_path: Path | None
+    hurdle_model_comparison_path: Path | None
+    hurdle_residual_by_observed_bin_path: Path | None
+    hurdle_assumed_background_leakage_path: Path | None
+    hurdle_map_figure_path: Path | None
+    hurdle_manifest_path: Path | None
     spatial_readiness_path: Path
     feature_separability_path: Path
     phase1_decision_path: Path
@@ -573,6 +598,7 @@ class ModelAnalysisConfig:
     quarter_mapping_path: Path
     label_distribution_figure: Path
     observed_predicted_figure: Path
+    pixel_skill_area_calibration_figure: Path
     residual_by_bin_figure: Path
     observed_900_figure: Path
     residual_by_persistence_figure: Path
@@ -690,6 +716,7 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
         models.get("conditional_canopy"),
         "models.conditional_canopy",
     )
+    hurdle = optional_mapping(models.get("hurdle"), "models.hurdle")
     reports = require_mapping(config.get("reports"), "reports")
     outputs = require_mapping(reports.get("outputs"), "reports.outputs")
     settings = optional_mapping(reports.get("model_analysis"), "reports.model_analysis")
@@ -892,6 +919,33 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             "residual_figure",
         ),
         conditional_canopy_manifest_path=optional_output_path(conditional_canopy, "manifest"),
+        hurdle_metrics_path=optional_output_path(hurdle, "metrics", "models.hurdle"),
+        hurdle_area_calibration_path=optional_output_path(
+            hurdle,
+            "area_calibration",
+            "models.hurdle",
+        ),
+        hurdle_model_comparison_path=optional_output_path(
+            hurdle,
+            "model_comparison",
+            "models.hurdle",
+        ),
+        hurdle_residual_by_observed_bin_path=optional_output_path(
+            hurdle,
+            "residual_by_observed_bin",
+            "models.hurdle",
+        ),
+        hurdle_assumed_background_leakage_path=optional_output_path(
+            hurdle,
+            "assumed_background_leakage",
+            "models.hurdle",
+        ),
+        hurdle_map_figure_path=optional_output_path(hurdle, "map_figure", "models.hurdle"),
+        hurdle_manifest_path=optional_output_path(
+            hurdle,
+            "prediction_manifest",
+            "models.hurdle",
+        ),
         spatial_readiness_path=output_path(
             outputs,
             "model_analysis_spatial_holdout_readiness",
@@ -978,6 +1032,11 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             outputs,
             "model_analysis_observed_predicted_figure",
             figures_dir / "model_analysis_observed_vs_predicted_distribution.png",
+        ),
+        pixel_skill_area_calibration_figure=output_path(
+            outputs,
+            "model_analysis_pixel_skill_area_calibration_figure",
+            figures_dir / "model_analysis_pixel_skill_area_calibration.png",
         ),
         residual_by_bin_figure=output_path(
             outputs,
@@ -2895,9 +2954,24 @@ def build_phase1_model_comparison(
         if comparison_row:
             rows.append(comparison_row)
     rows.extend(reference_area_calibration_comparison_rows(reference_area_calibration))
+    rows.extend(hurdle_model_comparison_rows(analysis_config))
     if not has_primary_full_grid_comparison(rows, analysis_config):
         rows.extend(full_grid_comparison_rows(data.model_predictions, analysis_config))
     return rows
+
+
+def hurdle_model_comparison_rows(analysis_config: ModelAnalysisConfig) -> list[dict[str, object]]:
+    """Read first-hurdle comparison rows when the composition task has run."""
+    rows = read_optional_csv_rows(analysis_config.hurdle_model_comparison_path)
+    required = set(PHASE1_MODEL_COMPARISON_FIELDS)
+    output: list[dict[str, object]] = []
+    for row in rows:
+        if not required.issubset(row):
+            continue
+        if not str(row.get("model_name", "")).startswith("calibrated_"):
+            continue
+        output.append({field: row.get(field, math.nan) for field in PHASE1_MODEL_COMPARISON_FIELDS})
+    return output
 
 
 def model_input_mask_status(dataframe: pd.DataFrame, analysis_config: ModelAnalysisConfig) -> str:
@@ -3710,6 +3784,7 @@ def write_analysis_figures(
     """Write all model-analysis figures."""
     write_label_distribution_figure(data, analysis_config)
     write_observed_predicted_distribution_figure(data, analysis_config)
+    write_pixel_skill_area_calibration_figure(tables, analysis_config)
     write_residual_by_bin_figure(tables, analysis_config)
     write_observed_900_figure(data, analysis_config)
     write_residual_by_persistence_figure(tables, analysis_config)
@@ -3766,6 +3841,143 @@ def write_observed_predicted_distribution_figure(
     axis.legend()
     fig.savefig(output_path, dpi=180)
     plt.close(fig)
+
+
+def write_pixel_skill_area_calibration_figure(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> None:
+    """Write the primary Phase 1 pixel-skill and area-calibration comparison chart."""
+    rows = phase1_pixel_skill_area_rows(tables.phase1_model_comparison, analysis_config)
+    output_path = analysis_config.pixel_skill_area_calibration_figure
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(12, max(4.5, 0.48 * max(len(rows), 1))),
+        sharey=True,
+        constrained_layout=True,
+    )
+    if not rows:
+        for axis in axes:
+            axis.axis("off")
+        axes[0].text(0.5, 0.5, "No primary Phase 1 comparison rows", ha="center", va="center")
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+        return
+    labels = [phase1_model_display_label(row) for row in rows]
+    y_positions = np.arange(len(rows))
+    f1_values = np.array([row_float(row, "f1_ge_10pct") for row in rows], dtype=float)
+    f1_plot_values = np.nan_to_num(f1_values, nan=0.0)
+    area_bias_values = np.array(
+        [row_float(row, "area_pct_bias") * 100.0 for row in rows], dtype=float
+    )
+    area_plot_values = np.nan_to_num(area_bias_values, nan=0.0)
+
+    skill_axis = axes[0]
+    skill_axis.barh(y_positions, f1_plot_values, color="#3b7ea1")
+    skill_axis.set_yticks(y_positions, labels)
+    skill_axis.invert_yaxis()
+    skill_axis.set_xlim(0.0, 1.0)
+    skill_axis.set_xlabel("F1 at kelp_fraction_y >= 0.10")
+    skill_axis.set_title("Pixel skill")
+    skill_axis.grid(axis="x", color="#d9d9d9", linewidth=0.6)
+    for y_position, value in zip(y_positions, f1_values, strict=True):
+        label = "n/a" if not np.isfinite(value) else f"{value:.2f}"
+        skill_axis.text(
+            min(float(np.nan_to_num(value, nan=0.0)) + 0.02, 0.98),
+            y_position,
+            label,
+            va="center",
+            fontsize=8,
+        )
+
+    calibration_axis = axes[1]
+    colors = ["#2f8f6b" if value <= 0 else "#c44e52" for value in area_plot_values]
+    calibration_axis.barh(y_positions, area_plot_values, color=colors)
+    calibration_axis.axvline(0.0, color="black", linewidth=0.8)
+    calibration_axis.set_xscale("symlog", linthresh=25.0)
+    calibration_axis.set_xlim(symmetric_area_bias_limits(area_plot_values))
+    calibration_axis.set_xlabel("Signed area bias (%)")
+    calibration_axis.set_title("Area calibration")
+    calibration_axis.grid(axis="x", color="#d9d9d9", linewidth=0.6)
+    for y_position, value in zip(y_positions, area_bias_values, strict=True):
+        if not np.isfinite(value):
+            continue
+        x_position = value * 1.08 if value != 0 else 2.0
+        horizontal_alignment = "left" if value >= 0 else "right"
+        calibration_axis.text(
+            x_position,
+            y_position,
+            f"{value:.1f}%",
+            va="center",
+            ha=horizontal_alignment,
+            fontsize=8,
+        )
+    fig.suptitle(
+        "Pixel Skill And Area Calibration | "
+        f"{analysis_config.analysis_split} {analysis_config.analysis_year} | "
+        f"{evaluation_scope(analysis_config.domain_mask)}"
+    )
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def phase1_pixel_skill_area_rows(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> list[dict[str, object]]:
+    """Select full-grid all-label rows for the primary Phase 1 comparison figure."""
+    primary_scope = evaluation_scope(analysis_config.domain_mask)
+    primary_rows = [
+        row
+        for row in rows
+        if row.get("split") == analysis_config.analysis_split
+        and str(row.get("year")) == str(analysis_config.analysis_year)
+        and row.get("evaluation_scope") == primary_scope
+        and row.get("label_source") == "all"
+    ]
+    if not primary_rows:
+        primary_rows = [
+            row
+            for row in rows
+            if row.get("split") == analysis_config.analysis_split
+            and str(row.get("year")) == str(analysis_config.analysis_year)
+            and row.get("label_source") == "all"
+        ]
+    return sorted(deduplicate_phase1_model_rows(primary_rows), key=phase1_model_sort_key)
+
+
+def deduplicate_phase1_model_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Keep one row per model, preferring the largest evaluated row count."""
+    selected: dict[str, dict[str, object]] = {}
+    for row in rows:
+        model_name = str(row.get("model_name", ""))
+        current = selected.get(model_name)
+        if current is None or row_int(row, "row_count") > row_int(current, "row_count"):
+            selected[model_name] = row
+    return list(selected.values())
+
+
+def phase1_model_sort_key(row: dict[str, object]) -> tuple[int, str]:
+    """Sort Phase 1 model-comparison rows in the report's preferred order."""
+    model_name = str(row.get("model_name", ""))
+    if model_name in PHASE1_MODEL_DISPLAY_ORDER:
+        return (PHASE1_MODEL_DISPLAY_ORDER.index(model_name), model_name)
+    return (len(PHASE1_MODEL_DISPLAY_ORDER), model_name)
+
+
+def phase1_model_display_label(row: dict[str, object]) -> str:
+    """Return a compact display label for a Phase 1 model-comparison row."""
+    model_name = str(row.get("model_name", ""))
+    return PHASE1_MODEL_DISPLAY_LABELS.get(model_name, model_name.replace("_", " "))
+
+
+def symmetric_area_bias_limits(values: np.ndarray) -> tuple[float, float]:
+    """Return symmetric x-axis limits for signed percent area bias values."""
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return (-100.0, 100.0)
+    limit = max(100.0, float(np.nanmax(np.abs(finite))) * 1.25)
+    return (-limit, limit)
 
 
 def primary_rows(dataframe: pd.DataFrame, analysis_config: ModelAnalysisConfig) -> pd.DataFrame:
@@ -4150,6 +4362,12 @@ def write_report(
         metric_summary_markdown(data.metrics, analysis_config),
         "",
         image_markdown(
+            "Pixel skill and area calibration",
+            analysis_config.pixel_skill_area_calibration_figure,
+            output_path,
+        ),
+        "",
+        image_markdown(
             "Observed vs predicted distribution",
             analysis_config.observed_predicted_figure,
             output_path,
@@ -4233,6 +4451,12 @@ def write_report(
         "",
         conditional_canopy_figure_markdown(analysis_config, output_path),
         "",
+        "## First Hurdle Model",
+        "",
+        hurdle_model_markdown(tables, analysis_config),
+        "",
+        hurdle_model_figure_markdown(analysis_config, output_path),
+        "",
         "## Binary Threshold Sensitivity",
         "",
         threshold_sensitivity_markdown(tables.threshold_sensitivity, analysis_config),
@@ -4266,6 +4490,7 @@ def write_report(
         binary_presence_appendix_markdown(analysis_config),
         binary_presence_calibration_appendix_markdown(analysis_config),
         conditional_canopy_appendix_markdown(analysis_config),
+        hurdle_model_appendix_markdown(analysis_config),
         f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
         f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
@@ -5792,6 +6017,221 @@ def conditional_canopy_appendix_markdown(analysis_config: ModelAnalysisConfig) -
     return "\n".join(lines)
 
 
+def hurdle_model_markdown(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+) -> str:
+    """Build Markdown for the first full-grid hurdle composition."""
+    metrics = read_optional_csv_rows(analysis_config.hurdle_metrics_path)
+    area_rows = read_optional_csv_rows(analysis_config.hurdle_area_calibration_path)
+    leakage_rows = read_optional_csv_rows(analysis_config.hurdle_assumed_background_leakage_path)
+    residual_rows = read_optional_csv_rows(analysis_config.hurdle_residual_by_observed_bin_path)
+    if not metrics or not area_rows:
+        return (
+            "First-hurdle outputs were not available yet. Run "
+            "`uv run kelp-aef compose-hurdle-model --config configs/monterey_smoke.yaml` "
+            "after binary calibration and conditional-canopy training before interpreting this section."
+        )
+    expected = hurdle_area_lookup(
+        area_rows,
+        model_name="calibrated_probability_x_conditional_canopy",
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+        label_source="all",
+    )
+    hard_gate = hurdle_area_lookup(
+        area_rows,
+        model_name="calibrated_hard_gate_conditional_canopy",
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+        label_source="all",
+    )
+    expected_leakage = hurdle_leakage_lookup(
+        leakage_rows,
+        model_name="calibrated_probability_x_conditional_canopy",
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+    )
+    hard_gate_leakage = hurdle_leakage_lookup(
+        leakage_rows,
+        model_name="calibrated_hard_gate_conditional_canopy",
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+    )
+    high_residual = hurdle_residual_lookup(
+        residual_rows,
+        model_name="calibrated_probability_x_conditional_canopy",
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+        label_source="all",
+        observed_bin="(450, 810]",
+    )
+    saturated_residual = hurdle_residual_lookup(
+        residual_rows,
+        model_name="calibrated_probability_x_conditional_canopy",
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+        label_source="all",
+        observed_bin="(810, 900]",
+    )
+    ridge = phase1_comparison_lookup(
+        tables.phase1_model_comparison,
+        model_name=analysis_config.model_name,
+        split=analysis_config.analysis_split,
+        evaluation_scope=evaluation_scope(analysis_config.domain_mask),
+        label_source="all",
+    )
+    lines = [
+        (
+            "The first hurdle model composes the validation-selected calibrated binary "
+            "presence probability with the saved positive-only conditional canopy model. "
+            "The primary prediction is the expected value "
+            "`calibrated_probability * clipped_conditional_canopy`; the hard-gated "
+            "threshold output is retained as a diagnostic."
+        ),
+        (
+            "This stage loads existing model and calibration payloads only. It does not "
+            "retrain the binary model, refit Platt scaling, retrain the conditional model, "
+            "or tune thresholds on 2022 test rows."
+        ),
+        "",
+        "| Model | Rows | Observed area | Predicted area | Area bias | F1 >=10pct | Background predicted area |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+        hurdle_summary_markdown_row(expected, expected_leakage),
+        hurdle_summary_markdown_row(hard_gate, hard_gate_leakage),
+        "",
+        (
+            f"For the same `{evaluation_scope(analysis_config.domain_mask)}` "
+            f"{analysis_config.analysis_year} scope, ridge predicted "
+            f"`{format_decimal(row_float(ridge, 'predicted_canopy_area'), 1)} m2` "
+            f"against `{format_decimal(row_float(ridge, 'observed_canopy_area'), 1)} m2` "
+            "observed canopy area. The expected-value hurdle row above is the primary "
+            "apples-to-apples full-grid comparison."
+        ),
+        (
+            "Positive-cell amount remains the limiting piece: the hurdle can reduce "
+            "full-grid leakage by multiplying conditional canopy by calibrated presence "
+            "probability, but it still inherits the P1-20 high-canopy underprediction. "
+            f"Mean residual area is `{format_decimal(row_float(high_residual, 'mean_residual_area'), 1)} m2` "
+            "for the `(450, 810]` observed-area bin and "
+            f"`{format_decimal(row_float(saturated_residual, 'mean_residual_area'), 1)} m2` "
+            "for the `(810, 900]` bin."
+        ),
+    ]
+    return "\n".join(line for line in lines if line is not None)
+
+
+def hurdle_model_figure_markdown(
+    analysis_config: ModelAnalysisConfig,
+    report_path: Path,
+) -> str:
+    """Return the first-hurdle map figure link when available."""
+    figure = analysis_config.hurdle_map_figure_path
+    if figure is not None and figure.exists():
+        return image_markdown("First hurdle 2022 map", figure, report_path)
+    return ""
+
+
+def hurdle_model_appendix_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Return appendix links for first-hurdle artifacts."""
+    paths = [
+        ("Hurdle metrics table", analysis_config.hurdle_metrics_path),
+        ("Hurdle area-calibration table", analysis_config.hurdle_area_calibration_path),
+        ("Hurdle-vs-reference comparison table", analysis_config.hurdle_model_comparison_path),
+        (
+            "Hurdle residual by observed bin table",
+            analysis_config.hurdle_residual_by_observed_bin_path,
+        ),
+        (
+            "Hurdle assumed-background leakage table",
+            analysis_config.hurdle_assumed_background_leakage_path,
+        ),
+        ("Hurdle map figure", analysis_config.hurdle_map_figure_path),
+        ("Hurdle manifest", analysis_config.hurdle_manifest_path),
+    ]
+    lines = [f"- {label}: `{path}`" for label, path in paths if path is not None]
+    return "\n".join(lines)
+
+
+def hurdle_area_lookup(
+    rows: list[dict[str, object]],
+    *,
+    model_name: str,
+    split: str,
+    year: int,
+    label_source: str,
+) -> dict[str, object]:
+    """Return one hurdle area-calibration row for report prose."""
+    for row in rows:
+        if (
+            row.get("model_name") == model_name
+            and row.get("split") == split
+            and str(row.get("year")) == str(year)
+            and row.get("label_source") == label_source
+        ):
+            return row
+    return {}
+
+
+def hurdle_leakage_lookup(
+    rows: list[dict[str, object]],
+    *,
+    model_name: str,
+    split: str,
+    year: int,
+) -> dict[str, object]:
+    """Return one assumed-background leakage row for report prose."""
+    for row in rows:
+        if (
+            row.get("model_name") == model_name
+            and row.get("split") == split
+            and str(row.get("year")) == str(year)
+            and row.get("label_source") == "assumed_background"
+        ):
+            return row
+    return {}
+
+
+def hurdle_residual_lookup(
+    rows: list[dict[str, object]],
+    *,
+    model_name: str,
+    split: str,
+    year: int,
+    label_source: str,
+    observed_bin: str,
+) -> dict[str, object]:
+    """Return one hurdle residual-bin row for report prose."""
+    for row in rows:
+        if (
+            row.get("model_name") == model_name
+            and row.get("split") == split
+            and str(row.get("year")) == str(year)
+            and row.get("label_source") == label_source
+            and row.get("observed_bin") == observed_bin
+        ):
+            return row
+    return {}
+
+
+def hurdle_summary_markdown_row(
+    area_row: dict[str, object],
+    leakage_row: dict[str, object],
+) -> str:
+    """Format one hurdle area/leakage row for the report table."""
+    if not area_row:
+        return "| missing |  | nan | nan | nan | nan | nan |"
+    return (
+        f"| {area_row.get('model_name', 'missing')} "
+        f"| {int(row_float(area_row, 'row_count', default=0))} "
+        f"| {format_decimal(row_float(area_row, 'observed_canopy_area'), 1)} "
+        f"| {format_decimal(row_float(area_row, 'predicted_canopy_area'), 1)} "
+        f"| {format_percent(row_float(area_row, 'area_pct_bias'), 1)} "
+        f"| {format_decimal(row_float(area_row, 'f1_ge_10pct'), 3)} "
+        f"| {format_decimal(row_float(leakage_row, 'assumed_background_predicted_area_m2'), 1)} |"
+    )
+
+
 def conditional_comparison_lookup(
     rows: list[dict[str, object]], *, model_name: str, split: str, label_source: str
 ) -> dict[str, object]:
@@ -6251,6 +6691,9 @@ def write_manifest(
                 analysis_config.observed_predicted_residual_map_figure
             ),
             "residual_interactive_html": str(analysis_config.residual_interactive_html),
+            "pixel_skill_area_calibration_figure": str(
+                analysis_config.pixel_skill_area_calibration_figure
+            ),
             "label_distribution": str(analysis_config.label_distribution_path),
             "target_framing": str(analysis_config.target_framing_path),
             "prediction_distribution": str(analysis_config.prediction_distribution_path),
@@ -6309,6 +6752,31 @@ def write_manifest(
             else None,
             "conditional_canopy_manifest": str(analysis_config.conditional_canopy_manifest_path)
             if analysis_config.conditional_canopy_manifest_path is not None
+            else None,
+            "hurdle_metrics": str(analysis_config.hurdle_metrics_path)
+            if analysis_config.hurdle_metrics_path is not None
+            else None,
+            "hurdle_area_calibration": str(analysis_config.hurdle_area_calibration_path)
+            if analysis_config.hurdle_area_calibration_path is not None
+            else None,
+            "hurdle_model_comparison": str(analysis_config.hurdle_model_comparison_path)
+            if analysis_config.hurdle_model_comparison_path is not None
+            else None,
+            "hurdle_residual_by_observed_bin": str(
+                analysis_config.hurdle_residual_by_observed_bin_path
+            )
+            if analysis_config.hurdle_residual_by_observed_bin_path is not None
+            else None,
+            "hurdle_assumed_background_leakage": str(
+                analysis_config.hurdle_assumed_background_leakage_path
+            )
+            if analysis_config.hurdle_assumed_background_leakage_path is not None
+            else None,
+            "hurdle_map_figure": str(analysis_config.hurdle_map_figure_path)
+            if analysis_config.hurdle_map_figure_path is not None
+            else None,
+            "hurdle_manifest": str(analysis_config.hurdle_manifest_path)
+            if analysis_config.hurdle_manifest_path is not None
             else None,
             "residual_domain_context": str(analysis_config.residual_domain_context_path),
             "residual_by_mask_reason": str(analysis_config.residual_by_mask_reason_path),
