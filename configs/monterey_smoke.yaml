@@ -108,6 +108,29 @@ domain:
     source_manifest: /Volumes/x10pro/kelp_aef/interim/noaa_crm_source_manifest.json
     download_mode: full_product_after_manifest_review
     query_padding_degrees: 0.02
+    alignment:
+      source_manifest: /Volumes/x10pro/kelp_aef/interim/noaa_crm_source_manifest.json
+      query_manifest: /Volumes/x10pro/kelp_aef/interim/noaa_crm_query_manifest.json
+      cudem_tile_manifest: /Volumes/x10pro/kelp_aef/interim/noaa_cudem_tile_manifest.json
+      usgs_3dep_source_manifest: /Volumes/x10pro/kelp_aef/interim/usgs_3dep_source_manifest.json
+      cusp_source_manifest: /Volumes/x10pro/kelp_aef/interim/noaa_cusp_source_manifest.json
+      target_grid_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
+      target_grid_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table_manifest.json
+      output_table: /Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm.parquet
+      output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm_manifest.json
+      qa_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_noaa_crm_summary.csv
+      comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_domain_source_comparison.csv
+      resampling_method: nearest_center_sample
+      row_chunk_size: 100000
+      product_boundary:
+        latitude: 37.0
+        south_product_id: crm_socal_v2_1as
+        north_product_id: crm_vol7_2025
+      fast:
+        output_table: /Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm.fast.parquet
+        output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm.fast_manifest.json
+        qa_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_noaa_crm.fast_summary.csv
+        comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_domain_source_comparison.fast.csv
     products:
       - product_id: crm_socal_v2_1as
         product_name: NOAA Coastal Relief Model Southern California Version 2

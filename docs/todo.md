@@ -182,7 +182,7 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef download-noaa-crm --config configs/monterey_smoke.yaml --dry-run --query-manifest /private/tmp/noaa_crm_query_manifest.json --manifest-output /private/tmp/noaa_crm_source_manifest_dry_run.json`,
     and metadata-only query with THREDDS checks at
     `/private/tmp/noaa_crm_query_manifest_remote.json`.
-- [ ] P1-11: Align NOAA CRM and validate domain sources to the 30 m target grid.
+- [x] P1-11: Align NOAA CRM and validate domain sources to the 30 m target grid.
   - Goal: Produce one CRM-derived depth/elevation row per existing full-grid
     cell, using the broad California topo-bathy source selected in P1-10d, and
     validate against downloaded CUDEM, USGS 3DEP, and CUSP source coverage.
@@ -191,6 +191,16 @@ masking change should end with an updated model-analysis report.
     cross-source comparison table.
   - Validation: row counts match the full-grid target grid for configured
     years or the static grid; fast-path command succeeds.
+  - Completed: added `kelp-aef align-noaa-crm`, wrote
+    `/Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm.parquet`, and recorded
+    CUSP as shoreline-vector validation rather than raster depth/elevation.
+    The full output has 7,458,361 unique target-grid cells, all with valid CRM
+    samples; CUDEM QA covers 3,231,173 cells.
+  - Validation passed:
+    `uv run pytest tests/test_crm_alignment.py tests/test_package.py`,
+    `uv run kelp-aef align-noaa-crm --config configs/monterey_smoke.yaml --fast`,
+    `uv run kelp-aef align-noaa-crm --config configs/monterey_smoke.yaml`,
+    full-output row-count inspection, and `make check`.
 - [ ] P1-12: Build the first plausible-kelp domain mask.
   - Goal: Exclude land, very deep water, and other impossible cells, starting
     with a permissive depth cutoff such as approximately 100 m.

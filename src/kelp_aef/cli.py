@@ -9,6 +9,7 @@ from pathlib import Path
 
 from kelp_aef.alignment.feature_label_table import align_features_labels
 from kelp_aef.alignment.full_grid import align_full_grid
+from kelp_aef.domain.crm_alignment import align_noaa_crm
 from kelp_aef.domain.noaa_crm import download_noaa_crm, query_noaa_crm
 from kelp_aef.domain.noaa_cudem import download_noaa_cudem, query_noaa_cudem
 from kelp_aef.domain.noaa_cusp import download_noaa_cusp, query_noaa_cusp
@@ -41,6 +42,7 @@ COMMANDS: dict[str, str] = {
     "download-noaa-cusp": "Download selected NOAA CUSP shoreline sources from the query manifest.",
     "query-noaa-crm": "Query NOAA CRM topo-bathy sources for the configured region.",
     "download-noaa-crm": "Download selected NOAA CRM sources from the query manifest.",
+    "align-noaa-crm": "Align NOAA CRM topo-bathy values to the target grid.",
     "query-usgs-3dep": "Query USGS 3DEP DEM sources for the configured region.",
     "download-usgs-3dep": "Download selected USGS 3DEP DEM sources from the query manifest.",
     "inspect-kelpwatch": "Inspect Kelpwatch metadata for the configured region.",
@@ -156,6 +158,8 @@ def build_parser() -> argparse.ArgumentParser:
             add_query_noaa_crm_arguments(subparser)
         if command == "download-noaa-crm":
             add_download_noaa_crm_arguments(subparser)
+        if command == "align-noaa-crm":
+            add_align_noaa_crm_arguments(subparser)
         if command == "query-usgs-3dep":
             add_query_usgs_3dep_arguments(subparser)
         if command == "download-usgs-3dep":
@@ -423,6 +427,15 @@ def add_download_noaa_crm_arguments(parser: argparse.ArgumentParser) -> None:
         type=positive_float,
         default=5.0,
         help="Base retry backoff in seconds between failed CRM download attempts.",
+    )
+
+
+def add_align_noaa_crm_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add NOAA CRM alignment options to the align-noaa-crm subcommand."""
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Run the configured small target-grid window and fast-path artifacts.",
     )
 
 
@@ -695,6 +708,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_attempts=int(args.max_attempts),
                 retry_backoff_seconds=float(args.retry_backoff_seconds),
             )
+        elif command == "align-noaa-crm":
+            exit_code = align_noaa_crm(config_path, fast=bool(args.fast))
         elif command == "query-usgs-3dep":
             exit_code = query_usgs_3dep(
                 config_path,
