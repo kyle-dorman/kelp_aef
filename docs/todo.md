@@ -322,6 +322,7 @@ masking change should end with an updated model-analysis report.
     and the refreshed report section, and `make check`.
 - [ ] P1-17: Add annual-max binary threshold comparison on the validation year.
   - Goal: Choose candidate binary targets derived only from annual max.
+  - Plan: `tasks/25_annual_max_binary_threshold_comparison.md`.
   - Output: threshold table for 1%, 5%, 10%, and any retained diagnostic
     thresholds.
   - Validation: threshold choice uses validation data, not the 2022 test split.
