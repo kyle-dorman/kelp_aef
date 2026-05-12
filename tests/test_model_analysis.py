@@ -151,8 +151,11 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "Class And Target Balance" in report
     assert "Annual-Max Binary Threshold Comparison" in report
     assert "Balanced Binary Presence Model" in report
+    assert "Calibrated Binary Presence Probabilities" in report
     assert "Thresholded baseline comparison" in report
     assert "Binary presence 2022 map" in report
+    assert "Platt scaling" in report
+    assert "river-mouth false-positive cluster" in report
     assert "class-weighted logistic regression" in report
     assert "validation` rows from `2021`" in report
     assert "![Observed, predicted, and residual map]" in report
@@ -523,6 +526,18 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         "binary_presence_precision_recall_figure": tmp_path
         / "reports/figures/binary_presence_precision_recall.png",
         "binary_presence_map_figure": tmp_path / "reports/figures/binary_presence_2022_map.png",
+        "binary_presence_calibration_metrics": tmp_path
+        / "reports/tables/binary_presence_calibration_metrics.csv",
+        "binary_presence_calibrated_threshold_selection": tmp_path
+        / "reports/tables/binary_presence_calibrated_threshold_selection.csv",
+        "binary_presence_calibrated_full_grid_area_summary": tmp_path
+        / "reports/tables/binary_presence_calibrated_full_grid_area_summary.csv",
+        "binary_presence_calibration_manifest": tmp_path
+        / "interim/binary_presence_calibration_manifest.json",
+        "binary_presence_calibration_curve_figure": tmp_path
+        / "reports/figures/binary_presence_calibration_curve.png",
+        "binary_presence_calibrated_threshold_figure": tmp_path
+        / "reports/figures/binary_presence_calibrated_thresholds.png",
         "residual_domain_context": tmp_path
         / "reports/tables/model_analysis_residual_by_domain_context.csv",
         "residual_by_mask_reason": tmp_path
@@ -611,6 +626,13 @@ models:
     thresholded_model_comparison: {paths["binary_presence_thresholded_model_comparison"]}
     precision_recall_figure: {paths["binary_presence_precision_recall_figure"]}
     map_figure: {paths["binary_presence_map_figure"]}
+    calibration:
+      metrics: {paths["binary_presence_calibration_metrics"]}
+      threshold_selection: {paths["binary_presence_calibrated_threshold_selection"]}
+      full_grid_area_summary: {paths["binary_presence_calibrated_full_grid_area_summary"]}
+      manifest: {paths["binary_presence_calibration_manifest"]}
+      calibration_curve_figure: {paths["binary_presence_calibration_curve_figure"]}
+      threshold_figure: {paths["binary_presence_calibrated_threshold_figure"]}
 reports:
   figures_dir: {tmp_path / "reports/figures"}
   tables_dir: {tmp_path / "reports/tables"}
@@ -821,6 +843,103 @@ def write_binary_presence_outputs(paths: dict[str, Path]) -> None:
         ]
     ).to_csv(paths["binary_presence_thresholded_model_comparison"], index=False)
     write_tiny_png(paths["binary_presence_map_figure"])
+    pd.DataFrame(
+        [
+            calibration_metric_row("validation", 2021, "raw_logistic", 0.20, 0.80, 0.10),
+            calibration_metric_row("validation", 2021, "platt_calibrated", 0.18, 0.78, 0.08),
+            calibration_metric_row("test", 2022, "raw_logistic", 0.24, 0.75, 0.12),
+            calibration_metric_row("test", 2022, "platt_calibrated", 0.21, 0.73, 0.09),
+        ]
+    ).to_csv(paths["binary_presence_calibration_metrics"], index=False)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "logistic_annual_max_ge_10pct",
+                "target_label": "annual_max_ge_10pct",
+                "calibration_method": "platt",
+                "probability_source": "platt_calibrated",
+                "calibration_split": "validation",
+                "calibration_year": 2021,
+                "threshold_policy": "validation_max_f1_calibrated",
+                "selection_status": "selected_from_validation_max_f1",
+                "recommended_policy": True,
+                "selected_threshold": True,
+                "probability_threshold": 0.37,
+                "f1": 0.88,
+            }
+        ]
+    ).to_csv(paths["binary_presence_calibrated_threshold_selection"], index=False)
+    pd.DataFrame(
+        [
+            calibrated_full_grid_row("raw_logistic", "p1_18_validation_raw_threshold", 2 / 3),
+            calibrated_full_grid_row(
+                "platt_calibrated",
+                "validation_max_f1_calibrated",
+                1 / 3,
+            ),
+        ]
+    ).to_csv(paths["binary_presence_calibrated_full_grid_area_summary"], index=False)
+    paths["binary_presence_calibration_manifest"].parent.mkdir(parents=True, exist_ok=True)
+    paths["binary_presence_calibration_manifest"].write_text(
+        json.dumps({"command": "calibrate-binary-presence"})
+    )
+    write_tiny_png(paths["binary_presence_calibration_curve_figure"])
+    write_tiny_png(paths["binary_presence_calibrated_threshold_figure"])
+
+
+def calibration_metric_row(
+    split: str,
+    year: int,
+    probability_source: str,
+    brier: float,
+    auprc: float,
+    ece: float,
+) -> dict[str, object]:
+    """Build one binary calibration metric fixture row."""
+    return {
+        "model_name": "logistic_annual_max_ge_10pct",
+        "target_label": "annual_max_ge_10pct",
+        "calibration_method": "platt" if probability_source == "platt_calibrated" else "none",
+        "probability_source": probability_source,
+        "threshold_policy": "validation_max_f1_calibrated"
+        if probability_source == "platt_calibrated"
+        else "p1_18_validation_raw_threshold",
+        "split": split,
+        "year": year,
+        "label_source": "all",
+        "row_count": 3,
+        "auroc": 0.8,
+        "auprc": auprc,
+        "brier_score": brier,
+        "expected_calibration_error": ece,
+        "precision": 0.75,
+        "recall": 1.0,
+        "f1": 0.857,
+        "predicted_positive_rate": 2 / 3,
+    }
+
+
+def calibrated_full_grid_row(
+    probability_source: str,
+    threshold_policy: str,
+    predicted_positive_rate: float,
+) -> dict[str, object]:
+    """Build one calibrated full-grid summary fixture row."""
+    return {
+        "model_name": "logistic_annual_max_ge_10pct",
+        "target_label": "annual_max_ge_10pct",
+        "calibration_method": "platt" if probability_source == "platt_calibrated" else "none",
+        "probability_source": probability_source,
+        "threshold_policy": threshold_policy,
+        "split": "test",
+        "year": 2022,
+        "label_source": "all",
+        "evaluation_scope": "full_grid_prediction",
+        "row_count": 3,
+        "predicted_positive_rate": predicted_positive_rate,
+        "predicted_positive_area_m2": predicted_positive_rate * 2700.0,
+        "assumed_background_predicted_positive_rate": 0.5,
+    }
 
 
 def write_tiny_png(path: Path) -> None:

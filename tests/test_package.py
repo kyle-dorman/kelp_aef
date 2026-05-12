@@ -33,6 +33,7 @@ def test_cli_imports() -> None:
         "train-baselines",
         "predict-full-grid",
         "train-binary-presence",
+        "calibrate-binary-presence",
         "map-residuals",
         "analyze-model",
     }

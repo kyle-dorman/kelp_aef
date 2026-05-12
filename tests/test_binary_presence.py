@@ -50,6 +50,39 @@ def test_train_binary_presence_writes_artifacts(tmp_path: Path) -> None:
     assert manifest["thresholded_model_comparison_row_count"] > 0
 
 
+def test_calibrate_binary_presence_writes_artifacts(tmp_path: Path) -> None:
+    """Verify calibrate-binary-presence writes calibration artifacts from validation rows."""
+    fixture = write_binary_presence_fixture(tmp_path)
+
+    assert main(["train-binary-presence", "--config", str(fixture["config_path"])]) == 0
+    assert main(["calibrate-binary-presence", "--config", str(fixture["config_path"])]) == 0
+
+    calibrated = pd.read_parquet(fixture["calibrated_sample_predictions"])
+    metrics = pd.read_csv(fixture["calibration_metrics"])
+    thresholds = pd.read_csv(fixture["calibrated_threshold_selection"])
+    area_summary = pd.read_csv(fixture["calibrated_full_grid_area_summary"])
+    manifest = json.loads(fixture["calibration_manifest"].read_text())
+
+    assert fixture["calibration_model"].is_file()
+    assert fixture["calibration_curve_figure"].is_file()
+    assert fixture["calibrated_threshold_figure"].is_file()
+    assert calibrated["calibrated_binary_probability"].between(0, 1).all()
+    assert {"raw_logistic", "platt_calibrated"} <= set(metrics["probability_source"])
+    assert set(metrics["evaluation_split"]) == {"test"}
+    assert set(thresholds["calibration_year"]) == {2021}
+    assert bool(thresholds["selected_threshold"].any())
+    assert {
+        "p1_18_validation_raw_threshold",
+        "validation_max_f1_calibrated",
+        "validation_prevalence_match_calibrated",
+    } <= set(area_summary["threshold_policy"])
+    assert manifest["command"] == "calibrate-binary-presence"
+    assert manifest["calibration_year"] == 2021
+    assert manifest["evaluation_year"] == 2022
+    assert manifest["calibration_includes_assumed_background_negatives"]
+    assert "river mouth" in manifest["qa_notes"][0]
+
+
 def test_binary_target_uses_10pct_annual_max_rule() -> None:
     """Verify target construction uses `>= 10%` rather than positive canopy."""
     target = build_binary_target(pd.Series([0.0, 0.099, 0.10, 0.5]), 0.10)
@@ -102,6 +135,24 @@ def write_binary_presence_fixture(tmp_path: Path) -> dict[str, Path]:
     prediction_manifest = tmp_path / "interim/binary_presence_prediction_manifest.json"
     precision_recall_figure = tmp_path / "reports/figures/binary_presence_precision_recall.png"
     map_figure = tmp_path / "reports/figures/binary_presence_2022_map.png"
+    calibration_model = (
+        tmp_path / "models/binary_presence/logistic_annual_max_ge_10pct_calibration.joblib"
+    )
+    calibrated_sample_predictions = (
+        tmp_path / "processed/binary_presence_calibrated_sample_predictions.parquet"
+    )
+    calibration_metrics = tmp_path / "reports/tables/binary_presence_calibration_metrics.csv"
+    calibrated_threshold_selection = (
+        tmp_path / "reports/tables/binary_presence_calibrated_threshold_selection.csv"
+    )
+    calibrated_full_grid_area_summary = (
+        tmp_path / "reports/tables/binary_presence_calibrated_full_grid_area_summary.csv"
+    )
+    calibration_curve_figure = tmp_path / "reports/figures/binary_presence_calibration_curve.png"
+    calibrated_threshold_figure = (
+        tmp_path / "reports/figures/binary_presence_calibrated_thresholds.png"
+    )
+    calibration_manifest = tmp_path / "interim/binary_presence_calibration_manifest.json"
     config_path = tmp_path / "config.yaml"
 
     write_binary_rows(sample, years=(2018, 2019, 2020, 2021, 2022), include_mask=True)
@@ -147,6 +198,24 @@ models:
     prediction_manifest: {prediction_manifest}
     precision_recall_figure: {precision_recall_figure}
     map_figure: {map_figure}
+    calibration:
+      method: platt
+      calibration_split: validation
+      calibration_year: 2021
+      evaluation_split: test
+      evaluation_year: 2022
+      input_sample_predictions: {sample_predictions}
+      input_full_grid_predictions: {full_grid_predictions}
+      model: {calibration_model}
+      calibrated_sample_predictions: {calibrated_sample_predictions}
+      metrics: {calibration_metrics}
+      threshold_selection: {calibrated_threshold_selection}
+      full_grid_area_summary: {calibrated_full_grid_area_summary}
+      calibration_curve_figure: {calibration_curve_figure}
+      threshold_figure: {calibrated_threshold_figure}
+      manifest: {calibration_manifest}
+      include_prevalence_match: true
+      reliability_bin_count: 5
 reports:
   domain_mask:
     primary_full_grid_domain: plausible_kelp_domain
@@ -168,6 +237,14 @@ reports:
         "prediction_manifest": prediction_manifest,
         "precision_recall_figure": precision_recall_figure,
         "map_figure": map_figure,
+        "calibration_model": calibration_model,
+        "calibrated_sample_predictions": calibrated_sample_predictions,
+        "calibration_metrics": calibration_metrics,
+        "calibrated_threshold_selection": calibrated_threshold_selection,
+        "calibrated_full_grid_area_summary": calibrated_full_grid_area_summary,
+        "calibration_curve_figure": calibration_curve_figure,
+        "calibrated_threshold_figure": calibrated_threshold_figure,
+        "calibration_manifest": calibration_manifest,
     }
 
 

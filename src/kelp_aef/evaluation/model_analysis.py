@@ -544,6 +544,12 @@ class ModelAnalysisConfig:
     binary_presence_thresholded_model_comparison_path: Path | None
     binary_presence_precision_recall_figure: Path | None
     binary_presence_map_figure: Path | None
+    binary_presence_calibration_metrics_path: Path | None
+    binary_presence_calibration_threshold_selection_path: Path | None
+    binary_presence_calibration_full_grid_area_summary_path: Path | None
+    binary_presence_calibration_curve_figure: Path | None
+    binary_presence_calibration_threshold_figure: Path | None
+    binary_presence_calibration_manifest_path: Path | None
     spatial_readiness_path: Path
     feature_separability_path: Path
     phase1_decision_path: Path
@@ -670,6 +676,10 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
     models = require_mapping(config.get("models"), "models")
     baselines = require_mapping(models.get("baselines"), "models.baselines")
     binary_presence = optional_mapping(models.get("binary_presence"), "models.binary_presence")
+    binary_calibration = optional_mapping(
+        binary_presence.get("calibration"),
+        "models.binary_presence.calibration",
+    )
     reports = require_mapping(config.get("reports"), "reports")
     outputs = require_mapping(reports.get("outputs"), "reports.outputs")
     settings = optional_mapping(reports.get("model_analysis"), "reports.model_analysis")
@@ -824,6 +834,36 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             binary_presence, "precision_recall_figure"
         ),
         binary_presence_map_figure=optional_output_path(binary_presence, "map_figure"),
+        binary_presence_calibration_metrics_path=optional_output_path(
+            binary_calibration,
+            "metrics",
+            "models.binary_presence.calibration",
+        ),
+        binary_presence_calibration_threshold_selection_path=optional_output_path(
+            binary_calibration,
+            "threshold_selection",
+            "models.binary_presence.calibration",
+        ),
+        binary_presence_calibration_full_grid_area_summary_path=optional_output_path(
+            binary_calibration,
+            "full_grid_area_summary",
+            "models.binary_presence.calibration",
+        ),
+        binary_presence_calibration_curve_figure=optional_output_path(
+            binary_calibration,
+            "calibration_curve_figure",
+            "models.binary_presence.calibration",
+        ),
+        binary_presence_calibration_threshold_figure=optional_output_path(
+            binary_calibration,
+            "threshold_figure",
+            "models.binary_presence.calibration",
+        ),
+        binary_presence_calibration_manifest_path=optional_output_path(
+            binary_calibration,
+            "manifest",
+            "models.binary_presence.calibration",
+        ),
         spatial_readiness_path=output_path(
             outputs,
             "model_analysis_spatial_holdout_readiness",
@@ -1001,12 +1041,16 @@ def output_path(outputs: dict[str, Any], key: str, default: Path) -> Path:
     return Path(require_string(value, f"reports.outputs.{key}"))
 
 
-def optional_output_path(mapping: dict[str, Any], key: str) -> Path | None:
+def optional_output_path(
+    mapping: dict[str, Any],
+    key: str,
+    config_prefix: str = "models.binary_presence",
+) -> Path | None:
     """Read an optional path from a model-specific config mapping."""
     value = mapping.get(key)
     if value is None:
         return None
-    return Path(require_string(value, f"models.binary_presence.{key}"))
+    return Path(require_string(value, f"{config_prefix}.{key}"))
 
 
 def read_float_tuple(value: object, name: str, default: tuple[float, ...]) -> tuple[float, ...]:
@@ -4149,6 +4193,12 @@ def write_report(
         "",
         binary_presence_figure_markdown(analysis_config, output_path),
         "",
+        "## Calibrated Binary Presence Probabilities",
+        "",
+        binary_presence_calibration_markdown(analysis_config),
+        "",
+        binary_presence_calibration_figure_markdown(analysis_config, output_path),
+        "",
         "## Binary Threshold Sensitivity",
         "",
         threshold_sensitivity_markdown(tables.threshold_sensitivity, analysis_config),
@@ -4180,6 +4230,7 @@ def write_report(
         f"- Binary threshold comparison table: `{analysis_config.binary_threshold_comparison_path}`",
         f"- Binary threshold recommendation table: `{analysis_config.binary_threshold_recommendation_path}`",
         binary_presence_appendix_markdown(analysis_config),
+        binary_presence_calibration_appendix_markdown(analysis_config),
         f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
         f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
@@ -5418,6 +5469,159 @@ def binary_presence_appendix_markdown(analysis_config: ModelAnalysisConfig) -> s
     return "\n".join(lines)
 
 
+def binary_presence_calibration_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Build Markdown for calibrated binary-probability diagnostics."""
+    metrics = read_optional_csv_rows(analysis_config.binary_presence_calibration_metrics_path)
+    threshold_rows = read_optional_csv_rows(
+        analysis_config.binary_presence_calibration_threshold_selection_path
+    )
+    full_grid_rows = read_optional_csv_rows(
+        analysis_config.binary_presence_calibration_full_grid_area_summary_path
+    )
+    if not metrics or not threshold_rows or not full_grid_rows:
+        return (
+            "Calibrated binary probability outputs were not available yet. Run "
+            "`uv run kelp-aef calibrate-binary-presence --config configs/monterey_smoke.yaml` "
+            "after `train-binary-presence` before interpreting this section."
+        )
+    selected_threshold = selected_calibrated_threshold_row(threshold_rows)
+    validation_raw = calibration_metric_lookup(
+        metrics,
+        split="validation",
+        label_source="all",
+        probability_source="raw_logistic",
+    )
+    validation_calibrated = calibration_metric_lookup(
+        metrics,
+        split="validation",
+        label_source="all",
+        probability_source="platt_calibrated",
+    )
+    test_raw = calibration_metric_lookup(
+        metrics,
+        split=analysis_config.analysis_split,
+        label_source="all",
+        probability_source="raw_logistic",
+    )
+    test_calibrated = calibration_metric_lookup(
+        metrics,
+        split=analysis_config.analysis_split,
+        label_source="all",
+        probability_source="platt_calibrated",
+    )
+    full_grid = calibrated_full_grid_lookup(
+        full_grid_rows,
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+        label_source="all",
+        probability_source="platt_calibrated",
+        threshold_policy="validation_max_f1_calibrated",
+    )
+    raw_full_grid = calibrated_full_grid_lookup(
+        full_grid_rows,
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+        label_source="all",
+        probability_source="raw_logistic",
+        threshold_policy="p1_18_validation_raw_threshold",
+    )
+    lines = [
+        (
+            "The calibrated binary stage fits Platt scaling on all `validation` rows from "
+            "`2021`, including assumed-background rows as negatives. It calibrates the "
+            "existing class-weighted logistic probabilities for the Kelpwatch-style "
+            "`annual_max_ge_10pct` weak label; it does not create independent ecological "
+            "presence truth."
+        ),
+        (
+            f"The recommended diagnostic calibrated threshold is "
+            f"`{format_decimal(row_float(selected_threshold, 'probability_threshold'), 3)}` "
+            f"from `{selected_threshold.get('threshold_policy', 'missing')}`. Test-year "
+            "rows are used only for evaluation, not for calibration fitting or threshold selection."
+        ),
+        "",
+        "| Split | Source | Threshold policy | AUPRC | AUROC | Brier | ECE | Precision | Recall | F1 | Predicted positive |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        calibration_metric_markdown_row(validation_raw),
+        calibration_metric_markdown_row(validation_calibrated),
+        calibration_metric_markdown_row(test_raw),
+        calibration_metric_markdown_row(test_calibrated),
+        "",
+        (
+            f"In the primary `{evaluation_scope(analysis_config.domain_mask)}` "
+            f"{analysis_config.analysis_year} scope, raw P1-18 thresholding predicts "
+            f"`{format_percent(row_float(raw_full_grid, 'predicted_positive_rate'), 2)}` "
+            "of retained rows positive. The recommended calibrated threshold predicts "
+            f"`{format_percent(row_float(full_grid, 'predicted_positive_rate'), 2)}` "
+            f"positive, or `{format_decimal(row_float(full_grid, 'predicted_positive_area_m2'), 1)} m2` "
+            "of 30 m cell area."
+        ),
+        (
+            "The known river-mouth false-positive cluster remains a spatial QA concern. "
+            "This calibration reports threshold effects on leakage but does not change the "
+            "P1-12/P1-14 plausible-kelp domain mask."
+        ),
+    ]
+    return "\n".join(lines)
+
+
+def binary_presence_calibration_figure_markdown(
+    analysis_config: ModelAnalysisConfig,
+    report_path: Path,
+) -> str:
+    """Return calibrated binary-probability figure links for available artifacts."""
+    figures: list[str] = []
+    calibration_curve = analysis_config.binary_presence_calibration_curve_figure
+    if calibration_curve is not None and calibration_curve.exists():
+        figures.append(
+            image_markdown("Binary presence calibration curve", calibration_curve, report_path)
+        )
+    threshold_figure = analysis_config.binary_presence_calibration_threshold_figure
+    if threshold_figure is not None and threshold_figure.exists():
+        figures.append(
+            image_markdown(
+                "Binary presence calibrated thresholds",
+                threshold_figure,
+                report_path,
+            )
+        )
+    return "\n\n".join(figures)
+
+
+def binary_presence_calibration_appendix_markdown(
+    analysis_config: ModelAnalysisConfig,
+) -> str:
+    """Return appendix links for calibrated binary-probability artifacts."""
+    paths = [
+        (
+            "Binary presence calibration metrics table",
+            analysis_config.binary_presence_calibration_metrics_path,
+        ),
+        (
+            "Binary presence calibrated threshold-selection table",
+            analysis_config.binary_presence_calibration_threshold_selection_path,
+        ),
+        (
+            "Binary presence calibrated full-grid area summary",
+            analysis_config.binary_presence_calibration_full_grid_area_summary_path,
+        ),
+        (
+            "Binary presence calibration manifest",
+            analysis_config.binary_presence_calibration_manifest_path,
+        ),
+        (
+            "Binary presence calibration curve figure",
+            analysis_config.binary_presence_calibration_curve_figure,
+        ),
+        (
+            "Binary presence calibrated threshold figure",
+            analysis_config.binary_presence_calibration_threshold_figure,
+        ),
+    ]
+    lines = [f"- {label}: `{path}`" for label, path in paths if path is not None]
+    return "\n".join(lines)
+
+
 def read_optional_csv_rows(path: Path | None) -> list[dict[str, object]]:
     """Read optional CSV rows for report integration."""
     if path is None or not path.exists():
@@ -5433,12 +5637,43 @@ def selected_probability_threshold_row(rows: list[dict[str, object]]) -> dict[st
     return rows[0] if rows else {}
 
 
+def selected_calibrated_threshold_row(rows: list[dict[str, object]]) -> dict[str, object]:
+    """Return the selected calibrated threshold row, falling back to the first max-F1 row."""
+    for row in rows:
+        if str(row.get("selected_threshold", "")).lower() in {"true", "1"} and str(
+            row.get("recommended_policy", "")
+        ).lower() in {"true", "1"}:
+            return row
+    for row in rows:
+        if row.get("threshold_policy") == "validation_max_f1_calibrated":
+            return row
+    return rows[0] if rows else {}
+
+
 def binary_metric_lookup(
     rows: list[dict[str, object]], *, split: str, label_source: str
 ) -> dict[str, object]:
     """Return the first binary metric row matching split and source."""
     for row in rows:
         if row.get("split") == split and row.get("label_source") == label_source:
+            return row
+    return {}
+
+
+def calibration_metric_lookup(
+    rows: list[dict[str, object]],
+    *,
+    split: str,
+    label_source: str,
+    probability_source: str,
+) -> dict[str, object]:
+    """Return the first calibration metric row matching split, source, and label group."""
+    for row in rows:
+        if (
+            row.get("split") == split
+            and row.get("label_source") == label_source
+            and row.get("probability_source") == probability_source
+        ):
             return row
     return {}
 
@@ -5452,6 +5687,28 @@ def binary_full_grid_lookup(
             row.get("split") == split
             and str(row.get("year")) == str(year)
             and row.get("label_source") == label_source
+        ):
+            return row
+    return {}
+
+
+def calibrated_full_grid_lookup(
+    rows: list[dict[str, object]],
+    *,
+    split: str,
+    year: int,
+    label_source: str,
+    probability_source: str,
+    threshold_policy: str,
+) -> dict[str, object]:
+    """Return calibrated full-grid row for a split/year/source/policy."""
+    for row in rows:
+        if (
+            row.get("split") == split
+            and str(row.get("year")) == str(year)
+            and row.get("label_source") == label_source
+            and row.get("probability_source") == probability_source
+            and row.get("threshold_policy") == threshold_policy
         ):
             return row
     return {}
@@ -5487,6 +5744,25 @@ def binary_metric_markdown_row(row: dict[str, object]) -> str:
         f"{row.get('row_count', '')} | "
         f"{format_decimal(row_float(row, 'auprc'), 3)} | "
         f"{format_decimal(row_float(row, 'auroc'), 3)} | "
+        f"{format_decimal(row_float(row, 'precision'), 3)} | "
+        f"{format_decimal(row_float(row, 'recall'), 3)} | "
+        f"{format_decimal(row_float(row, 'f1'), 3)} | "
+        f"{format_percent(row_float(row, 'predicted_positive_rate'), 2)} |"
+    )
+
+
+def calibration_metric_markdown_row(row: dict[str, object]) -> str:
+    """Format one calibration metrics row for the report table."""
+    if not row:
+        return "| missing | missing | missing | nan | nan | nan | nan | nan | nan | nan | nan |"
+    return (
+        f"| {row.get('split', '')} | "
+        f"{row.get('probability_source', '')} | "
+        f"{row.get('threshold_policy', '')} | "
+        f"{format_decimal(row_float(row, 'auprc'), 3)} | "
+        f"{format_decimal(row_float(row, 'auroc'), 3)} | "
+        f"{format_decimal(row_float(row, 'brier_score'), 4)} | "
+        f"{format_decimal(row_float(row, 'expected_calibration_error'), 4)} | "
         f"{format_decimal(row_float(row, 'precision'), 3)} | "
         f"{format_decimal(row_float(row, 'recall'), 3)} | "
         f"{format_decimal(row_float(row, 'f1'), 3)} | "
@@ -5746,6 +6022,21 @@ def write_manifest(
             "binary_threshold_recommendation": str(
                 analysis_config.binary_threshold_recommendation_path
             ),
+            "binary_presence_calibration_metrics": str(
+                analysis_config.binary_presence_calibration_metrics_path
+            )
+            if analysis_config.binary_presence_calibration_metrics_path is not None
+            else None,
+            "binary_presence_calibration_threshold_selection": str(
+                analysis_config.binary_presence_calibration_threshold_selection_path
+            )
+            if analysis_config.binary_presence_calibration_threshold_selection_path is not None
+            else None,
+            "binary_presence_calibration_full_grid_area_summary": str(
+                analysis_config.binary_presence_calibration_full_grid_area_summary_path
+            )
+            if (analysis_config.binary_presence_calibration_full_grid_area_summary_path is not None)
+            else None,
             "residual_domain_context": str(analysis_config.residual_domain_context_path),
             "residual_by_mask_reason": str(analysis_config.residual_by_mask_reason_path),
             "residual_by_depth_bin": str(analysis_config.residual_by_depth_bin_path),

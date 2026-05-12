@@ -16,7 +16,11 @@ import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
 import pyarrow.dataset as ds
 from sklearn.linear_model import LogisticRegression  # type: ignore[import-untyped]
-from sklearn.metrics import average_precision_score, roc_auc_score  # type: ignore[import-untyped]
+from sklearn.metrics import (  # type: ignore[import-untyped]
+    average_precision_score,
+    brier_score_loss,
+    roc_auc_score,
+)
 from sklearn.pipeline import Pipeline  # type: ignore[import-untyped]
 from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
 
@@ -237,6 +241,170 @@ BINARY_MODEL_COMPARISON_FIELDS = (
     "assumed_background_false_positive_count",
     "assumed_background_false_positive_rate",
 )
+CALIBRATION_METHOD_PLATT = "platt"
+RAW_LOGISTIC_PROBABILITY_SOURCE = "raw_logistic"
+PLATT_PROBABILITY_SOURCE = "platt_calibrated"
+RAW_THRESHOLD_POLICY = "p1_18_validation_raw_threshold"
+CALIBRATED_MAX_F1_POLICY = "validation_max_f1_calibrated"
+CALIBRATED_PREVALENCE_POLICY = "validation_prevalence_match_calibrated"
+CALIBRATED_MIN_PRECISION_POLICY = "validation_min_precision_calibrated"
+DEFAULT_RELIABILITY_BIN_COUNT = 10
+LOGIT_EPSILON = 1e-6
+REQUIRED_CALIBRATION_COLUMNS = (
+    "split",
+    "year",
+    "label_source",
+    "binary_observed_y",
+    "pred_binary_probability",
+    "probability_threshold",
+    "longitude",
+    "latitude",
+)
+REQUIRED_FULL_GRID_CALIBRATION_COLUMNS = (
+    "split",
+    "year",
+    "label_source",
+    "binary_observed_y",
+    "pred_binary_probability",
+    "probability_threshold",
+    "kelp_max_y",
+)
+CALIBRATED_SAMPLE_PREDICTION_FIELDS = (
+    "year",
+    "split",
+    "kelpwatch_station_id",
+    "longitude",
+    "latitude",
+    "kelp_fraction_y",
+    "kelp_max_y",
+    "aef_grid_cell_id",
+    "aef_grid_row",
+    "aef_grid_col",
+    "label_source",
+    "is_kelpwatch_observed",
+    "kelpwatch_station_count",
+    "sample_weight",
+    "is_plausible_kelp_domain",
+    "domain_mask_reason",
+    "domain_mask_detail",
+    "domain_mask_version",
+    "crm_elevation_m",
+    "crm_depth_m",
+    "depth_bin",
+    "elevation_bin",
+    "model_name",
+    "target_label",
+    "target_column",
+    "target_threshold_fraction",
+    "target_threshold_area",
+    "binary_observed_y",
+    "pred_binary_probability",
+    "probability_threshold",
+    "pred_binary_class",
+    "calibration_method",
+    "calibration_status",
+    "calibration_split",
+    "calibration_year",
+    "calibrated_binary_probability",
+    "calibrated_probability_threshold",
+    "calibrated_pred_binary_class",
+    "calibrated_threshold_policy",
+)
+CALIBRATION_METRIC_FIELDS = (
+    "model_name",
+    "target_label",
+    "target_threshold_fraction",
+    "target_threshold_area",
+    "calibration_method",
+    "probability_source",
+    "threshold_policy",
+    "calibration_split",
+    "calibration_year",
+    "evaluation_split",
+    "evaluation_year",
+    "split",
+    "year",
+    "label_source",
+    "mask_status",
+    "evaluation_scope",
+    "row_count",
+    "positive_count",
+    "positive_rate",
+    "predicted_positive_count",
+    "predicted_positive_rate",
+    "probability_threshold",
+    "auroc",
+    "auprc",
+    "brier_score",
+    "expected_calibration_error",
+    "precision",
+    "recall",
+    "f1",
+    "true_positive_count",
+    "false_positive_count",
+    "false_positive_rate",
+    "false_negative_count",
+    "false_negative_rate",
+    "true_negative_count",
+    "assumed_background_count",
+    "assumed_background_false_positive_count",
+    "assumed_background_false_positive_rate",
+)
+CALIBRATION_THRESHOLD_SELECTION_FIELDS = (
+    "model_name",
+    "target_label",
+    "target_threshold_fraction",
+    "target_threshold_area",
+    "calibration_method",
+    "probability_source",
+    "calibration_split",
+    "calibration_year",
+    "threshold_policy",
+    "selection_status",
+    "recommended_policy",
+    "selected_threshold",
+    "probability_threshold",
+    "row_count",
+    "positive_count",
+    "positive_rate",
+    "predicted_positive_count",
+    "predicted_positive_rate",
+    "target_predicted_positive_rate",
+    "precision",
+    "recall",
+    "f1",
+    "false_positive_count",
+    "false_positive_rate",
+    "assumed_background_count",
+    "assumed_background_false_positive_count",
+    "assumed_background_false_positive_rate",
+)
+CALIBRATED_FULL_GRID_SUMMARY_FIELDS = (
+    "model_name",
+    "target_label",
+    "target_threshold_fraction",
+    "target_threshold_area",
+    "calibration_method",
+    "probability_source",
+    "threshold_policy",
+    "split",
+    "year",
+    "label_source",
+    "mask_status",
+    "evaluation_scope",
+    "probability_threshold",
+    "row_count",
+    "predicted_positive_count",
+    "predicted_positive_rate",
+    "predicted_positive_cell_count",
+    "predicted_positive_area_m2",
+    "observed_positive_count",
+    "observed_positive_rate",
+    "observed_positive_area_m2",
+    "assumed_background_count",
+    "assumed_background_predicted_positive_count",
+    "assumed_background_predicted_positive_rate",
+)
 
 
 @dataclass(frozen=True)
@@ -298,6 +466,53 @@ class ThresholdSelection:
     threshold: float
     rows: list[dict[str, object]]
     status: str
+
+
+@dataclass(frozen=True)
+class BinaryCalibrationConfig:
+    """Resolved config values for binary probability calibration."""
+
+    config_path: Path
+    binary_config: BinaryPresenceConfig
+    method: str
+    calibration_split: str
+    calibration_year: int
+    evaluation_split: str
+    evaluation_year: int
+    input_sample_predictions_path: Path
+    input_full_grid_predictions_path: Path
+    model_output_path: Path
+    calibrated_sample_predictions_path: Path
+    metrics_path: Path
+    threshold_selection_path: Path
+    full_grid_area_summary_path: Path
+    calibration_curve_figure_path: Path
+    threshold_figure_path: Path
+    manifest_path: Path
+    min_precision: float | None
+    include_prevalence_match: bool
+    reliability_bin_count: int
+
+
+@dataclass(frozen=True)
+class BinaryCalibrator:
+    """Fitted one-dimensional probability calibration model."""
+
+    method: str
+    model: Any | None
+    status: str
+    coefficient: float
+    intercept: float
+
+
+@dataclass(frozen=True)
+class CalibrationThresholds:
+    """Selected calibrated operating thresholds and diagnostic rows."""
+
+    recommended_threshold: float
+    recommended_policy: str
+    rows: list[dict[str, object]]
+    policy_thresholds: dict[str, tuple[str, float]]
 
 
 def train_binary_presence(config_path: Path) -> int:
@@ -371,6 +586,77 @@ def train_binary_presence(config_path: Path) -> int:
     LOGGER.info("Wrote binary sample predictions: %s", binary_config.sample_predictions_path)
     LOGGER.info("Wrote binary full-grid predictions: %s", binary_config.full_grid_predictions_path)
     LOGGER.info("Wrote binary metrics: %s", binary_config.metrics_path)
+    return 0
+
+
+def calibrate_binary_presence(config_path: Path) -> int:
+    """Calibrate binary annual-max probabilities and write diagnostic artifacts."""
+    calibration_config = load_binary_calibration_config(config_path)
+    LOGGER.info(
+        "Loading binary sample predictions for calibration: %s",
+        calibration_config.input_sample_predictions_path,
+    )
+    sample_predictions = pd.read_parquet(calibration_config.input_sample_predictions_path)
+    validate_calibration_prediction_columns(sample_predictions, "binary sample predictions")
+    calibration_rows = calibration_fit_rows(sample_predictions, calibration_config)
+    calibrator = fit_binary_calibrator(calibration_rows, calibration_config)
+    calibrated_sample = calibrated_sample_prediction_frame(
+        sample_predictions,
+        calibrator,
+        calibration_config,
+    )
+    threshold_selection = select_calibrated_thresholds(calibrated_sample, calibration_config)
+    calibrated_sample = apply_recommended_calibrated_threshold(
+        calibrated_sample,
+        threshold_selection,
+    )
+    metrics = build_calibration_metric_rows(
+        calibrated_sample,
+        threshold_selection,
+        calibration_config,
+    )
+    full_grid_summary = summarize_calibrated_full_grid(
+        calibrator,
+        threshold_selection,
+        calibration_config,
+    )
+    write_binary_predictions(
+        calibrated_sample.loc[:, calibrated_sample_output_columns(calibrated_sample)],
+        calibration_config.calibrated_sample_predictions_path,
+    )
+    write_csv_rows(
+        metrics,
+        calibration_config.metrics_path,
+        CALIBRATION_METRIC_FIELDS,
+    )
+    write_csv_rows(
+        threshold_selection.rows,
+        calibration_config.threshold_selection_path,
+        CALIBRATION_THRESHOLD_SELECTION_FIELDS,
+    )
+    write_csv_rows(
+        full_grid_summary,
+        calibration_config.full_grid_area_summary_path,
+        CALIBRATED_FULL_GRID_SUMMARY_FIELDS,
+    )
+    write_binary_calibration_model(calibrator, threshold_selection, calibration_config)
+    write_calibration_curve_figure(calibrated_sample, calibration_config)
+    write_calibrated_threshold_figure(threshold_selection.rows, calibration_config)
+    write_binary_calibration_manifest(
+        calibrator=calibrator,
+        calibration_rows=calibration_rows,
+        calibrated_sample=calibrated_sample,
+        threshold_selection=threshold_selection,
+        metrics=metrics,
+        full_grid_summary=full_grid_summary,
+        calibration_config=calibration_config,
+    )
+    LOGGER.info("Wrote binary calibration model: %s", calibration_config.model_output_path)
+    LOGGER.info(
+        "Wrote calibrated binary sample predictions: %s",
+        calibration_config.calibrated_sample_predictions_path,
+    )
+    LOGGER.info("Wrote binary calibration metrics: %s", calibration_config.metrics_path)
     return 0
 
 
@@ -483,6 +769,163 @@ def load_binary_presence_config(config_path: Path) -> BinaryPresenceConfig:
     )
 
 
+def load_binary_calibration_config(config_path: Path) -> BinaryCalibrationConfig:
+    """Load binary probability calibration settings from the workflow config."""
+    config = load_yaml_config(config_path)
+    models = require_mapping(config.get("models"), "models")
+    binary = require_mapping(models.get("binary_presence"), "models.binary_presence")
+    calibration = optional_mapping(
+        binary.get("calibration"),
+        "models.binary_presence.calibration",
+    )
+    binary_config = load_binary_presence_config(config_path)
+    method = str(calibration.get("method", CALIBRATION_METHOD_PLATT))
+    if method != CALIBRATION_METHOD_PLATT:
+        msg = "models.binary_presence.calibration.method must be 'platt'"
+        raise ValueError(msg)
+    calibration_split = str(calibration.get("calibration_split", BINARY_SELECTION_SPLIT))
+    evaluation_split = str(calibration.get("evaluation_split", BINARY_TEST_SPLIT))
+    calibration_year = optional_year(
+        calibration.get("calibration_year"),
+        "models.binary_presence.calibration.calibration_year",
+        primary_selection_year(binary_config),
+    )
+    evaluation_year = optional_year(
+        calibration.get("evaluation_year"),
+        "models.binary_presence.calibration.evaluation_year",
+        primary_map_year(binary_config),
+    )
+    return BinaryCalibrationConfig(
+        config_path=config_path,
+        binary_config=binary_config,
+        method=method,
+        calibration_split=calibration_split,
+        calibration_year=calibration_year,
+        evaluation_split=evaluation_split,
+        evaluation_year=evaluation_year,
+        input_sample_predictions_path=calibration_path(
+            calibration,
+            "input_sample_predictions",
+            binary_config.sample_predictions_path,
+        ),
+        input_full_grid_predictions_path=calibration_path(
+            calibration,
+            "input_full_grid_predictions",
+            binary_config.full_grid_predictions_path,
+        ),
+        model_output_path=calibration_path(
+            calibration,
+            "model",
+            binary_config.model_output_path.with_name(
+                f"{binary_config.model_output_path.stem}_calibration.joblib"
+            ),
+        ),
+        calibrated_sample_predictions_path=calibration_path(
+            calibration,
+            "calibrated_sample_predictions",
+            binary_config.sample_predictions_path.with_name(
+                "binary_presence_calibrated_sample_predictions.parquet"
+            ),
+        ),
+        metrics_path=calibration_path(
+            calibration,
+            "metrics",
+            binary_config.metrics_path.with_name("binary_presence_calibration_metrics.csv"),
+        ),
+        threshold_selection_path=calibration_path(
+            calibration,
+            "threshold_selection",
+            binary_config.threshold_selection_path.with_name(
+                "binary_presence_calibrated_threshold_selection.csv"
+            ),
+        ),
+        full_grid_area_summary_path=calibration_path(
+            calibration,
+            "full_grid_area_summary",
+            binary_config.full_grid_area_summary_path.with_name(
+                "binary_presence_calibrated_full_grid_area_summary.csv"
+            ),
+        ),
+        calibration_curve_figure_path=calibration_path(
+            calibration,
+            "calibration_curve_figure",
+            binary_config.precision_recall_figure_path.with_name(
+                "binary_presence_calibration_curve.png"
+            ),
+        ),
+        threshold_figure_path=calibration_path(
+            calibration,
+            "threshold_figure",
+            binary_config.precision_recall_figure_path.with_name(
+                "binary_presence_calibrated_thresholds.png"
+            ),
+        ),
+        manifest_path=calibration_path(
+            calibration,
+            "manifest",
+            binary_config.prediction_manifest_path.with_name(
+                "binary_presence_calibration_manifest.json"
+            ),
+        ),
+        min_precision=optional_probability(
+            calibration.get("min_precision"),
+            "models.binary_presence.calibration.min_precision",
+        ),
+        include_prevalence_match=read_bool(
+            calibration.get("include_prevalence_match"),
+            "models.binary_presence.calibration.include_prevalence_match",
+            default=True,
+        ),
+        reliability_bin_count=optional_positive_int(
+            calibration.get("reliability_bin_count"),
+            "models.binary_presence.calibration.reliability_bin_count",
+            DEFAULT_RELIABILITY_BIN_COUNT,
+        ),
+    )
+
+
+def optional_mapping(value: object, name: str) -> dict[str, Any]:
+    """Return an optional config mapping, treating a missing value as empty."""
+    if value is None:
+        return {}
+    return require_mapping(value, name)
+
+
+def calibration_path(config: dict[str, Any], key: str, default: Path) -> Path:
+    """Read an optional binary calibration path from config."""
+    value = config.get(key)
+    if value is None:
+        return default
+    return Path(require_string(value, f"models.binary_presence.calibration.{key}"))
+
+
+def optional_year(value: object, name: str, default: int | str) -> int:
+    """Read a calibration year, requiring a concrete integer year."""
+    if value is None:
+        if isinstance(default, str):
+            msg = f"config field must be set when multiple years are configured: {name}"
+            raise ValueError(msg)
+        return default
+    if isinstance(value, bool) or not hasattr(value, "__index__"):
+        msg = f"field must be an integer year: {name}"
+        raise ValueError(msg)
+    return operator_index(value)
+
+
+def optional_probability(value: object, name: str) -> float | None:
+    """Read an optional probability value in the closed unit interval."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        msg = f"field must be numeric, not boolean: {name}"
+        raise ValueError(msg)
+    parsed = float(cast(Any, value))
+    if not 0.0 <= parsed <= 1.0:
+        msg = f"field must be between 0 and 1: {name}"
+        raise ValueError(msg)
+    return parsed
+
+
 def optional_float(value: object, name: str, default: float) -> float:
     """Read an optional floating-point config value."""
     if value is None:
@@ -573,6 +1016,386 @@ def optional_baseline_sample_predictions_path(models: dict[str, Any]) -> Path | 
     if value is None:
         return None
     return Path(require_string(value, "models.baselines.sample_predictions"))
+
+
+def validate_calibration_prediction_columns(dataframe: pd.DataFrame, name: str) -> None:
+    """Validate row-level binary prediction columns needed for calibration."""
+    missing = [column for column in REQUIRED_CALIBRATION_COLUMNS if column not in dataframe.columns]
+    if missing:
+        msg = f"{name} is missing required calibration columns: {missing}"
+        raise ValueError(msg)
+
+
+def validate_full_grid_calibration_columns(dataframe: pd.DataFrame, name: str) -> None:
+    """Validate row-level full-grid prediction columns needed for compact summaries."""
+    missing = [
+        column
+        for column in REQUIRED_FULL_GRID_CALIBRATION_COLUMNS
+        if column not in dataframe.columns
+    ]
+    if missing:
+        msg = f"{name} is missing required full-grid calibration columns: {missing}"
+        raise ValueError(msg)
+
+
+def calibration_fit_rows(
+    predictions: pd.DataFrame,
+    calibration_config: BinaryCalibrationConfig,
+) -> pd.DataFrame:
+    """Return validation rows used to fit the probability calibrator."""
+    rows = predictions.loc[
+        (predictions["split"] == calibration_config.calibration_split)
+        & (predictions["year"].astype(int) == calibration_config.calibration_year)
+    ].copy()
+    if rows.empty:
+        msg = (
+            "no binary prediction rows found for calibration split/year: "
+            f"{calibration_config.calibration_split}/{calibration_config.calibration_year}"
+        )
+        raise ValueError(msg)
+    probabilities = rows["pred_binary_probability"].to_numpy(dtype=float)
+    observed = rows["binary_observed_y"].to_numpy(dtype=bool)
+    valid = np.isfinite(probabilities)
+    if not valid.any():
+        msg = "calibration rows contain no finite raw probabilities"
+        raise ValueError(msg)
+    if np.unique(observed[valid]).size < 2:
+        msg = "calibration rows must contain both binary classes"
+        raise ValueError(msg)
+    return rows.loc[valid].copy()
+
+
+def fit_binary_calibrator(
+    calibration_rows: pd.DataFrame,
+    calibration_config: BinaryCalibrationConfig,
+) -> BinaryCalibrator:
+    """Fit the configured one-dimensional calibration model on validation rows."""
+    if calibration_config.method != CALIBRATION_METHOD_PLATT:
+        msg = f"unsupported calibration method: {calibration_config.method}"
+        raise ValueError(msg)
+    probabilities = calibration_rows["pred_binary_probability"].to_numpy(dtype=float)
+    observed = calibration_rows["binary_observed_y"].to_numpy(dtype=bool)
+    model = LogisticRegression(C=1_000_000.0, solver="lbfgs", max_iter=1000)
+    model.fit(probability_logit(probabilities), observed)
+    coefficient = float(model.coef_[0, 0])
+    intercept = float(model.intercept_[0])
+    LOGGER.info(
+        "Fitted Platt calibrator on %s %s rows from %s with coefficient=%s intercept=%s",
+        len(calibration_rows),
+        calibration_config.calibration_split,
+        calibration_config.calibration_year,
+        coefficient,
+        intercept,
+    )
+    return BinaryCalibrator(
+        method=calibration_config.method,
+        model=model,
+        status="fit_on_validation_rows",
+        coefficient=coefficient,
+        intercept=intercept,
+    )
+
+
+def probability_logit(probabilities: np.ndarray) -> np.ndarray:
+    """Return clipped probability logits as a two-dimensional feature matrix."""
+    clipped = np.clip(probabilities.astype(float), LOGIT_EPSILON, 1.0 - LOGIT_EPSILON)
+    logits = np.log(clipped / (1.0 - clipped))
+    return cast(np.ndarray, logits.reshape(-1, 1))
+
+
+def apply_binary_calibrator(calibrator: BinaryCalibrator, probabilities: np.ndarray) -> np.ndarray:
+    """Apply a fitted binary calibrator to raw probabilities."""
+    output = np.full(probabilities.shape, np.nan, dtype=float)
+    valid = np.isfinite(probabilities)
+    if not valid.any():
+        return output
+    if calibrator.model is None:
+        output[valid] = probabilities[valid]
+        return output
+    calibrated = calibrator.model.predict_proba(probability_logit(probabilities[valid]))[:, 1]
+    output[valid] = np.asarray(calibrated, dtype=float)
+    return output
+
+
+def calibrated_sample_prediction_frame(
+    sample_predictions: pd.DataFrame,
+    calibrator: BinaryCalibrator,
+    calibration_config: BinaryCalibrationConfig,
+) -> pd.DataFrame:
+    """Attach calibrated probabilities to sample prediction rows."""
+    frame = sample_predictions.copy()
+    raw_probabilities = frame["pred_binary_probability"].to_numpy(dtype=float)
+    frame["calibration_method"] = calibration_config.method
+    frame["calibration_status"] = calibrator.status
+    frame["calibration_split"] = calibration_config.calibration_split
+    frame["calibration_year"] = calibration_config.calibration_year
+    frame["calibrated_binary_probability"] = apply_binary_calibrator(
+        calibrator,
+        raw_probabilities,
+    )
+    frame["calibrated_probability_threshold"] = np.nan
+    frame["calibrated_pred_binary_class"] = False
+    frame["calibrated_threshold_policy"] = ""
+    return frame
+
+
+def select_calibrated_thresholds(
+    sample_predictions: pd.DataFrame,
+    calibration_config: BinaryCalibrationConfig,
+) -> CalibrationThresholds:
+    """Select calibrated thresholds using validation rows only."""
+    validation_rows = calibration_metric_input_rows(
+        sample_predictions,
+        split=calibration_config.calibration_split,
+        year=calibration_config.calibration_year,
+    )
+    probabilities = validation_rows["calibrated_binary_probability"].to_numpy(dtype=float)
+    max_f1_rows = [
+        calibration_threshold_row(
+            validation_rows,
+            probabilities,
+            threshold,
+            calibration_config,
+            threshold_policy=CALIBRATED_MAX_F1_POLICY,
+            target_predicted_positive_rate=math.nan,
+        )
+        for threshold in DEFAULT_THRESHOLD_GRID
+    ]
+    selected = selected_threshold_row(max_f1_rows)
+    recommended_threshold = row_float(selected, "probability_threshold") if selected else 0.5
+    status = "selected_from_validation_max_f1" if selected else "no_valid_validation_threshold"
+    for row in max_f1_rows:
+        mark_calibrated_threshold_row(
+            row,
+            recommended_threshold,
+            status,
+            recommended_policy=True,
+            selected_threshold=selected is not None,
+        )
+    rows = list(max_f1_rows)
+    policy_thresholds = {
+        CALIBRATED_MAX_F1_POLICY: (PLATT_PROBABILITY_SOURCE, recommended_threshold),
+        RAW_THRESHOLD_POLICY: (
+            RAW_LOGISTIC_PROBABILITY_SOURCE,
+            raw_probability_threshold(sample_predictions),
+        ),
+    }
+    if calibration_config.include_prevalence_match:
+        prevalence_row = selected_prevalence_threshold_row(
+            validation_rows,
+            probabilities,
+            calibration_config,
+        )
+        rows.append(prevalence_row)
+        policy_thresholds[CALIBRATED_PREVALENCE_POLICY] = (
+            PLATT_PROBABILITY_SOURCE,
+            row_float(prevalence_row, "probability_threshold"),
+        )
+    if calibration_config.min_precision is not None:
+        precision_row = selected_min_precision_threshold_row(
+            max_f1_rows,
+            calibration_config.min_precision,
+        )
+        rows.append(precision_row)
+        policy_thresholds[CALIBRATED_MIN_PRECISION_POLICY] = (
+            PLATT_PROBABILITY_SOURCE,
+            row_float(precision_row, "probability_threshold"),
+        )
+    return CalibrationThresholds(
+        recommended_threshold=recommended_threshold,
+        recommended_policy=CALIBRATED_MAX_F1_POLICY,
+        rows=rows,
+        policy_thresholds=policy_thresholds,
+    )
+
+
+def calibration_metric_input_rows(
+    dataframe: pd.DataFrame,
+    *,
+    split: str,
+    year: int,
+) -> pd.DataFrame:
+    """Return rows for one split and year, requiring at least one finite probability."""
+    rows = dataframe.loc[
+        (dataframe["split"] == split) & (dataframe["year"].astype(int) == year)
+    ].copy()
+    if rows.empty:
+        msg = f"no rows found for split/year: {split}/{year}"
+        raise ValueError(msg)
+    return rows
+
+
+def calibration_threshold_row(
+    validation_rows: pd.DataFrame,
+    probabilities: np.ndarray,
+    probability_threshold: float,
+    calibration_config: BinaryCalibrationConfig,
+    *,
+    threshold_policy: str,
+    target_predicted_positive_rate: float,
+) -> dict[str, object]:
+    """Build one calibrated threshold diagnostic row."""
+    valid_mask = np.isfinite(probabilities)
+    observed = validation_rows.loc[valid_mask, "binary_observed_y"].to_numpy(dtype=bool)
+    predicted = probabilities[valid_mask] >= probability_threshold
+    label_sources = label_source_series(validation_rows.loc[valid_mask]).to_numpy(dtype=object)
+    assumed_background = label_sources == "assumed_background"
+    false_positive = ~observed & predicted
+    precision, recall, f1 = precision_recall_f1(observed, predicted)
+    positive_count = int(np.count_nonzero(observed))
+    negative_count = int(observed.size - positive_count)
+    predicted_positive_count = int(np.count_nonzero(predicted))
+    assumed_background_count = int(np.count_nonzero(assumed_background))
+    assumed_background_false_positive = assumed_background & false_positive
+    return {
+        "model_name": BINARY_MODEL_NAME,
+        "target_label": calibration_config.binary_config.target_label,
+        "target_threshold_fraction": calibration_config.binary_config.target_threshold_fraction,
+        "target_threshold_area": calibration_config.binary_config.target_threshold_area,
+        "calibration_method": calibration_config.method,
+        "probability_source": PLATT_PROBABILITY_SOURCE,
+        "calibration_split": calibration_config.calibration_split,
+        "calibration_year": calibration_config.calibration_year,
+        "threshold_policy": threshold_policy,
+        "selection_status": "",
+        "recommended_policy": False,
+        "selected_threshold": False,
+        "probability_threshold": probability_threshold,
+        "row_count": int(observed.size),
+        "positive_count": positive_count,
+        "positive_rate": safe_ratio(positive_count, int(observed.size)),
+        "predicted_positive_count": predicted_positive_count,
+        "predicted_positive_rate": safe_ratio(predicted_positive_count, int(predicted.size)),
+        "target_predicted_positive_rate": target_predicted_positive_rate,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "false_positive_count": int(np.count_nonzero(false_positive)),
+        "false_positive_rate": safe_ratio(int(np.count_nonzero(false_positive)), negative_count),
+        "assumed_background_count": assumed_background_count,
+        "assumed_background_false_positive_count": int(
+            np.count_nonzero(assumed_background_false_positive)
+        ),
+        "assumed_background_false_positive_rate": safe_ratio(
+            int(np.count_nonzero(assumed_background_false_positive)),
+            assumed_background_count,
+        ),
+    }
+
+
+def mark_calibrated_threshold_row(
+    row: dict[str, object],
+    threshold: float,
+    status: str,
+    *,
+    recommended_policy: bool,
+    selected_threshold: bool,
+) -> None:
+    """Mark threshold-selection status fields in place."""
+    row["selection_status"] = status
+    row["recommended_policy"] = recommended_policy
+    row["selected_threshold"] = bool(
+        selected_threshold
+        and math.isclose(
+            row_float(row, "probability_threshold"),
+            threshold,
+            rel_tol=0,
+            abs_tol=1e-12,
+        )
+    )
+
+
+def selected_prevalence_threshold_row(
+    validation_rows: pd.DataFrame,
+    probabilities: np.ndarray,
+    calibration_config: BinaryCalibrationConfig,
+) -> dict[str, object]:
+    """Return the calibrated threshold row closest to validation prevalence."""
+    observed = validation_rows["binary_observed_y"].to_numpy(dtype=bool)
+    target_rate = safe_ratio(int(np.count_nonzero(observed)), int(observed.size))
+    rows = [
+        calibration_threshold_row(
+            validation_rows,
+            probabilities,
+            threshold,
+            calibration_config,
+            threshold_policy=CALIBRATED_PREVALENCE_POLICY,
+            target_predicted_positive_rate=target_rate,
+        )
+        for threshold in DEFAULT_THRESHOLD_GRID
+    ]
+    selected = min(rows, key=lambda row: prevalence_threshold_sort_key(row, target_rate))
+    mark_calibrated_threshold_row(
+        selected,
+        row_float(selected, "probability_threshold"),
+        "selected_from_validation_prevalence_match",
+        recommended_policy=False,
+        selected_threshold=True,
+    )
+    return selected
+
+
+def prevalence_threshold_sort_key(
+    row: dict[str, object],
+    target_rate: float,
+) -> tuple[float, float]:
+    """Return the sort key for prevalence-matching threshold selection."""
+    rate_gap = abs(row_float(row, "predicted_positive_rate") - target_rate)
+    threshold = row_float(row, "probability_threshold")
+    return (rate_gap, -threshold)
+
+
+def selected_min_precision_threshold_row(
+    max_f1_rows: list[dict[str, object]],
+    min_precision: float,
+) -> dict[str, object]:
+    """Return the best calibrated threshold satisfying a precision constraint."""
+    eligible = [
+        row
+        for row in max_f1_rows
+        if np.isfinite(row_float(row, "precision")) and row_float(row, "precision") >= min_precision
+    ]
+    selected = max(eligible, key=threshold_sort_key) if eligible else max_f1_rows[-1].copy()
+    selected = selected.copy()
+    selected["threshold_policy"] = CALIBRATED_MIN_PRECISION_POLICY
+    selected["target_predicted_positive_rate"] = math.nan
+    status = (
+        "selected_from_validation_min_precision" if eligible else "no_threshold_met_min_precision"
+    )
+    mark_calibrated_threshold_row(
+        selected,
+        row_float(selected, "probability_threshold"),
+        status,
+        recommended_policy=False,
+        selected_threshold=True,
+    )
+    return selected
+
+
+def raw_probability_threshold(predictions: pd.DataFrame) -> float:
+    """Return the existing raw P1-18 probability threshold."""
+    values = predictions["probability_threshold"].dropna().astype(float).unique()
+    return float(values[0]) if len(values) else math.nan
+
+
+def apply_recommended_calibrated_threshold(
+    sample_predictions: pd.DataFrame,
+    threshold_selection: CalibrationThresholds,
+) -> pd.DataFrame:
+    """Attach the recommended calibrated class decision to sample rows."""
+    frame = sample_predictions.copy()
+    frame["calibrated_probability_threshold"] = threshold_selection.recommended_threshold
+    frame["calibrated_pred_binary_class"] = (
+        frame["calibrated_binary_probability"].to_numpy(dtype=float)
+        >= threshold_selection.recommended_threshold
+    )
+    frame["calibrated_threshold_policy"] = threshold_selection.recommended_policy
+    return frame
+
+
+def calibrated_sample_output_columns(dataframe: pd.DataFrame) -> list[str]:
+    """Return calibrated sample output columns in a stable order."""
+    return [column for column in CALIBRATED_SAMPLE_PREDICTION_FIELDS if column in dataframe.columns]
 
 
 def prepare_binary_model_frame(
@@ -1511,6 +2334,411 @@ def thresholded_comparison_row(
     }
 
 
+def build_calibration_metric_rows(
+    sample_predictions: pd.DataFrame,
+    threshold_selection: CalibrationThresholds,
+    calibration_config: BinaryCalibrationConfig,
+) -> list[dict[str, object]]:
+    """Build raw and calibrated probability metrics for sample predictions."""
+    rows: list[dict[str, object]] = []
+    raw_threshold = raw_probability_threshold(sample_predictions)
+    rows.extend(
+        grouped_calibration_metric_rows(
+            sample_predictions,
+            calibration_config,
+            probability_source=RAW_LOGISTIC_PROBABILITY_SOURCE,
+            probability_column="pred_binary_probability",
+            threshold_policy=RAW_THRESHOLD_POLICY,
+            probability_threshold=raw_threshold,
+            group_columns=["split", "year"],
+        )
+    )
+    rows.extend(
+        grouped_calibration_metric_rows(
+            sample_predictions,
+            calibration_config,
+            probability_source=RAW_LOGISTIC_PROBABILITY_SOURCE,
+            probability_column="pred_binary_probability",
+            threshold_policy=RAW_THRESHOLD_POLICY,
+            probability_threshold=raw_threshold,
+            group_columns=["split", "year", "label_source"],
+        )
+    )
+    rows.extend(
+        grouped_calibration_metric_rows(
+            sample_predictions,
+            calibration_config,
+            probability_source=PLATT_PROBABILITY_SOURCE,
+            probability_column="calibrated_binary_probability",
+            threshold_policy=threshold_selection.recommended_policy,
+            probability_threshold=threshold_selection.recommended_threshold,
+            group_columns=["split", "year"],
+        )
+    )
+    rows.extend(
+        grouped_calibration_metric_rows(
+            sample_predictions,
+            calibration_config,
+            probability_source=PLATT_PROBABILITY_SOURCE,
+            probability_column="calibrated_binary_probability",
+            threshold_policy=threshold_selection.recommended_policy,
+            probability_threshold=threshold_selection.recommended_threshold,
+            group_columns=["split", "year", "label_source"],
+        )
+    )
+    return rows
+
+
+def grouped_calibration_metric_rows(
+    predictions: pd.DataFrame,
+    calibration_config: BinaryCalibrationConfig,
+    *,
+    probability_source: str,
+    probability_column: str,
+    threshold_policy: str,
+    probability_threshold: float,
+    group_columns: list[str],
+) -> list[dict[str, object]]:
+    """Aggregate calibration metrics for one grouping layout."""
+    rows: list[dict[str, object]] = []
+    for keys, group in predictions.groupby(group_columns, sort=True, dropna=False):
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        group_values: dict[str, object] = {"split": "all", "year": "all", "label_source": "all"}
+        for column, value in zip(group_columns, key_tuple, strict=True):
+            group_values[column] = normalized_group_value(value)
+        rows.append(
+            calibration_metric_row(
+                group,
+                calibration_config,
+                group_values=group_values,
+                probability_source=probability_source,
+                probability_column=probability_column,
+                threshold_policy=threshold_policy,
+                probability_threshold=probability_threshold,
+            )
+        )
+    return rows
+
+
+def calibration_metric_row(
+    group: pd.DataFrame,
+    calibration_config: BinaryCalibrationConfig,
+    *,
+    group_values: dict[str, object],
+    probability_source: str,
+    probability_column: str,
+    threshold_policy: str,
+    probability_threshold: float,
+) -> dict[str, object]:
+    """Build one grouped probability calibration and threshold metric row."""
+    probabilities = group[probability_column].to_numpy(dtype=float)
+    valid_mask = np.isfinite(probabilities)
+    valid_group = group.loc[valid_mask]
+    observed = valid_group["binary_observed_y"].to_numpy(dtype=bool)
+    valid_probabilities = probabilities[valid_mask]
+    predicted = valid_probabilities >= probability_threshold
+    label_sources = label_source_series(valid_group).to_numpy(dtype=object)
+    assumed_background = label_sources == "assumed_background"
+    true_positive = observed & predicted
+    false_positive = ~observed & predicted
+    false_negative = observed & ~predicted
+    true_negative = ~observed & ~predicted
+    precision, recall, f1 = precision_recall_f1(observed, predicted)
+    positive_count = int(np.count_nonzero(observed))
+    negative_count = int(observed.size - positive_count)
+    predicted_positive_count = int(np.count_nonzero(predicted))
+    assumed_background_count = int(np.count_nonzero(assumed_background))
+    assumed_background_false_positive = assumed_background & false_positive
+    return {
+        "model_name": BINARY_MODEL_NAME,
+        "target_label": calibration_config.binary_config.target_label,
+        "target_threshold_fraction": calibration_config.binary_config.target_threshold_fraction,
+        "target_threshold_area": calibration_config.binary_config.target_threshold_area,
+        "calibration_method": calibration_config.method
+        if probability_source != RAW_LOGISTIC_PROBABILITY_SOURCE
+        else "none",
+        "probability_source": probability_source,
+        "threshold_policy": threshold_policy,
+        "calibration_split": calibration_config.calibration_split,
+        "calibration_year": calibration_config.calibration_year,
+        "evaluation_split": calibration_config.evaluation_split,
+        "evaluation_year": calibration_config.evaluation_year,
+        "split": group_values["split"],
+        "year": group_values["year"],
+        "label_source": group_values["label_source"],
+        "mask_status": input_mask_status(group, calibration_config.binary_config),
+        "evaluation_scope": "model_input_sample",
+        "row_count": int(observed.size),
+        "positive_count": positive_count,
+        "positive_rate": safe_ratio(positive_count, int(observed.size)),
+        "predicted_positive_count": predicted_positive_count,
+        "predicted_positive_rate": safe_ratio(predicted_positive_count, int(predicted.size)),
+        "probability_threshold": probability_threshold,
+        "auroc": binary_auroc(observed, valid_probabilities),
+        "auprc": binary_auprc(observed, valid_probabilities),
+        "brier_score": binary_brier_score(observed, valid_probabilities),
+        "expected_calibration_error": expected_calibration_error(
+            observed,
+            valid_probabilities,
+            calibration_config.reliability_bin_count,
+        ),
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "true_positive_count": int(np.count_nonzero(true_positive)),
+        "false_positive_count": int(np.count_nonzero(false_positive)),
+        "false_positive_rate": safe_ratio(int(np.count_nonzero(false_positive)), negative_count),
+        "false_negative_count": int(np.count_nonzero(false_negative)),
+        "false_negative_rate": safe_ratio(int(np.count_nonzero(false_negative)), positive_count),
+        "true_negative_count": int(np.count_nonzero(true_negative)),
+        "assumed_background_count": assumed_background_count,
+        "assumed_background_false_positive_count": int(
+            np.count_nonzero(assumed_background_false_positive)
+        ),
+        "assumed_background_false_positive_rate": safe_ratio(
+            int(np.count_nonzero(assumed_background_false_positive)),
+            assumed_background_count,
+        ),
+    }
+
+
+def summarize_calibrated_full_grid(
+    calibrator: BinaryCalibrator,
+    threshold_selection: CalibrationThresholds,
+    calibration_config: BinaryCalibrationConfig,
+) -> list[dict[str, object]]:
+    """Read full-grid predictions and write compact calibrated area summaries."""
+    validate_full_grid_calibration_path(calibration_config.input_full_grid_predictions_path)
+    summary_rows: list[dict[str, object]] = []
+    columns = full_grid_calibration_columns(calibration_config.input_full_grid_predictions_path)
+    LOGGER.info(
+        "Streaming calibrated full-grid summaries from %s",
+        calibration_config.input_full_grid_predictions_path,
+    )
+    for batch in iter_parquet_batches(
+        calibration_config.input_full_grid_predictions_path,
+        columns,
+        FULL_GRID_PREDICTION_BATCH_SIZE,
+    ):
+        validate_full_grid_calibration_columns(batch, "binary full-grid predictions")
+        raw_probabilities = batch["pred_binary_probability"].to_numpy(dtype=float)
+        calibrated_probabilities = apply_binary_calibrator(calibrator, raw_probabilities)
+        for threshold_policy, (
+            probability_source,
+            probability_threshold,
+        ) in threshold_selection.policy_thresholds.items():
+            probabilities = (
+                raw_probabilities
+                if probability_source == RAW_LOGISTIC_PROBABILITY_SOURCE
+                else calibrated_probabilities
+            )
+            prediction_rows = batch.copy()
+            prediction_rows["calibration_method"] = (
+                "none"
+                if probability_source == RAW_LOGISTIC_PROBABILITY_SOURCE
+                else calibration_config.method
+            )
+            prediction_rows["probability_source"] = probability_source
+            prediction_rows["threshold_policy"] = threshold_policy
+            prediction_rows["probability_threshold"] = probability_threshold
+            prediction_rows["pred_binary_class"] = probabilities >= probability_threshold
+            summary_rows.extend(
+                calibrated_full_grid_summary_rows_for_frame(
+                    prediction_rows,
+                    calibration_config,
+                )
+            )
+    return aggregate_calibrated_full_grid_summary_rows(summary_rows)
+
+
+def validate_full_grid_calibration_path(path: Path) -> None:
+    """Validate that full-grid binary predictions are available for calibration summaries."""
+    if not path.exists():
+        msg = f"binary full-grid prediction path does not exist: {path}"
+        raise FileNotFoundError(msg)
+
+
+def full_grid_calibration_columns(path: Path) -> list[str]:
+    """Return columns needed to summarize calibrated full-grid predictions."""
+    dataset = ds.dataset(path, format="parquet")  # type: ignore[no-untyped-call]
+    available = set(dataset.schema.names)
+    candidates = [
+        "split",
+        "year",
+        "label_source",
+        "is_kelpwatch_observed",
+        "binary_observed_y",
+        "pred_binary_probability",
+        "probability_threshold",
+        "kelp_max_y",
+        "is_plausible_kelp_domain",
+        "domain_mask_reason",
+        "domain_mask_detail",
+        "domain_mask_version",
+    ]
+    return [column for column in candidates if column in available]
+
+
+def calibrated_full_grid_summary_rows_for_frame(
+    predictions: pd.DataFrame,
+    calibration_config: BinaryCalibrationConfig,
+) -> list[dict[str, object]]:
+    """Build calibrated full-grid area summary rows for one prediction batch."""
+    rows: list[dict[str, object]] = []
+    rows.extend(
+        calibrated_full_grid_summary_group_rows(
+            predictions,
+            calibration_config,
+            ["split", "year"],
+        )
+    )
+    rows.extend(
+        calibrated_full_grid_summary_group_rows(
+            predictions,
+            calibration_config,
+            ["split", "year", "label_source"],
+        )
+    )
+    return rows
+
+
+def calibrated_full_grid_summary_group_rows(
+    predictions: pd.DataFrame,
+    calibration_config: BinaryCalibrationConfig,
+    group_columns: list[str],
+) -> list[dict[str, object]]:
+    """Aggregate calibrated full-grid behavior for one grouping layout."""
+    rows: list[dict[str, object]] = []
+    for keys, group in predictions.groupby(group_columns, sort=True, dropna=False):
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        group_values: dict[str, object] = {"split": "all", "year": "all", "label_source": "all"}
+        for column, value in zip(group_columns, key_tuple, strict=True):
+            group_values[column] = normalized_group_value(value)
+        rows.append(calibrated_full_grid_summary_row(group, group_values, calibration_config))
+    return rows
+
+
+def calibrated_full_grid_summary_row(
+    group: pd.DataFrame,
+    group_values: dict[str, object],
+    calibration_config: BinaryCalibrationConfig,
+) -> dict[str, object]:
+    """Build one calibrated full-grid predicted-positive area summary row."""
+    predicted = group["pred_binary_class"].fillna(False).to_numpy(dtype=bool)
+    observed = group["binary_observed_y"].fillna(False).to_numpy(dtype=bool)
+    label_sources = label_source_series(group).to_numpy(dtype=object)
+    assumed_background = label_sources == "assumed_background"
+    predicted_positive_count = int(np.count_nonzero(predicted))
+    observed_positive_count = int(np.count_nonzero(observed))
+    assumed_background_count = int(np.count_nonzero(assumed_background))
+    assumed_background_predicted = assumed_background & predicted
+    return {
+        "model_name": BINARY_MODEL_NAME,
+        "target_label": calibration_config.binary_config.target_label,
+        "target_threshold_fraction": calibration_config.binary_config.target_threshold_fraction,
+        "target_threshold_area": calibration_config.binary_config.target_threshold_area,
+        "calibration_method": str(group["calibration_method"].iloc[0]),
+        "probability_source": str(group["probability_source"].iloc[0]),
+        "threshold_policy": str(group["threshold_policy"].iloc[0]),
+        "split": group_values["split"],
+        "year": group_values["year"],
+        "label_source": group_values["label_source"],
+        "mask_status": mask_status(calibration_config.binary_config.reporting_domain_mask),
+        "evaluation_scope": evaluation_scope(
+            calibration_config.binary_config.reporting_domain_mask
+        ),
+        "probability_threshold": first_probability_threshold(group),
+        "row_count": int(len(group)),
+        "predicted_positive_count": predicted_positive_count,
+        "predicted_positive_rate": safe_ratio(predicted_positive_count, len(group)),
+        "predicted_positive_cell_count": predicted_positive_count,
+        "predicted_positive_area_m2": predicted_positive_count * KELPWATCH_PIXEL_AREA_M2,
+        "observed_positive_count": observed_positive_count,
+        "observed_positive_rate": safe_ratio(observed_positive_count, len(group)),
+        "observed_positive_area_m2": float(np.nansum(group.loc[observed, "kelp_max_y"])),
+        "assumed_background_count": assumed_background_count,
+        "assumed_background_predicted_positive_count": int(
+            np.count_nonzero(assumed_background_predicted)
+        ),
+        "assumed_background_predicted_positive_rate": safe_ratio(
+            int(np.count_nonzero(assumed_background_predicted)),
+            assumed_background_count,
+        ),
+    }
+
+
+def aggregate_calibrated_full_grid_summary_rows(
+    rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Aggregate per-batch calibrated full-grid area summary rows."""
+    key_fields = tuple(
+        field
+        for field in CALIBRATED_FULL_GRID_SUMMARY_FIELDS
+        if field
+        not in {
+            "row_count",
+            "predicted_positive_count",
+            "predicted_positive_rate",
+            "predicted_positive_cell_count",
+            "predicted_positive_area_m2",
+            "observed_positive_count",
+            "observed_positive_rate",
+            "observed_positive_area_m2",
+            "assumed_background_count",
+            "assumed_background_predicted_positive_count",
+            "assumed_background_predicted_positive_rate",
+        }
+    )
+    totals: dict[tuple[object, ...], dict[str, float]] = {}
+    for row in rows:
+        key = tuple(row[field] for field in key_fields)
+        current = totals.setdefault(
+            key,
+            {
+                "row_count": 0.0,
+                "predicted_positive_count": 0.0,
+                "predicted_positive_cell_count": 0.0,
+                "predicted_positive_area_m2": 0.0,
+                "observed_positive_count": 0.0,
+                "observed_positive_area_m2": 0.0,
+                "assumed_background_count": 0.0,
+                "assumed_background_predicted_positive_count": 0.0,
+            },
+        )
+        for field in current:
+            current[field] += row_float(row, field, default=0.0)
+    output: list[dict[str, object]] = []
+    for key, total in sorted(
+        totals.items(), key=lambda item: tuple(str(value) for value in item[0])
+    ):
+        row = {field: value for field, value in zip(key_fields, key, strict=True)}
+        row_count = int(total["row_count"])
+        predicted_positive_count = int(total["predicted_positive_count"])
+        observed_positive_count = int(total["observed_positive_count"])
+        assumed_background_count = int(total["assumed_background_count"])
+        assumed_background_predicted = int(total["assumed_background_predicted_positive_count"])
+        row.update(
+            {
+                "row_count": row_count,
+                "predicted_positive_count": predicted_positive_count,
+                "predicted_positive_rate": safe_ratio(predicted_positive_count, row_count),
+                "predicted_positive_cell_count": int(total["predicted_positive_cell_count"]),
+                "predicted_positive_area_m2": total["predicted_positive_area_m2"],
+                "observed_positive_count": observed_positive_count,
+                "observed_positive_rate": safe_ratio(observed_positive_count, row_count),
+                "observed_positive_area_m2": total["observed_positive_area_m2"],
+                "assumed_background_count": assumed_background_count,
+                "assumed_background_predicted_positive_count": assumed_background_predicted,
+                "assumed_background_predicted_positive_rate": safe_ratio(
+                    assumed_background_predicted,
+                    assumed_background_count,
+                ),
+            }
+        )
+        output.append(row)
+    return output
+
+
 def write_binary_full_grid_map(binary_config: BinaryPresenceConfig) -> None:
     """Write a map of binary model predictions for the primary test year."""
     map_rows = read_binary_map_rows(binary_config)
@@ -1704,6 +2932,41 @@ def binary_auprc(observed: np.ndarray, probabilities: np.ndarray) -> float:
     return float(average_precision_score(observed, probabilities))
 
 
+def binary_brier_score(observed: np.ndarray, probabilities: np.ndarray) -> float:
+    """Compute Brier score, returning NaN when no finite probabilities exist."""
+    valid = np.isfinite(probabilities)
+    observed = observed[valid]
+    probabilities = probabilities[valid]
+    if observed.size == 0:
+        return math.nan
+    return float(brier_score_loss(observed, probabilities))
+
+
+def expected_calibration_error(
+    observed: np.ndarray,
+    probabilities: np.ndarray,
+    bin_count: int,
+) -> float:
+    """Compute fixed-bin expected calibration error for binary probabilities."""
+    valid = np.isfinite(probabilities)
+    observed = observed[valid].astype(float)
+    probabilities = probabilities[valid].astype(float)
+    if observed.size == 0:
+        return math.nan
+    bins = np.linspace(0.0, 1.0, bin_count + 1)
+    ece = 0.0
+    for lower, upper in zip(bins[:-1], bins[1:], strict=True):
+        if upper == 1.0:
+            mask = (probabilities >= lower) & (probabilities <= upper)
+        else:
+            mask = (probabilities >= lower) & (probabilities < upper)
+        if not mask.any():
+            continue
+        weight = float(np.count_nonzero(mask)) / float(observed.size)
+        ece += weight * abs(float(np.mean(probabilities[mask])) - float(np.mean(observed[mask])))
+    return ece
+
+
 def finite_or_negative_inf(value: float) -> float:
     """Return a finite value or negative infinity for sorting."""
     return value if np.isfinite(value) else -math.inf
@@ -1777,6 +3040,33 @@ def write_binary_model(
     joblib.dump(payload, binary_config.model_output_path)
 
 
+def write_binary_calibration_model(
+    calibrator: BinaryCalibrator,
+    threshold_selection: CalibrationThresholds,
+    calibration_config: BinaryCalibrationConfig,
+) -> None:
+    """Serialize the fitted binary calibrator and compact metadata."""
+    calibration_config.model_output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "calibrator": calibrator.model,
+        "model_name": BINARY_MODEL_NAME,
+        "calibration_method": calibration_config.method,
+        "calibration_status": calibrator.status,
+        "calibration_split": calibration_config.calibration_split,
+        "calibration_year": calibration_config.calibration_year,
+        "evaluation_split": calibration_config.evaluation_split,
+        "evaluation_year": calibration_config.evaluation_year,
+        "probability_source": PLATT_PROBABILITY_SOURCE,
+        "recommended_threshold": threshold_selection.recommended_threshold,
+        "recommended_policy": threshold_selection.recommended_policy,
+        "policy_thresholds": threshold_selection.policy_thresholds,
+        "coefficient": calibrator.coefficient,
+        "intercept": calibrator.intercept,
+        "input_sample_predictions": str(calibration_config.input_sample_predictions_path),
+    }
+    joblib.dump(payload, calibration_config.model_output_path)
+
+
 def write_prediction_manifest(
     *,
     prepared: PreparedBinaryData,
@@ -1843,6 +3133,81 @@ def write_prediction_manifest(
     )
 
 
+def write_binary_calibration_manifest(
+    *,
+    calibrator: BinaryCalibrator,
+    calibration_rows: pd.DataFrame,
+    calibrated_sample: pd.DataFrame,
+    threshold_selection: CalibrationThresholds,
+    metrics: list[dict[str, object]],
+    full_grid_summary: list[dict[str, object]],
+    calibration_config: BinaryCalibrationConfig,
+) -> None:
+    """Write a compact manifest for binary calibration outputs."""
+    label_source_counts = label_source_series(calibration_rows).value_counts().to_dict()
+    assumed_background_count = int(
+        np.count_nonzero(label_source_series(calibration_rows) == "assumed_background")
+    )
+    manifest = {
+        "command": "calibrate-binary-presence",
+        "config": str(calibration_config.config_path),
+        "model_name": BINARY_MODEL_NAME,
+        "target_label": calibration_config.binary_config.target_label,
+        "target_threshold_fraction": calibration_config.binary_config.target_threshold_fraction,
+        "target_threshold_area": calibration_config.binary_config.target_threshold_area,
+        "calibration_method": calibration_config.method,
+        "calibration_status": calibrator.status,
+        "calibration_split": calibration_config.calibration_split,
+        "calibration_year": calibration_config.calibration_year,
+        "calibration_row_count": int(len(calibration_rows)),
+        "calibration_label_source_counts": label_source_counts,
+        "calibration_includes_assumed_background_negatives": assumed_background_count > 0,
+        "assumed_background_calibration_row_count": assumed_background_count,
+        "evaluation_split": calibration_config.evaluation_split,
+        "evaluation_year": calibration_config.evaluation_year,
+        "recommended_threshold_policy": threshold_selection.recommended_policy,
+        "recommended_threshold": threshold_selection.recommended_threshold,
+        "policy_thresholds": {
+            policy: {"probability_source": source, "probability_threshold": threshold}
+            for policy, (source, threshold) in threshold_selection.policy_thresholds.items()
+        },
+        "platt_coefficient": calibrator.coefficient,
+        "platt_intercept": calibrator.intercept,
+        "platt_monotonic_increasing": calibrator.coefficient >= 0,
+        "sample_prediction_row_count": int(len(calibrated_sample)),
+        "metrics_row_count": len(metrics),
+        "full_grid_summary_row_count": len(full_grid_summary),
+        "mask_status": mask_status(calibration_config.binary_config.reporting_domain_mask),
+        "evaluation_scope": evaluation_scope(
+            calibration_config.binary_config.reporting_domain_mask
+        ),
+        "qa_notes": [
+            (
+                "The P1-18 2022 binary map has a visible false-positive cluster near or in "
+                "the river mouth; this calibration task reports threshold effects but does "
+                "not change the domain mask."
+            )
+        ],
+        "inputs": {
+            "sample_predictions": str(calibration_config.input_sample_predictions_path),
+            "full_grid_predictions": str(calibration_config.input_full_grid_predictions_path),
+        },
+        "outputs": {
+            "model": str(calibration_config.model_output_path),
+            "calibrated_sample_predictions": str(
+                calibration_config.calibrated_sample_predictions_path
+            ),
+            "metrics": str(calibration_config.metrics_path),
+            "threshold_selection": str(calibration_config.threshold_selection_path),
+            "full_grid_area_summary": str(calibration_config.full_grid_area_summary_path),
+            "calibration_curve_figure": str(calibration_config.calibration_curve_figure_path),
+            "threshold_figure": str(calibration_config.threshold_figure_path),
+        },
+    }
+    calibration_config.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    calibration_config.manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+
+
 def write_precision_recall_figure(
     threshold_rows: list[dict[str, object]],
     binary_config: BinaryPresenceConfig,
@@ -1874,4 +3239,118 @@ def write_precision_recall_figure(
     ax.legend(loc="best")
     fig.tight_layout()
     fig.savefig(binary_config.precision_recall_figure_path, dpi=180)
+    plt.close(fig)
+
+
+def write_calibration_curve_figure(
+    sample_predictions: pd.DataFrame,
+    calibration_config: BinaryCalibrationConfig,
+) -> None:
+    """Write validation/test reliability curves for raw and calibrated probabilities."""
+    calibration_config.calibration_curve_figure_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(6.5, 5.0))
+    ax.plot([0, 1], [0, 1], color="#334155", linestyle="--", linewidth=1.0, label="ideal")
+    for split, year in (
+        (calibration_config.calibration_split, calibration_config.calibration_year),
+        (calibration_config.evaluation_split, calibration_config.evaluation_year),
+    ):
+        rows = calibration_metric_input_rows(sample_predictions, split=split, year=year)
+        for label, column, style in (
+            ("raw", "pred_binary_probability", ":"),
+            ("platt", "calibrated_binary_probability", "-"),
+        ):
+            points = reliability_points(
+                rows["binary_observed_y"].to_numpy(dtype=bool),
+                rows[column].to_numpy(dtype=float),
+                calibration_config.reliability_bin_count,
+            )
+            if points.empty:
+                continue
+            ax.plot(
+                points["mean_probability"],
+                points["observed_rate"],
+                linestyle=style,
+                marker="o",
+                markersize=3.0,
+                linewidth=1.4,
+                label=f"{split} {year} {label}",
+            )
+    ax.set_title("Binary Annual-Max Probability Calibration")
+    ax.set_xlabel("Mean predicted probability")
+    ax.set_ylabel("Observed annual-max >=10% rate")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.grid(alpha=0.25)
+    ax.legend(loc="best", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(calibration_config.calibration_curve_figure_path, dpi=180)
+    plt.close(fig)
+
+
+def reliability_points(
+    observed: np.ndarray,
+    probabilities: np.ndarray,
+    bin_count: int,
+) -> pd.DataFrame:
+    """Return non-empty fixed-bin reliability points."""
+    valid = np.isfinite(probabilities)
+    observed_float = observed[valid].astype(float)
+    probability_values = probabilities[valid].astype(float)
+    bins = np.linspace(0.0, 1.0, bin_count + 1)
+    rows: list[dict[str, float]] = []
+    for lower, upper in zip(bins[:-1], bins[1:], strict=True):
+        if upper == 1.0:
+            mask = (probability_values >= lower) & (probability_values <= upper)
+        else:
+            mask = (probability_values >= lower) & (probability_values < upper)
+        if not mask.any():
+            continue
+        rows.append(
+            {
+                "bin_lower": float(lower),
+                "bin_upper": float(upper),
+                "mean_probability": float(np.mean(probability_values[mask])),
+                "observed_rate": float(np.mean(observed_float[mask])),
+                "row_count": float(np.count_nonzero(mask)),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def write_calibrated_threshold_figure(
+    threshold_rows: list[dict[str, object]],
+    calibration_config: BinaryCalibrationConfig,
+) -> None:
+    """Write a calibrated validation precision/recall/F1 threshold figure."""
+    calibration_config.threshold_figure_path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame(
+        [row for row in threshold_rows if row.get("threshold_policy") == CALIBRATED_MAX_F1_POLICY]
+    )
+    fig, ax = plt.subplots(figsize=(7, 4))
+    if not frame.empty:
+        ax.plot(
+            frame["probability_threshold"],
+            frame["precision"],
+            label="precision",
+            linewidth=1.6,
+        )
+        ax.plot(frame["probability_threshold"], frame["recall"], label="recall", linewidth=1.6)
+        ax.plot(frame["probability_threshold"], frame["f1"], label="F1", linewidth=1.8)
+        selected = frame.loc[frame["selected_threshold"].astype(bool)]
+        if not selected.empty:
+            ax.axvline(
+                float(selected.iloc[0]["probability_threshold"]),
+                color="black",
+                linestyle="--",
+                linewidth=1.1,
+                label="selected threshold",
+            )
+    ax.set_title("Calibrated Validation Binary Annual-Max Threshold")
+    ax.set_xlabel("Calibrated probability threshold")
+    ax.set_ylabel("Score")
+    ax.set_ylim(0, 1.02)
+    ax.grid(alpha=0.25)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    fig.savefig(calibration_config.threshold_figure_path, dpi=180)
     plt.close(fig)

@@ -319,6 +319,24 @@ models:
     prediction_manifest: /Volumes/x10pro/kelp_aef/interim/binary_presence_prediction_manifest.json
     precision_recall_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_precision_recall.png
     map_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_2022_map.png
+    calibration:
+      method: platt
+      calibration_split: validation
+      calibration_year: 2021
+      evaluation_split: test
+      evaluation_year: 2022
+      input_sample_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_sample_predictions.parquet
+      input_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.parquet
+      model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct_calibration.joblib
+      calibrated_sample_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_calibrated_sample_predictions.parquet
+      metrics: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_calibration_metrics.csv
+      threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_calibrated_threshold_selection.csv
+      full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_calibrated_full_grid_area_summary.csv
+      calibration_curve_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_calibration_curve.png
+      threshold_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_calibrated_thresholds.png
+      manifest: /Volumes/x10pro/kelp_aef/interim/binary_presence_calibration_manifest.json
+      include_prevalence_match: true
+      reliability_bin_count: 10
 
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures
