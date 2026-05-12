@@ -320,12 +320,21 @@ masking change should end with an updated model-analysis report.
     manual inspection of
     `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_class_balance_by_split.csv`
     and the refreshed report section, and `make check`.
-- [ ] P1-17: Add annual-max binary threshold comparison on the validation year.
+- [x] P1-17: Add annual-max binary threshold comparison on the validation year.
   - Goal: Choose candidate binary targets derived only from annual max.
   - Plan: `tasks/25_annual_max_binary_threshold_comparison.md`.
   - Output: threshold table for 1%, 5%, 10%, and any retained diagnostic
     thresholds.
   - Validation: threshold choice uses validation data, not the 2022 test split.
+  - Completed: package-generated validation-first threshold comparison,
+    prevalence, recommendation, figure, and report section. The current
+    validation-only recommendation is `annual_max_ge_10pct` for P1-18 candidate
+    modeling.
+  - Validation passed:
+    `uv run pytest tests/test_model_analysis.py`, `uv run ruff check .`,
+    `uv run mypy src`, and
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`;
+    full repo validation passed with `make check`.
 - [ ] P1-18: Train a balanced binary presence model.
   - Goal: Reduce background leakage with an objective designed for imbalance.
   - Output: class-weighted or balanced-sampling classifier and probability

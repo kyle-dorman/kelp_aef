@@ -4,7 +4,13 @@ from pathlib import Path
 import pandas as pd  # type: ignore[import-untyped]
 
 from kelp_aef import main
-from kelp_aef.evaluation.model_analysis import BalanceSource, build_class_balance_by_split
+from kelp_aef.evaluation.model_analysis import (
+    BalanceSource,
+    binary_threshold_definitions,
+    build_binary_threshold_prevalence,
+    build_binary_threshold_recommendation,
+    build_class_balance_by_split,
+)
 
 
 def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
@@ -33,6 +39,9 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         "class_balance_by_split",
         "target_balance_by_label_source",
         "background_rate_summary",
+        "binary_threshold_prevalence",
+        "binary_threshold_comparison",
+        "binary_threshold_recommendation",
         "residual_domain_context",
         "residual_by_mask_reason",
         "residual_by_depth_bin",
@@ -47,6 +56,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         "feature_projection_figure",
         "spatial_readiness_figure",
         "class_balance_figure",
+        "binary_threshold_comparison_figure",
         "residual_domain_context_figure",
     ):
         assert fixture[key].is_file()
@@ -103,6 +113,19 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert float(test_balance["positive_rate"]) == 2 / 3
     assert float(test_balance["high_canopy_rate"]) == 2 / 3
 
+    threshold_comparison = pd.read_csv(fixture["binary_threshold_comparison"])
+    assert {"annual_max_gt0", "annual_max_ge_1pct", "annual_max_ge_5pct"} <= set(
+        threshold_comparison["threshold_label"]
+    )
+    validation_candidates = threshold_comparison.query(
+        "split == 'validation' and year == 2021 and label_source == 'all'"
+    )
+    assert set(validation_candidates["threshold_fraction"]) >= {0.0, 0.01, 0.05, 0.10}
+    recommendation = pd.read_csv(fixture["binary_threshold_recommendation"])
+    assert set(recommendation["selection_split"]) == {"validation"}
+    assert set(recommendation["selection_year"]) == {2021}
+    assert bool(recommendation["selected_candidate"].any())
+
     quarter_mapping = pd.read_csv(fixture["quarter_mapping"])
     assert set(quarter_mapping["derived_quarter"]) == {1, 2, 3, 4}
 
@@ -125,6 +148,8 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "Observed, Predicted, And Error Map" in report
     assert "Mask-Aware Residual Diagnostics" in report
     assert "Class And Target Balance" in report
+    assert "Annual-Max Binary Threshold Comparison" in report
+    assert "validation` rows from `2021`" in report
     assert "![Observed, predicted, and residual map]" in report
     assert "ridge_2022_residual_interactive.html" in report
     assert "Alternative Target-Framing Findings" not in report
@@ -257,6 +282,95 @@ def test_class_balance_rows_handle_no_positive_or_high_canopy() -> None:
     assert all_row["high_canopy_rate"] == 0
 
 
+def test_binary_threshold_definitions_include_required_candidates() -> None:
+    """Verify annual-max threshold labels and roles are stable."""
+    definitions = binary_threshold_definitions((0.50, 0.90))
+
+    by_label = {definition.label: definition for definition in definitions}
+
+    assert {"annual_max_gt0", "annual_max_ge_1pct", "annual_max_ge_5pct"} <= set(by_label)
+    assert by_label["annual_max_gt0"].operator == ">"
+    assert by_label["annual_max_ge_10pct"].role == "selection_candidate"
+    assert by_label["annual_max_ge_50pct"].role == "diagnostic"
+
+
+def test_binary_threshold_prevalence_groups_rates_and_label_sources() -> None:
+    """Verify threshold prevalence rows preserve grouping metadata and rates."""
+    frame = pd.DataFrame(
+        [
+            balance_row("validation", 2021, "assumed_background", None, 0.0),
+            balance_row("validation", 2021, "kelpwatch_station", 1, 0.02),
+            balance_row("validation", 2021, "kelpwatch_station", 2, 0.06),
+        ]
+    )
+    source = BalanceSource(
+        data_scope="model_input_sample",
+        mask_status="plausible_kelp_domain",
+        evaluation_scope="model_input_sample",
+        frame=frame,
+    )
+    definitions = tuple(
+        definition
+        for definition in binary_threshold_definitions(())
+        if definition.fraction in {0.0, 0.05}
+    )
+
+    rows = build_binary_threshold_prevalence([source], definitions)
+
+    all_5pct = next(
+        row
+        for row in rows
+        if row["split"] == "validation"
+        and row["year"] == "2021"
+        and row["label_source"] == "all"
+        and row["threshold_label"] == "annual_max_ge_5pct"
+    )
+    station_gt0 = next(
+        row
+        for row in rows
+        if row["label_source"] == "kelpwatch_station" and row["threshold_label"] == "annual_max_gt0"
+    )
+    assert all_5pct["positive_count"] == 1
+    assert all_5pct["positive_rate"] == 1 / 3
+    assert all_5pct["assumed_background_count"] == 1
+    assert all_5pct["assumed_background_positive_count"] == 0
+    assert station_gt0["positive_count"] == 2
+    assert station_gt0["positive_rate"] == 1.0
+
+
+def test_binary_threshold_recommendation_uses_validation_only() -> None:
+    """Verify recommendation ranking ignores test rows."""
+    rows = [
+        comparison_row("validation", 2021, 0.0, 200, 0.20, 0.60),
+        comparison_row("validation", 2021, 0.10, 150, 0.15, 0.50),
+        comparison_row("test", 2022, 0.50, 400, 0.40, 0.95),
+    ]
+
+    recommendation = build_binary_threshold_recommendation(rows, 2021)
+
+    selected = next(row for row in recommendation if row["selected_candidate"])
+    assert selected["threshold_fraction"] == 0.10
+    assert selected["recommended_threshold_label"] == "annual_max_ge_10pct"
+    assert {row["selection_split"] for row in recommendation} == {"validation"}
+    assert {row["selection_year"] for row in recommendation} == {2021}
+
+
+def test_binary_threshold_recommendation_handles_no_positive_validation_rows() -> None:
+    """Verify recommendation output remains explicit when validation has no positives."""
+    rows = [
+        comparison_row("validation", 2021, 0.0, 0, 0.0, float("nan")),
+        comparison_row("validation", 2021, 0.01, 0, 0.0, float("nan")),
+    ]
+
+    recommendation = build_binary_threshold_recommendation(rows, 2021)
+
+    assert recommendation
+    assert not any(row["selected_candidate"] for row in recommendation)
+    assert {row["recommendation_status"] for row in recommendation} == {
+        "no_positive_validation_rows"
+    }
+
+
 def balance_row(
     split: str, year: int, label_source: str, station_id: int | None, fraction: float
 ) -> dict[str, object]:
@@ -268,6 +382,44 @@ def balance_row(
         "kelpwatch_station_id": station_id,
         "kelp_fraction_y": fraction,
         "kelp_max_y": fraction * 900.0,
+    }
+
+
+def comparison_row(
+    split: str,
+    year: int,
+    threshold: float,
+    positive_count: int,
+    positive_rate: float,
+    f1: float,
+) -> dict[str, object]:
+    """Build one binary-threshold comparison row for recommendation tests."""
+    label = "annual_max_gt0" if threshold == 0 else f"annual_max_ge_{int(threshold * 100)}pct"
+    return {
+        "data_scope": "sample_predictions",
+        "mask_status": "plausible_kelp_domain",
+        "evaluation_scope": "sample_predictions",
+        "split": split,
+        "year": year,
+        "label_source": "all",
+        "model_name": "ridge_regression",
+        "threshold_fraction": threshold,
+        "threshold_area": threshold * 900.0,
+        "threshold_label": label,
+        "threshold_operator": ">" if threshold == 0 else ">=",
+        "threshold_role": "selection_candidate",
+        "target_count": 1000,
+        "positive_count": positive_count,
+        "positive_rate": positive_rate,
+        "predicted_positive_rate": positive_rate,
+        "precision": f1,
+        "recall": f1,
+        "f1": f1,
+        "false_positive_rate": 0.1,
+        "false_positive_area": 90.0,
+        "false_negative_area": 45.0,
+        "assumed_background_false_positive_rate": 0.05,
+        "assumed_background_false_positive_area": 30.0,
     }
 
 
@@ -349,6 +501,12 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/tables/model_analysis_target_balance_by_label_source.csv",
         "background_rate_summary": tmp_path
         / "reports/tables/model_analysis_background_rate_summary.csv",
+        "binary_threshold_prevalence": tmp_path
+        / "reports/tables/model_analysis_binary_threshold_prevalence.csv",
+        "binary_threshold_comparison": tmp_path
+        / "reports/tables/model_analysis_binary_threshold_comparison.csv",
+        "binary_threshold_recommendation": tmp_path
+        / "reports/tables/model_analysis_binary_threshold_recommendation.csv",
         "residual_domain_context": tmp_path
         / "reports/tables/model_analysis_residual_by_domain_context.csv",
         "residual_by_mask_reason": tmp_path
@@ -375,6 +533,8 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         "spatial_readiness_figure": tmp_path
         / "reports/figures/model_analysis_spatial_holdout_readiness.png",
         "class_balance_figure": tmp_path / "reports/figures/model_analysis_class_balance.png",
+        "binary_threshold_comparison_figure": tmp_path
+        / "reports/figures/model_analysis_binary_threshold_comparison.png",
         "residual_domain_context_figure": tmp_path
         / "reports/figures/model_analysis_residual_by_domain_context.png",
     }
@@ -463,6 +623,9 @@ reports:
     model_analysis_class_balance_by_split: {paths["class_balance_by_split"]}
     model_analysis_target_balance_by_label_source: {paths["target_balance_by_label_source"]}
     model_analysis_background_rate_summary: {paths["background_rate_summary"]}
+    model_analysis_binary_threshold_prevalence: {paths["binary_threshold_prevalence"]}
+    model_analysis_binary_threshold_comparison: {paths["binary_threshold_comparison"]}
+    model_analysis_binary_threshold_recommendation: {paths["binary_threshold_recommendation"]}
     model_analysis_residual_by_domain_context: {paths["residual_domain_context"]}
     model_analysis_residual_by_mask_reason: {paths["residual_by_mask_reason"]}
     model_analysis_residual_by_depth_bin: {paths["residual_by_depth_bin"]}
@@ -477,6 +640,7 @@ reports:
     model_analysis_feature_projection_figure: {paths["feature_projection_figure"]}
     model_analysis_spatial_readiness_figure: {paths["spatial_readiness_figure"]}
     model_analysis_class_balance_figure: {paths["class_balance_figure"]}
+    model_analysis_binary_threshold_comparison_figure: {paths["binary_threshold_comparison_figure"]}
     model_analysis_residual_by_domain_context_figure: {paths["residual_domain_context_figure"]}
 """.lstrip()
 

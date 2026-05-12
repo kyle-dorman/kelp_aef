@@ -56,6 +56,8 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_MODEL_NAME = "ridge_regression"
 DEFAULT_ANALYSIS_SPLIT = "test"
 DEFAULT_ANALYSIS_YEAR = 2022
+DEFAULT_THRESHOLD_SELECTION_SPLIT = "validation"
+DEFAULT_THRESHOLD_TEST_SPLIT = "test"
 DEFAULT_LATITUDE_BAND_COUNT = 12
 DEFAULT_MAX_PROJECTION_ROWS = 50_000
 DEFAULT_TOP_RESIDUAL_COUNT = 50
@@ -63,6 +65,12 @@ DEFAULT_FALL_QUARTER = 4
 DEFAULT_WINTER_QUARTER = 1
 DEFAULT_OBSERVED_AREA_BINS = (0.0, 1.0, 90.0, 225.0, 450.0, 810.0, 900.0)
 DEFAULT_THRESHOLD_FRACTIONS = (0.0, 0.01, 0.05, 0.10, 0.50, 0.90)
+REQUIRED_BINARY_THRESHOLD_FRACTIONS = (0.0, 0.01, 0.05, 0.10)
+DEFAULT_MIN_BINARY_SELECTION_POSITIVES = 100
+DEFAULT_MIN_BINARY_SELECTION_POSITIVE_RATE = 0.001
+BINARY_THRESHOLD_SELECTION_POLICY = (
+    "validation_only_prefer_highest_threshold_with_positive_support_then_f1"
+)
 PERSISTENCE_CLASS_ORDER = (
     "no_quarter_present",
     "transient_one_quarter",
@@ -109,6 +117,14 @@ OPTIONAL_PREDICTION_COLUMNS = (
     "label_source",
     "is_kelpwatch_observed",
     "kelpwatch_station_count",
+    "is_plausible_kelp_domain",
+    "domain_mask_reason",
+    "domain_mask_detail",
+    "domain_mask_version",
+    "crm_elevation_m",
+    "crm_depth_m",
+    "depth_bin",
+    "elevation_bin",
 )
 STAGE_DISTRIBUTION_FIELDS = (
     "stage",
@@ -196,6 +212,96 @@ THRESHOLD_FIELDS = (
     "precision",
     "recall",
     "f1",
+)
+BINARY_THRESHOLD_PREVALENCE_FIELDS = (
+    "data_scope",
+    "mask_status",
+    "evaluation_scope",
+    "split",
+    "year",
+    "label_source",
+    "threshold_fraction",
+    "threshold_area",
+    "threshold_label",
+    "threshold_operator",
+    "threshold_role",
+    "row_count",
+    "target_count",
+    "station_count",
+    "positive_count",
+    "positive_rate",
+    "assumed_background_count",
+    "assumed_background_positive_count",
+    "assumed_background_positive_rate",
+    "observed_positive_area",
+    "mean_positive_area",
+)
+BINARY_THRESHOLD_COMPARISON_FIELDS = (
+    "data_scope",
+    "mask_status",
+    "evaluation_scope",
+    "split",
+    "year",
+    "label_source",
+    "model_name",
+    "threshold_fraction",
+    "threshold_area",
+    "threshold_label",
+    "threshold_operator",
+    "threshold_role",
+    "row_count",
+    "target_count",
+    "station_count",
+    "positive_count",
+    "positive_rate",
+    "predicted_positive_count",
+    "predicted_positive_rate",
+    "precision",
+    "recall",
+    "f1",
+    "true_positive_count",
+    "false_positive_count",
+    "false_positive_rate",
+    "false_positive_area",
+    "false_negative_count",
+    "false_negative_rate",
+    "false_negative_area",
+    "observed_positive_area",
+    "predicted_positive_area",
+    "assumed_background_count",
+    "assumed_background_false_positive_count",
+    "assumed_background_false_positive_rate",
+    "assumed_background_false_positive_area",
+)
+BINARY_THRESHOLD_RECOMMENDATION_FIELDS = (
+    "selection_split",
+    "selection_year",
+    "test_split",
+    "selection_policy",
+    "recommendation_status",
+    "selected_candidate",
+    "threshold_rank",
+    "model_name",
+    "threshold_fraction",
+    "threshold_area",
+    "threshold_label",
+    "threshold_operator",
+    "threshold_role",
+    "positive_support_ok",
+    "validation_row_count",
+    "validation_positive_count",
+    "validation_positive_rate",
+    "validation_predicted_positive_rate",
+    "validation_precision",
+    "validation_recall",
+    "validation_f1",
+    "validation_false_positive_rate",
+    "validation_false_positive_area",
+    "validation_false_negative_area",
+    "validation_assumed_background_false_positive_rate",
+    "validation_assumed_background_false_positive_area",
+    "recommended_threshold_fraction",
+    "recommended_threshold_label",
 )
 TARGET_FRAMING_FIELDS = (
     "target_name",
@@ -429,6 +535,9 @@ class ModelAnalysisConfig:
     residual_by_persistence_path: Path
     prediction_distribution_path: Path
     threshold_sensitivity_path: Path
+    binary_threshold_comparison_path: Path
+    binary_threshold_recommendation_path: Path
+    binary_threshold_prevalence_path: Path
     spatial_readiness_path: Path
     feature_separability_path: Path
     phase1_decision_path: Path
@@ -453,6 +562,7 @@ class ModelAnalysisConfig:
     feature_projection_figure: Path
     spatial_readiness_figure: Path
     class_balance_figure: Path
+    binary_threshold_comparison_figure: Path
     residual_domain_context_figure: Path
     observed_predicted_residual_map_figure: Path
     residual_interactive_html: Path
@@ -471,6 +581,16 @@ class BalanceSource:
 
 
 @dataclass(frozen=True)
+class BinaryThresholdDefinition:
+    """Configured annual-max binary threshold metadata."""
+
+    fraction: float
+    label: str
+    operator: str
+    role: str
+
+
+@dataclass(frozen=True)
 class AnalysisTables:
     """All tabular outputs needed to write the report and manifest."""
 
@@ -480,6 +600,9 @@ class AnalysisTables:
     residual_by_persistence: list[dict[str, object]]
     target_framing: list[dict[str, object]]
     threshold_sensitivity: list[dict[str, object]]
+    binary_threshold_prevalence: list[dict[str, object]]
+    binary_threshold_comparison: list[dict[str, object]]
+    binary_threshold_recommendation: list[dict[str, object]]
     spatial_readiness: list[dict[str, object]]
     feature_separability: list[dict[str, object]]
     phase1_decision: list[dict[str, object]]
@@ -665,6 +788,21 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             "model_analysis_threshold_sensitivity",
             tables_dir / "model_analysis_threshold_sensitivity.csv",
         ),
+        binary_threshold_comparison_path=output_path(
+            outputs,
+            "model_analysis_binary_threshold_comparison",
+            tables_dir / "model_analysis_binary_threshold_comparison.csv",
+        ),
+        binary_threshold_recommendation_path=output_path(
+            outputs,
+            "model_analysis_binary_threshold_recommendation",
+            tables_dir / "model_analysis_binary_threshold_recommendation.csv",
+        ),
+        binary_threshold_prevalence_path=output_path(
+            outputs,
+            "model_analysis_binary_threshold_prevalence",
+            tables_dir / "model_analysis_binary_threshold_prevalence.csv",
+        ),
         spatial_readiness_path=output_path(
             outputs,
             "model_analysis_spatial_holdout_readiness",
@@ -786,6 +924,11 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             outputs,
             "model_analysis_class_balance_figure",
             figures_dir / "model_analysis_class_balance.png",
+        ),
+        binary_threshold_comparison_figure=output_path(
+            outputs,
+            "model_analysis_binary_threshold_comparison_figure",
+            figures_dir / "model_analysis_binary_threshold_comparison.png",
         ),
         residual_domain_context_figure=output_path(
             outputs,
@@ -1175,6 +1318,7 @@ def build_analysis_tables(
     threshold_sensitivity = build_threshold_sensitivity(
         data.model_predictions, analysis_config.threshold_fractions
     )
+    threshold_definitions = binary_threshold_definitions(analysis_config.threshold_fractions)
     spatial_readiness = build_spatial_readiness(
         data.model_predictions, analysis_config.latitude_band_count
     )
@@ -1197,6 +1341,19 @@ def build_analysis_tables(
     class_balance_by_split = build_class_balance_by_split(balance_sources)
     target_balance_by_label_source = build_target_balance_by_label_source(balance_sources)
     background_rate_summary = build_background_rate_summary(balance_sources)
+    binary_threshold_prevalence = build_binary_threshold_prevalence(
+        balance_sources, threshold_definitions
+    )
+    binary_threshold_comparison = build_binary_threshold_comparison(
+        data.sample_predictions,
+        analysis_config,
+        threshold_definitions,
+        split_by_year_mapping(data.split_manifest),
+    )
+    binary_threshold_recommendation = build_binary_threshold_recommendation(
+        binary_threshold_comparison,
+        primary_validation_year(data.split_manifest),
+    )
     residual_domain_context = build_residual_domain_context(data.model_predictions, analysis_config)
     residual_by_mask_reason = build_residual_by_mask_reason(data.model_predictions, analysis_config)
     residual_by_depth_bin = build_residual_by_depth_bin(data.model_predictions, analysis_config)
@@ -1210,6 +1367,9 @@ def build_analysis_tables(
         residual_by_persistence=residual_by_persistence,
         target_framing=target_framing,
         threshold_sensitivity=threshold_sensitivity,
+        binary_threshold_prevalence=binary_threshold_prevalence,
+        binary_threshold_comparison=binary_threshold_comparison,
+        binary_threshold_recommendation=binary_threshold_recommendation,
         spatial_readiness=spatial_readiness,
         feature_separability=feature_separability,
         phase1_decision=phase1_decision,
@@ -1877,6 +2037,448 @@ def build_threshold_sensitivity(
                 }
             )
     return rows
+
+
+def binary_threshold_definitions(
+    configured_thresholds: tuple[float, ...],
+) -> tuple[BinaryThresholdDefinition, ...]:
+    """Return required and configured annual-max binary threshold definitions."""
+    threshold_values = {
+        round(float(threshold), 10)
+        for threshold in (*REQUIRED_BINARY_THRESHOLD_FRACTIONS, *configured_thresholds)
+    }
+    definitions: list[BinaryThresholdDefinition] = []
+    required_values = {round(value, 10) for value in REQUIRED_BINARY_THRESHOLD_FRACTIONS}
+    for threshold in sorted(threshold_values):
+        role = "selection_candidate" if threshold in required_values else "diagnostic"
+        definitions.append(
+            BinaryThresholdDefinition(
+                fraction=threshold,
+                label=binary_threshold_label(threshold),
+                operator=">" if threshold_is_zero(threshold) else ">=",
+                role=role,
+            )
+        )
+    return tuple(definitions)
+
+
+def binary_threshold_label(threshold: float) -> str:
+    """Return a report-safe label that encodes the annual-max threshold rule."""
+    if threshold_is_zero(threshold):
+        return "annual_max_gt0"
+    return f"annual_max_ge_{compact_percent_label(threshold)}"
+
+
+def compact_percent_label(threshold: float) -> str:
+    """Return a compact percentage label for a fraction threshold."""
+    percent = threshold * 100.0
+    if math.isclose(percent, round(percent), abs_tol=1e-9):
+        return f"{int(round(percent))}pct"
+    return f"{percent:.3g}".replace(".", "p").replace("-", "neg") + "pct"
+
+
+def threshold_is_zero(threshold: float) -> bool:
+    """Return whether a threshold should use the strict greater-than-zero rule."""
+    return math.isclose(threshold, 0.0, abs_tol=1e-12)
+
+
+def annual_max_positive_mask(
+    values: np.ndarray, threshold: BinaryThresholdDefinition
+) -> np.ndarray:
+    """Return annual-max binary positives for one threshold definition."""
+    finite = np.isfinite(values)
+    if threshold_is_zero(threshold.fraction):
+        return cast(np.ndarray, finite & (values > 0))
+    return cast(np.ndarray, finite & (values >= threshold.fraction))
+
+
+def build_binary_threshold_prevalence(
+    sources: list[BalanceSource],
+    thresholds: tuple[BinaryThresholdDefinition, ...],
+) -> list[dict[str, object]]:
+    """Build threshold prevalence rows from label source-of-truth tables."""
+    rows: list[dict[str, object]] = []
+    for source in sources:
+        rows.extend(binary_prevalence_group_rows(source, thresholds, ["split", "year"]))
+        rows.extend(
+            binary_prevalence_group_rows(source, thresholds, ["split", "year", "label_source"])
+        )
+    return rows
+
+
+def binary_prevalence_group_rows(
+    source: BalanceSource,
+    thresholds: tuple[BinaryThresholdDefinition, ...],
+    group_columns: list[str],
+) -> list[dict[str, object]]:
+    """Aggregate threshold prevalence for one source and grouping."""
+    rows: list[dict[str, object]] = []
+    for keys, group in source.frame.groupby(group_columns, sort=True, dropna=False):
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        group_values: dict[str, object] = {
+            "split": "all",
+            "year": "all",
+            "label_source": "all",
+        }
+        for column, value in zip(group_columns, key_tuple, strict=True):
+            group_values[column] = normalized_group_value(value)
+        for threshold in thresholds:
+            rows.append(binary_prevalence_summary_row(source, group, group_values, threshold))
+    return rows
+
+
+def binary_prevalence_summary_row(
+    source: BalanceSource,
+    group: pd.DataFrame,
+    group_values: dict[str, object],
+    threshold: BinaryThresholdDefinition,
+) -> dict[str, object]:
+    """Build one grouped annual-max binary threshold prevalence row."""
+    observed_fraction = group["kelp_fraction_y"].to_numpy(dtype=float)
+    observed_area = group["kelp_max_y"].to_numpy(dtype=float)
+    valid_mask = np.isfinite(observed_fraction)
+    positive = annual_max_positive_mask(observed_fraction, threshold)
+    label_sources = label_source_series(group).to_numpy(dtype=object)
+    assumed_background = label_sources == "assumed_background"
+    positive_count = int(np.count_nonzero(positive))
+    assumed_background_count = int(np.count_nonzero(assumed_background))
+    assumed_background_positive = assumed_background & positive
+    positive_area = observed_area[positive]
+    return {
+        "data_scope": source.data_scope,
+        "mask_status": source.mask_status,
+        "evaluation_scope": source.evaluation_scope,
+        "split": group_values["split"],
+        "year": group_values["year"],
+        "label_source": group_values["label_source"],
+        "threshold_fraction": threshold.fraction,
+        "threshold_area": threshold.fraction * KELPWATCH_PIXEL_AREA_M2,
+        "threshold_label": threshold.label,
+        "threshold_operator": threshold.operator,
+        "threshold_role": threshold.role,
+        "row_count": int(len(group)),
+        "target_count": int(np.count_nonzero(valid_mask)),
+        "station_count": balance_station_count(group),
+        "positive_count": positive_count,
+        "positive_rate": safe_ratio(positive_count, int(np.count_nonzero(valid_mask))),
+        "assumed_background_count": assumed_background_count,
+        "assumed_background_positive_count": int(np.count_nonzero(assumed_background_positive)),
+        "assumed_background_positive_rate": safe_ratio(
+            int(np.count_nonzero(assumed_background_positive)),
+            assumed_background_count,
+        ),
+        "observed_positive_area": float(np.nansum(positive_area)) if positive_area.size else 0.0,
+        "mean_positive_area": safe_mean(positive_area),
+    }
+
+
+def build_binary_threshold_comparison(
+    sample_predictions: pd.DataFrame,
+    analysis_config: ModelAnalysisConfig,
+    thresholds: tuple[BinaryThresholdDefinition, ...],
+    split_by_year: dict[int, str],
+) -> list[dict[str, object]]:
+    """Build validation-ready binary threshold metrics from sample predictions."""
+    if sample_predictions.empty:
+        return []
+    frame = prepare_binary_prediction_frame(sample_predictions, analysis_config, split_by_year)
+    if frame.empty:
+        return []
+    rows: list[dict[str, object]] = []
+    source_mask_status = frame_mask_status(frame, analysis_config)
+    source_scope = "sample_predictions"
+    for keys, group in frame.groupby(["model_name", "split", "year"], sort=True, dropna=False):
+        model_name, split, year = cast(tuple[str, str, int], keys)
+        group_values = {
+            "model_name": str(model_name),
+            "split": str(split),
+            "year": int(year),
+            "label_source": "all",
+        }
+        for threshold in thresholds:
+            rows.append(
+                binary_threshold_comparison_row(
+                    group,
+                    threshold,
+                    data_scope=source_scope,
+                    mask_status_value=source_mask_status,
+                    evaluation_scope_value=source_scope,
+                    group_values=group_values,
+                )
+            )
+        for label_source, label_group in group.groupby("label_source", sort=True, dropna=False):
+            label_values = {
+                **group_values,
+                "label_source": normalized_group_value(label_source),
+            }
+            for threshold in thresholds:
+                rows.append(
+                    binary_threshold_comparison_row(
+                        label_group,
+                        threshold,
+                        data_scope=source_scope,
+                        mask_status_value=source_mask_status,
+                        evaluation_scope_value=source_scope,
+                        group_values=label_values,
+                    )
+                )
+    return rows
+
+
+def prepare_binary_prediction_frame(
+    sample_predictions: pd.DataFrame,
+    analysis_config: ModelAnalysisConfig,
+    split_by_year: dict[int, str],
+) -> pd.DataFrame:
+    """Normalize sample predictions for binary threshold comparison."""
+    frame = prepare_balance_frame(sample_predictions, split_by_year)
+    if "model_name" not in frame.columns:
+        frame["model_name"] = analysis_config.model_name
+    if "pred_kelp_fraction_y_clipped" not in frame.columns and "pred_kelp_max_y" in frame.columns:
+        frame["pred_kelp_fraction_y_clipped"] = (
+            frame["pred_kelp_max_y"].astype(float) / KELPWATCH_PIXEL_AREA_M2
+        )
+    if "pred_kelp_max_y" not in frame.columns and "pred_kelp_fraction_y_clipped" in frame.columns:
+        frame["pred_kelp_max_y"] = (
+            frame["pred_kelp_fraction_y_clipped"].astype(float) * KELPWATCH_PIXEL_AREA_M2
+        )
+    required = ["kelp_fraction_y", "kelp_max_y", "pred_kelp_fraction_y_clipped", "pred_kelp_max_y"]
+    if any(column not in frame.columns for column in required):
+        LOGGER.info(
+            "Skipping binary threshold comparison; sample predictions lack required columns"
+        )
+        return pd.DataFrame()
+    return frame
+
+
+def binary_threshold_comparison_row(
+    group: pd.DataFrame,
+    threshold: BinaryThresholdDefinition,
+    *,
+    data_scope: str,
+    mask_status_value: str,
+    evaluation_scope_value: str,
+    group_values: dict[str, object],
+) -> dict[str, object]:
+    """Build one binary threshold prediction-metric row."""
+    observed_fraction = group["kelp_fraction_y"].to_numpy(dtype=float)
+    predicted_fraction = group["pred_kelp_fraction_y_clipped"].to_numpy(dtype=float)
+    observed_area = group["kelp_max_y"].to_numpy(dtype=float)
+    predicted_area = group["pred_kelp_max_y"].to_numpy(dtype=float)
+    valid_mask = np.isfinite(observed_fraction) & np.isfinite(predicted_fraction)
+    observed_fraction = observed_fraction[valid_mask]
+    predicted_fraction = predicted_fraction[valid_mask]
+    observed_area = observed_area[valid_mask]
+    predicted_area = predicted_area[valid_mask]
+    valid_group = group.loc[valid_mask]
+    observed_positive = annual_max_positive_mask(observed_fraction, threshold)
+    predicted_positive = annual_max_positive_mask(predicted_fraction, threshold)
+    true_positive = observed_positive & predicted_positive
+    false_positive = ~observed_positive & predicted_positive
+    false_negative = observed_positive & ~predicted_positive
+    precision, recall, f1 = precision_recall_f1(observed_positive, predicted_positive)
+    positive_count = int(np.count_nonzero(observed_positive))
+    negative_count = int(observed_positive.size - positive_count)
+    predicted_positive_count = int(np.count_nonzero(predicted_positive))
+    label_sources = label_source_series(valid_group).to_numpy(dtype=object)
+    assumed_background = label_sources == "assumed_background"
+    assumed_background_count = int(np.count_nonzero(assumed_background))
+    assumed_background_false_positive = assumed_background & false_positive
+    return {
+        "data_scope": data_scope,
+        "mask_status": mask_status_value,
+        "evaluation_scope": evaluation_scope_value,
+        "split": group_values["split"],
+        "year": group_values["year"],
+        "label_source": group_values["label_source"],
+        "model_name": group_values["model_name"],
+        "threshold_fraction": threshold.fraction,
+        "threshold_area": threshold.fraction * KELPWATCH_PIXEL_AREA_M2,
+        "threshold_label": threshold.label,
+        "threshold_operator": threshold.operator,
+        "threshold_role": threshold.role,
+        "row_count": int(len(group)),
+        "target_count": int(observed_positive.size),
+        "station_count": balance_station_count(valid_group),
+        "positive_count": positive_count,
+        "positive_rate": safe_ratio(positive_count, int(observed_positive.size)),
+        "predicted_positive_count": predicted_positive_count,
+        "predicted_positive_rate": safe_ratio(
+            predicted_positive_count,
+            int(predicted_positive.size),
+        ),
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "true_positive_count": int(np.count_nonzero(true_positive)),
+        "false_positive_count": int(np.count_nonzero(false_positive)),
+        "false_positive_rate": safe_ratio(int(np.count_nonzero(false_positive)), negative_count),
+        "false_positive_area": float(np.nansum(predicted_area[false_positive])),
+        "false_negative_count": int(np.count_nonzero(false_negative)),
+        "false_negative_rate": safe_ratio(int(np.count_nonzero(false_negative)), positive_count),
+        "false_negative_area": float(np.nansum(observed_area[false_negative])),
+        "observed_positive_area": float(np.nansum(observed_area[observed_positive])),
+        "predicted_positive_area": float(np.nansum(predicted_area[predicted_positive])),
+        "assumed_background_count": assumed_background_count,
+        "assumed_background_false_positive_count": int(
+            np.count_nonzero(assumed_background_false_positive)
+        ),
+        "assumed_background_false_positive_rate": safe_ratio(
+            int(np.count_nonzero(assumed_background_false_positive)),
+            assumed_background_count,
+        ),
+        "assumed_background_false_positive_area": float(
+            np.nansum(predicted_area[assumed_background_false_positive])
+        ),
+    }
+
+
+def build_binary_threshold_recommendation(
+    comparison_rows: list[dict[str, object]], selection_year: int | None
+) -> list[dict[str, object]]:
+    """Rank candidate thresholds using validation rows only."""
+    selection_rows = validation_candidate_threshold_rows(comparison_rows, selection_year)
+    if not selection_rows:
+        return []
+    ranked_rows = sorted(selection_rows, key=recommendation_sort_key, reverse=True)
+    selected_row = selected_threshold_row(ranked_rows)
+    selected_fraction = (
+        row_float(selected_row, "threshold_fraction") if selected_row is not None else math.nan
+    )
+    selected_label = str(selected_row.get("threshold_label", "")) if selected_row else ""
+    status = recommendation_status(selection_rows, selected_row)
+    rows: list[dict[str, object]] = []
+    for rank, row in enumerate(ranked_rows, start=1):
+        threshold_fraction = row_float(row, "threshold_fraction")
+        rows.append(
+            {
+                "selection_split": DEFAULT_THRESHOLD_SELECTION_SPLIT,
+                "selection_year": selection_year
+                if selection_year is not None
+                else "all_validation_years",
+                "test_split": DEFAULT_THRESHOLD_TEST_SPLIT,
+                "selection_policy": BINARY_THRESHOLD_SELECTION_POLICY,
+                "recommendation_status": status,
+                "selected_candidate": bool(
+                    selected_row is not None and math.isclose(threshold_fraction, selected_fraction)
+                ),
+                "threshold_rank": rank,
+                "model_name": row.get("model_name", ""),
+                "threshold_fraction": threshold_fraction,
+                "threshold_area": row_float(row, "threshold_area"),
+                "threshold_label": row.get("threshold_label", ""),
+                "threshold_operator": row.get("threshold_operator", ""),
+                "threshold_role": row.get("threshold_role", ""),
+                "positive_support_ok": threshold_positive_support_ok(row),
+                "validation_row_count": row_int(row, "target_count"),
+                "validation_positive_count": row_int(row, "positive_count"),
+                "validation_positive_rate": row_float(row, "positive_rate"),
+                "validation_predicted_positive_rate": row_float(row, "predicted_positive_rate"),
+                "validation_precision": row_float(row, "precision"),
+                "validation_recall": row_float(row, "recall"),
+                "validation_f1": row_float(row, "f1"),
+                "validation_false_positive_rate": row_float(row, "false_positive_rate"),
+                "validation_false_positive_area": row_float(row, "false_positive_area"),
+                "validation_false_negative_area": row_float(row, "false_negative_area"),
+                "validation_assumed_background_false_positive_rate": row_float(
+                    row, "assumed_background_false_positive_rate"
+                ),
+                "validation_assumed_background_false_positive_area": row_float(
+                    row, "assumed_background_false_positive_area"
+                ),
+                "recommended_threshold_fraction": selected_fraction,
+                "recommended_threshold_label": selected_label,
+            }
+        )
+    return rows
+
+
+def validation_candidate_threshold_rows(
+    comparison_rows: list[dict[str, object]], selection_year: int | None
+) -> list[dict[str, object]]:
+    """Filter comparison rows to validation all-label candidate thresholds."""
+    rows = [
+        row
+        for row in comparison_rows
+        if row.get("split") == DEFAULT_THRESHOLD_SELECTION_SPLIT
+        and row.get("label_source") == "all"
+        and row.get("threshold_role") == "selection_candidate"
+    ]
+    if selection_year is None:
+        return rows
+    return [row for row in rows if str(row.get("year")) == str(selection_year)]
+
+
+def recommendation_sort_key(row: dict[str, object]) -> tuple[int, int, float, float, float]:
+    """Return the validation-only ranking key for threshold candidates."""
+    support_ok = int(threshold_positive_support_ok(row))
+    has_positive = int(row_int(row, "positive_count") > 0)
+    f1 = row_float(row, "f1", default=-math.inf)
+    assumed_background_rate = finite_or_default(
+        row_float(row, "assumed_background_false_positive_rate"),
+        math.inf,
+    )
+    return (
+        support_ok,
+        has_positive,
+        row_float(row, "threshold_fraction", default=-math.inf),
+        f1 if np.isfinite(f1) else -math.inf,
+        -assumed_background_rate,
+    )
+
+
+def threshold_positive_support_ok(row: dict[str, object]) -> bool:
+    """Return whether a candidate threshold keeps enough validation positives."""
+    return (
+        row_int(row, "positive_count") >= DEFAULT_MIN_BINARY_SELECTION_POSITIVES
+        and row_float(row, "positive_rate") >= DEFAULT_MIN_BINARY_SELECTION_POSITIVE_RATE
+    )
+
+
+def finite_or_default(value: float, default: float) -> float:
+    """Return a finite value or a fallback used for sorting."""
+    return value if np.isfinite(value) else default
+
+
+def selected_threshold_row(
+    ranked_rows: list[dict[str, object]],
+) -> dict[str, object] | None:
+    """Return the selected validation threshold row, or none when no positives exist."""
+    if not ranked_rows:
+        return None
+    if all(row_int(row, "positive_count") == 0 for row in ranked_rows):
+        return None
+    return ranked_rows[0]
+
+
+def recommendation_status(
+    selection_rows: list[dict[str, object]], selected_row: dict[str, object] | None
+) -> str:
+    """Return a compact recommendation status for the output table."""
+    if not selection_rows:
+        return "no_validation_rows"
+    if selected_row is None:
+        return "no_positive_validation_rows"
+    if threshold_positive_support_ok(selected_row):
+        return "selected_from_validation_support_floor"
+    return "selected_from_validation_low_support_fallback"
+
+
+def primary_validation_year(split_manifest: pd.DataFrame) -> int | None:
+    """Return the configured validation year when exactly inferable from the split manifest."""
+    if "split" not in split_manifest.columns or "year" not in split_manifest.columns:
+        return None
+    years = sorted(
+        int(year)
+        for year in split_manifest.loc[
+            split_manifest["split"] == DEFAULT_THRESHOLD_SELECTION_SPLIT, "year"
+        ]
+        .dropna()
+        .unique()
+    )
+    if len(years) == 1:
+        return years[0]
+    return None
 
 
 def build_spatial_readiness(dataframe: pd.DataFrame, band_count: int) -> list[dict[str, object]]:
@@ -2920,6 +3522,21 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
         tables.threshold_sensitivity, analysis_config.threshold_sensitivity_path, THRESHOLD_FIELDS
     )
     write_csv(
+        tables.binary_threshold_prevalence,
+        analysis_config.binary_threshold_prevalence_path,
+        BINARY_THRESHOLD_PREVALENCE_FIELDS,
+    )
+    write_csv(
+        tables.binary_threshold_comparison,
+        analysis_config.binary_threshold_comparison_path,
+        BINARY_THRESHOLD_COMPARISON_FIELDS,
+    )
+    write_csv(
+        tables.binary_threshold_recommendation,
+        analysis_config.binary_threshold_recommendation_path,
+        BINARY_THRESHOLD_RECOMMENDATION_FIELDS,
+    )
+    write_csv(
         tables.spatial_readiness, analysis_config.spatial_readiness_path, SPATIAL_READINESS_FIELDS
     )
     write_csv(
@@ -3002,6 +3619,7 @@ def write_analysis_figures(
     write_feature_projection_figure(projection_frame, analysis_config)
     write_spatial_readiness_figure(tables, analysis_config)
     write_class_balance_figure(tables, analysis_config)
+    write_binary_threshold_comparison_figure(tables, analysis_config)
     write_residual_domain_context_figure(tables, analysis_config)
 
 
@@ -3276,6 +3894,58 @@ def write_class_balance_figure(
     plt.close(fig)
 
 
+def write_binary_threshold_comparison_figure(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> None:
+    """Write a compact validation threshold comparison figure."""
+    output_path = analysis_config.binary_threshold_comparison_figure
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    recommendation = selected_or_first_recommendation_row(tables.binary_threshold_recommendation)
+    selection_year = recommendation.get("selection_year", "all_validation_years")
+    rows = [
+        row
+        for row in tables.binary_threshold_comparison
+        if row.get("split") == DEFAULT_THRESHOLD_SELECTION_SPLIT
+        and str(row.get("year")) == str(selection_year)
+        and row.get("label_source") == "all"
+        and row.get("threshold_role") == "selection_candidate"
+    ]
+    rows = sorted(rows, key=lambda row: row_float(row, "threshold_fraction"))
+    fig, axis = plt.subplots(figsize=(8, 4.5), constrained_layout=True)
+    if not rows:
+        axis.text(0.5, 0.5, "No validation threshold rows", ha="center", va="center")
+        axis.set_axis_off()
+    else:
+        labels = [str(row["threshold_label"]).replace("annual_max_", "") for row in rows]
+        x_values = np.arange(len(labels))
+        axis.bar(
+            x_values - 0.18,
+            [row_float(row, "positive_rate", default=0.0) for row in rows],
+            width=0.36,
+            label="observed positive rate",
+            color="#2c7fb8",
+        )
+        axis.bar(
+            x_values + 0.18,
+            [row_float(row, "predicted_positive_rate", default=0.0) for row in rows],
+            width=0.36,
+            label="predicted positive rate",
+            color="#f03b20",
+        )
+        selected_label = str(recommendation.get("recommended_threshold_label", ""))
+        for index, row in enumerate(rows):
+            if row.get("threshold_label") == selected_label:
+                axis.axvline(index, color="black", linestyle="--", linewidth=1.0)
+                break
+        axis.set_xticks(x_values, labels, rotation=20, ha="right")
+        axis.set_ylim(0, 1)
+        axis.set_title(f"Validation annual-max binary thresholds | {selection_year}")
+        axis.set_ylabel("Share of validation rows")
+        axis.legend()
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
 def write_residual_domain_context_figure(
     tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> None:
@@ -3434,6 +4104,16 @@ def write_report(
             output_path,
         ),
         "",
+        "## Annual-Max Binary Threshold Comparison",
+        "",
+        binary_threshold_comparison_markdown(tables, analysis_config),
+        "",
+        image_markdown(
+            "Annual-max binary threshold comparison",
+            analysis_config.binary_threshold_comparison_figure,
+            output_path,
+        ),
+        "",
         "## Binary Threshold Sensitivity",
         "",
         threshold_sensitivity_markdown(tables.threshold_sensitivity, analysis_config),
@@ -3461,6 +4141,9 @@ def write_report(
         f"- Class balance by split table: `{analysis_config.class_balance_by_split_path}`",
         f"- Target balance by label source table: `{analysis_config.target_balance_by_label_source_path}`",
         f"- Background rate summary table: `{analysis_config.background_rate_summary_path}`",
+        f"- Binary threshold prevalence table: `{analysis_config.binary_threshold_prevalence_path}`",
+        f"- Binary threshold comparison table: `{analysis_config.binary_threshold_comparison_path}`",
+        f"- Binary threshold recommendation table: `{analysis_config.binary_threshold_recommendation_path}`",
         f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
         f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
@@ -4504,6 +5187,88 @@ def first_balance_scope_row(
     return {}
 
 
+def binary_threshold_comparison_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build Markdown for validation-only annual-max binary threshold selection."""
+    recommendation = selected_or_first_recommendation_row(tables.binary_threshold_recommendation)
+    if not recommendation:
+        return "Annual-max binary threshold comparison rows were not available."
+    selection_year = recommendation.get("selection_year", "all_validation_years")
+    selected_label = str(recommendation.get("recommended_threshold_label", ""))
+    selected_fraction = row_float(recommendation, "recommended_threshold_fraction")
+    status = str(recommendation.get("recommendation_status", "missing"))
+    selected_text = (
+        f"The recommended next P1-18 candidate is `{selected_label}` "
+        f"({format_percent(selected_fraction, 0)} annual max)."
+        if selected_label
+        else "No threshold is recommended because validation rows contain no positive annual-max target."
+    )
+    rows = [
+        row
+        for row in tables.binary_threshold_comparison
+        if row.get("split") == DEFAULT_THRESHOLD_SELECTION_SPLIT
+        and str(row.get("year")) == str(selection_year)
+        and row.get("label_source") == "all"
+        and row.get("threshold_role") == "selection_candidate"
+    ]
+    if not rows:
+        rows = [
+            row
+            for row in tables.binary_threshold_comparison
+            if row.get("split") == DEFAULT_THRESHOLD_SELECTION_SPLIT
+            and row.get("label_source") == "all"
+            and row.get("threshold_role") == "selection_candidate"
+        ]
+    rows = sorted(rows, key=lambda row: row_float(row, "threshold_fraction"))
+    lines = [
+        (
+            f"Threshold selection uses only `{DEFAULT_THRESHOLD_SELECTION_SPLIT}` rows "
+            f"from `{selection_year}` in the sample-prediction table; `{DEFAULT_THRESHOLD_TEST_SPLIT}` "
+            "rows remain locked audit/context rows and are not used to choose the candidate. "
+            "All thresholds are derived from the existing Kelpwatch annual-max fraction, so this "
+            "does not change the label input or claim ecological truth."
+        ),
+        (
+            f"{selected_text} Selection status is `{status}` under policy "
+            f"`{BINARY_THRESHOLD_SELECTION_POLICY}`."
+        ),
+        "",
+        "| Threshold | Positive | Predicted positive | Precision | Recall | F1 | Assumed-background FP area |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        lines.append(
+            f"| {row.get('threshold_label', '')} | "
+            f"{format_percent(row_float(row, 'positive_rate'), 2)} | "
+            f"{format_percent(row_float(row, 'predicted_positive_rate'), 2)} | "
+            f"{format_decimal(row_float(row, 'precision'), 3)} | "
+            f"{format_decimal(row_float(row, 'recall'), 3)} | "
+            f"{format_decimal(row_float(row, 'f1'), 3)} | "
+            f"{format_decimal(row_float(row, 'assumed_background_false_positive_area'), 1)} |"
+        )
+    lines.extend(
+        [
+            "",
+            (
+                f"Detailed prevalence, comparison, and recommendation rows are written to "
+                f"`{analysis_config.binary_threshold_prevalence_path}`, "
+                f"`{analysis_config.binary_threshold_comparison_path}`, and "
+                f"`{analysis_config.binary_threshold_recommendation_path}`."
+            ),
+        ]
+    )
+    return "\n".join(lines)
+
+
+def selected_or_first_recommendation_row(rows: list[dict[str, object]]) -> dict[str, object]:
+    """Return the selected recommendation row, falling back to the first row."""
+    for row in rows:
+        if bool(row.get("selected_candidate")):
+            return row
+    return rows[0] if rows else {}
+
+
 def threshold_sensitivity_markdown(
     rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
 ) -> str:
@@ -4694,11 +5459,19 @@ def write_manifest(
                 analysis_config.target_balance_by_label_source_path
             ),
             "background_rate_summary": str(analysis_config.background_rate_summary_path),
+            "binary_threshold_prevalence": str(analysis_config.binary_threshold_prevalence_path),
+            "binary_threshold_comparison": str(analysis_config.binary_threshold_comparison_path),
+            "binary_threshold_recommendation": str(
+                analysis_config.binary_threshold_recommendation_path
+            ),
             "residual_domain_context": str(analysis_config.residual_domain_context_path),
             "residual_by_mask_reason": str(analysis_config.residual_by_mask_reason_path),
             "residual_by_depth_bin": str(analysis_config.residual_by_depth_bin_path),
             "top_residual_context": str(analysis_config.top_residual_context_path),
             "class_balance_figure": str(analysis_config.class_balance_figure),
+            "binary_threshold_comparison_figure": str(
+                analysis_config.binary_threshold_comparison_figure
+            ),
             "residual_domain_context_figure": str(analysis_config.residual_domain_context_figure),
             "reference_area_calibration": str(analysis_config.reference_area_calibration_path),
             "data_health": str(analysis_config.data_health_path),
@@ -4717,6 +5490,9 @@ def write_manifest(
             "class_balance_by_split": len(tables.class_balance_by_split),
             "target_balance_by_label_source": len(tables.target_balance_by_label_source),
             "background_rate_summary": len(tables.background_rate_summary),
+            "binary_threshold_prevalence": len(tables.binary_threshold_prevalence),
+            "binary_threshold_comparison": len(tables.binary_threshold_comparison),
+            "binary_threshold_recommendation": len(tables.binary_threshold_recommendation),
             "residual_domain_context": len(tables.residual_domain_context),
             "residual_by_mask_reason": len(tables.residual_by_mask_reason),
             "residual_by_depth_bin": len(tables.residual_by_depth_bin),
