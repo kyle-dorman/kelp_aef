@@ -29,6 +29,10 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         "phase1_model_comparison",
         "reference_area_calibration",
         "data_health",
+        "residual_domain_context",
+        "residual_by_mask_reason",
+        "residual_by_depth_bin",
+        "top_residual_context",
         "quarter_mapping",
         "label_distribution_figure",
         "observed_predicted_figure",
@@ -38,6 +42,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         "alternative_targets_figure",
         "feature_projection_figure",
         "spatial_readiness_figure",
+        "residual_domain_context_figure",
     ):
         assert fixture[key].is_file()
 
@@ -90,6 +95,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "sampling/objective calibration problem" in report
     assert "previous-year persistence" in report
     assert "Observed, Predicted, And Error Map" in report
+    assert "Mask-Aware Residual Diagnostics" in report
     assert "![Observed, predicted, and residual map]" in report
     assert "ridge_2022_residual_interactive.html" in report
     assert "Alternative Target-Framing Findings" not in report
@@ -122,10 +128,32 @@ def test_analyze_model_treats_domain_mask_as_primary_full_grid_scope(
 
     manifest = json.loads(fixture["manifest"].read_text())
     report = fixture["report"].read_text()
+    residual_context = pd.read_csv(fixture["residual_domain_context"])
+    mask_reason = pd.read_csv(fixture["residual_by_mask_reason"])
+    depth_bins = pd.read_csv(fixture["residual_by_depth_bin"])
+    top_context = pd.read_csv(fixture["top_residual_context"])
     assert manifest["mask_status"] == "plausible_kelp_domain"
     assert manifest["evaluation_scope"] == "full_grid_masked"
     assert "plausible_kelp_domain" in report
     assert "| ridge_regression | background_inclusive_sample | plausible_kelp_domain |" in report
+    assert set(residual_context["mask_status"]) == {"plausible_kelp_domain"}
+    assert "dropped_too_deep" not in set(residual_context["domain_mask_reason"])
+    assert {
+        "observed_zero_false_positive",
+        "high_canopy_underprediction",
+    } <= set(residual_context["residual_class"])
+    assert set(mask_reason["domain_mask_reason"]) == {
+        "retained_ambiguous_coast",
+        "retained_shallow_depth",
+    }
+    assert set(depth_bins["depth_bin"]) == {"ambiguous_coast", "shallow_depth"}
+    assert set(top_context["domain_mask_reason"]) == {
+        "retained_ambiguous_coast",
+        "retained_shallow_depth",
+    }
+    assert {"crm_depth_m", "crm_elevation_m", "depth_bin", "elevation_bin"} <= set(
+        top_context.columns
+    )
 
 
 def write_model_analysis_fixture(
@@ -200,6 +228,14 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         "reference_area_calibration": tmp_path
         / "reports/tables/reference_baseline_area_calibration.csv",
         "data_health": tmp_path / "reports/tables/model_analysis_data_health.csv",
+        "residual_domain_context": tmp_path
+        / "reports/tables/model_analysis_residual_by_domain_context.csv",
+        "residual_by_mask_reason": tmp_path
+        / "reports/tables/model_analysis_residual_by_mask_reason.csv",
+        "residual_by_depth_bin": tmp_path
+        / "reports/tables/model_analysis_residual_by_depth_bin.csv",
+        "top_residual_context": tmp_path
+        / "reports/tables/top_residual_stations.domain_context.csv",
         "quarter_mapping": tmp_path / "reports/tables/model_analysis_quarter_mapping.csv",
         "label_distribution_figure": tmp_path
         / "reports/figures/model_analysis_label_distribution_by_stage.png",
@@ -217,6 +253,8 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/figures/model_analysis_feature_projection.png",
         "spatial_readiness_figure": tmp_path
         / "reports/figures/model_analysis_spatial_holdout_readiness.png",
+        "residual_domain_context_figure": tmp_path
+        / "reports/figures/model_analysis_residual_by_domain_context.png",
     }
 
 
@@ -299,6 +337,10 @@ reports:
     reference_baseline_area_calibration: {paths["reference_area_calibration"]}
 {masked_outputs}
     model_analysis_data_health: {paths["data_health"]}
+    model_analysis_residual_by_domain_context: {paths["residual_domain_context"]}
+    model_analysis_residual_by_mask_reason: {paths["residual_by_mask_reason"]}
+    model_analysis_residual_by_depth_bin: {paths["residual_by_depth_bin"]}
+    top_residual_stations_domain_context: {paths["top_residual_context"]}
     model_analysis_quarter_mapping: {paths["quarter_mapping"]}
     model_analysis_label_distribution_figure: {paths["label_distribution_figure"]}
     model_analysis_observed_predicted_figure: {paths["observed_predicted_figure"]}
@@ -308,6 +350,7 @@ reports:
     model_analysis_alternative_targets_figure: {paths["alternative_targets_figure"]}
     model_analysis_feature_projection_figure: {paths["feature_projection_figure"]}
     model_analysis_spatial_readiness_figure: {paths["spatial_readiness_figure"]}
+    model_analysis_residual_by_domain_context_figure: {paths["residual_domain_context_figure"]}
 """.lstrip()
 
 
@@ -440,9 +483,17 @@ def write_model_analysis_domain_mask(mask_path: Path, manifest_path: Path) -> No
         {
             "aef_grid_cell_id": [1, 2, 3],
             "is_plausible_kelp_domain": [True, False, True],
-            "domain_mask_reason": ["retained", "dropped_too_deep", "retained"],
+            "domain_mask_reason": [
+                "retained_ambiguous_coast",
+                "dropped_too_deep",
+                "retained_shallow_depth",
+            ],
             "domain_mask_detail": ["fixture"] * 3,
             "domain_mask_version": ["test_mask_v1"] * 3,
+            "crm_elevation_m": [0.2, -100.0, -6.0],
+            "crm_depth_m": [0.0, 100.0, 6.0],
+            "depth_bin": ["ambiguous_coast", "deep_water", "shallow_depth"],
+            "elevation_bin": ["nearshore", "deep_subtidal", "subtidal"],
         }
     ).to_parquet(mask_path, index=False)
     manifest_path.write_text(json.dumps({"mask_version": "test_mask_v1"}))
@@ -463,6 +514,9 @@ def write_predictions(path: Path) -> None:
                     "aef_grid_cell_id": station_id,
                     "aef_grid_row": station_id,
                     "aef_grid_col": station_id,
+                    "label_source": "kelpwatch_station",
+                    "is_kelpwatch_observed": True,
+                    "kelpwatch_station_count": 1,
                     "longitude": -122.0 + station_id * 0.001,
                     "latitude": 36.0 + station_id * 0.01,
                     "kelp_fraction_y": observed,

@@ -938,7 +938,9 @@ def join_sample_to_domain_mask(
 
 def read_sample_mask_lookup(mask_config: SampleDomainMaskConfig) -> pd.DataFrame:
     """Read mask metadata indexed by target-grid cell id for sample joins."""
-    mask = pd.read_parquet(mask_config.table_path, columns=list(MASK_DETAIL_COLUMNS))
+    available_names = set(pl.scan_parquet(str(mask_config.table_path)).collect_schema().names())
+    selected_columns = [column for column in MASK_DETAIL_COLUMNS if column in available_names]
+    mask = pd.read_parquet(mask_config.table_path, columns=selected_columns)
     missing = [column for column in (MASK_KEY_COLUMN, MASK_RETAIN_COLUMN) if column not in mask]
     if missing:
         msg = f"domain mask table is missing required columns: {missing}"

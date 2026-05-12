@@ -196,6 +196,19 @@ and pair with the masked training sample used by the current baseline run.
 | Masked reference baseline area calibration | `/Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.masked.csv` | Compact reference-baseline and ridge area calibration rows computed inside the retained plausible-kelp domain. | Not tracked |
 | Off-domain prediction leakage audit | `/Volumes/x10pro/kelp_aef/reports/tables/off_domain_prediction_leakage_audit.csv` | Separate diagnostic for predicted area on cells dropped by the domain mask, grouped by model, split, year, and mask reason. | Not tracked |
 
+## Phase 1 Mask-Aware Residual Diagnostics
+
+These outputs explain remaining residuals inside the retained plausible-kelp
+domain. They do not change mask thresholds, model inputs, or fitted models.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| Residual by domain context | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_residual_by_domain_context.csv` | Retained-domain residual taxonomy by mask reason, depth/elevation bin, label source, observed canopy bin, and residual class. | Not tracked |
+| Residual by mask reason | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_residual_by_mask_reason.csv` | Retained-domain residual summary by static mask reason. | Not tracked |
+| Residual by depth/elevation bin | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_residual_by_depth_bin.csv` | Retained-domain residual summary by CRM depth and elevation bins. | Not tracked |
+| Top residuals with domain context | `/Volumes/x10pro/kelp_aef/reports/tables/top_residual_stations.domain_context.csv` | Highest underprediction and overprediction rows with mask reason, CRM depth/elevation, depth bin, elevation bin, label source, coordinates, and residual class. | Not tracked |
+| Residual by domain context figure | `/Volumes/x10pro/kelp_aef/reports/figures/model_analysis_residual_by_domain_context.png` | Compact report figure showing mean residual by retained depth/elevation bin. | Not tracked |
+
 ## Phase 1 Masked Training Outputs
 
 These outputs apply the P1-12 plausible-kelp domain mask to the model-input

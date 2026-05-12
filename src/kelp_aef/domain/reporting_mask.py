@@ -25,6 +25,10 @@ MASK_DETAIL_COLUMNS = (
     "domain_mask_reason",
     "domain_mask_detail",
     "domain_mask_version",
+    "crm_elevation_m",
+    "crm_depth_m",
+    "depth_bin",
+    "elevation_bin",
 )
 
 
@@ -127,7 +131,9 @@ def apply_reporting_domain_mask(
 @lru_cache(maxsize=8)
 def read_mask_frame(mask_config: ReportingDomainMask) -> pd.DataFrame:
     """Read the configured mask columns needed for reporting joins."""
-    mask = pd.read_parquet(mask_config.table_path, columns=list(MASK_DETAIL_COLUMNS))
+    available_names = set(pl.scan_parquet(str(mask_config.table_path)).collect_schema().names())
+    columns = [column for column in MASK_DETAIL_COLUMNS if column in available_names]
+    mask = pd.read_parquet(mask_config.table_path, columns=columns)
     missing = [column for column in (MASK_KEY_COLUMN, MASK_RETAIN_COLUMN) if column not in mask]
     if missing:
         msg = f"domain mask table is missing required columns: {missing}"

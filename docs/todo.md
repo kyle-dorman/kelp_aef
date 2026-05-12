@@ -269,12 +269,30 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml`,
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
     and `make check`.
-- [ ] P1-15: Add mask-aware residual diagnostics.
+- [x] P1-15: Add mask-aware residual diagnostics.
   - Goal: Explain false positives and underprediction by domain-mask reason,
     depth/elevation bin, label source, and observed canopy bin.
   - Plan: `tasks/23_mask_aware_residual_diagnostics.md`.
   - Output: residual taxonomy tables and report figures.
   - Validation: top residuals have mask/depth/elevation context.
+  - Completed: joined retained P1-12 mask context onto primary 2022 masked
+    full-grid residual rows, added residual taxonomy summaries by domain
+    context, mask reason, and CRM depth/elevation bin, extended top residuals
+    with mask/depth/elevation context, and added a report section plus compact
+    retained-domain residual figure.
+  - Result: the refreshed report uses 999,519 retained plausible-domain
+    prediction rows and writes 44 domain-context rows, 2 mask-reason rows, 4
+    depth/elevation-bin rows, and 100 top residual context rows.
+  - Validation passed:
+    `uv run pytest tests/test_model_analysis.py tests/test_residual_maps.py`,
+    `uv run ruff check .`, `uv run mypy src`,
+    `uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
+    `make check`,
+    and manual inspection of
+    `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_residual_by_domain_context.csv`
+    and
+    `/Volumes/x10pro/kelp_aef/reports/tables/top_residual_stations.domain_context.csv`.
   - Note: this is the last task in the Bathymetry and DEM domain-filter block;
     after it, move to imbalance-aware model diagnostics and objectives.
 

@@ -111,11 +111,28 @@ TOP_RESIDUAL_FIELDS = (
     "model_name",
     "split",
     "year",
+    "mask_status",
+    "evaluation_scope",
+    "aef_grid_cell_id",
+    "aef_grid_row",
+    "aef_grid_col",
     "kelpwatch_station_id",
+    "label_source",
+    "is_kelpwatch_observed",
     "longitude",
     "latitude",
+    "is_plausible_kelp_domain",
+    "domain_mask_reason",
+    "domain_mask_detail",
+    "domain_mask_version",
+    "crm_elevation_m",
+    "crm_depth_m",
+    "depth_bin",
+    "elevation_bin",
     "kelp_max_y",
     "pred_kelp_max_y",
+    "observed_canopy_area",
+    "predicted_canopy_area",
     "residual_kelp_max_y",
     "abs_residual_kelp_max_y",
 )
@@ -194,7 +211,11 @@ def map_residuals(config_path: Path) -> int:
         map_config.latitude_band_count,
         map_config.domain_mask,
     )
-    top_residuals = top_residual_stations(map_rows, map_config.top_residual_count)
+    top_residuals = top_residual_stations(
+        map_rows,
+        map_config.top_residual_count,
+        map_config.domain_mask,
+    )
     off_domain_audit = off_domain_audit_rows_from_predictions(map_config)
 
     write_static_map(map_rows, footprint, map_config.static_map_path, map_config)
@@ -738,22 +759,32 @@ def area_metric_row(
 
 def mean_absolute_error(observed: np.ndarray, predicted: np.ndarray) -> float:
     """Compute mean absolute error."""
-    return float(np.nanmean(np.abs(observed - predicted)))
+    difference = observed - predicted
+    finite = difference[np.isfinite(difference)]
+    if finite.size == 0:
+        return math.nan
+    return float(np.nanmean(np.abs(finite)))
 
 
-def top_residual_stations(dataframe: pd.DataFrame, top_count: int) -> list[dict[str, object]]:
+def top_residual_stations(
+    dataframe: pd.DataFrame,
+    top_count: int,
+    mask_config: ReportingDomainMask | None = None,
+) -> list[dict[str, object]]:
     """Select largest underprediction and overprediction residual stations."""
     underpredicted = residual_rows(
         dataframe.loc[dataframe["residual_kelp_max_y"] > 0],
         residual_type="underprediction",
         ascending=False,
         top_count=top_count,
+        mask_config=mask_config,
     )
     overpredicted = residual_rows(
         dataframe.loc[dataframe["residual_kelp_max_y"] < 0],
         residual_type="overprediction",
         ascending=True,
         top_count=top_count,
+        mask_config=mask_config,
     )
     return underpredicted + overpredicted
 
@@ -764,11 +795,14 @@ def residual_rows(
     residual_type: str,
     ascending: bool,
     top_count: int,
+    mask_config: ReportingDomainMask | None,
 ) -> list[dict[str, object]]:
     """Build ranked residual rows for one residual sign."""
     sorted_rows = dataframe.sort_values("residual_kelp_max_y", ascending=ascending).head(top_count)
     rows: list[dict[str, object]] = []
     for rank, row in enumerate(sorted_rows.to_dict("records"), start=1):
+        observed_area = float(row["kelp_max_y"])
+        predicted_area = float(row["pred_kelp_max_y"])
         rows.append(
             {
                 "residual_type": residual_type,
@@ -776,11 +810,28 @@ def residual_rows(
                 "model_name": row["model_name"],
                 "split": row["split"],
                 "year": int(row["year"]),
+                "mask_status": mask_status(mask_config),
+                "evaluation_scope": evaluation_scope(mask_config),
+                "aef_grid_cell_id": nullable_int(row.get("aef_grid_cell_id")),
+                "aef_grid_row": nullable_int(row.get("aef_grid_row")),
+                "aef_grid_col": nullable_int(row.get("aef_grid_col")),
                 "kelpwatch_station_id": nullable_int(row.get("kelpwatch_station_id")),
+                "label_source": nullable_string(row.get("label_source")),
+                "is_kelpwatch_observed": nullable_bool(row.get("is_kelpwatch_observed")),
                 "longitude": float(row["longitude"]),
                 "latitude": float(row["latitude"]),
-                "kelp_max_y": float(row["kelp_max_y"]),
-                "pred_kelp_max_y": float(row["pred_kelp_max_y"]),
+                "is_plausible_kelp_domain": nullable_bool(row.get("is_plausible_kelp_domain")),
+                "domain_mask_reason": nullable_string(row.get("domain_mask_reason")),
+                "domain_mask_detail": nullable_string(row.get("domain_mask_detail")),
+                "domain_mask_version": nullable_string(row.get("domain_mask_version")),
+                "crm_elevation_m": nullable_float(row.get("crm_elevation_m")),
+                "crm_depth_m": nullable_float(row.get("crm_depth_m")),
+                "depth_bin": nullable_string(row.get("depth_bin")),
+                "elevation_bin": nullable_string(row.get("elevation_bin")),
+                "kelp_max_y": observed_area,
+                "pred_kelp_max_y": predicted_area,
+                "observed_canopy_area": observed_area,
+                "predicted_canopy_area": predicted_area,
                 "residual_kelp_max_y": float(row["residual_kelp_max_y"]),
                 "abs_residual_kelp_max_y": abs(float(row["residual_kelp_max_y"])),
             }
@@ -795,6 +846,31 @@ def nullable_int(value: object) -> int | None:
     if not isinstance(value, int | float | np.integer | np.floating):
         return None
     return int(value)
+
+
+def nullable_float(value: object) -> float | None:
+    """Convert a nullable numeric value to float or None."""
+    if pd.isna(value):
+        return None
+    if not isinstance(value, int | float | np.integer | np.floating):
+        return None
+    return float(value)
+
+
+def nullable_bool(value: object) -> bool | None:
+    """Convert a nullable value to bool or None."""
+    if pd.isna(value):
+        return None
+    if isinstance(value, bool | np.bool_):
+        return bool(value)
+    return None
+
+
+def nullable_string(value: object) -> str | None:
+    """Convert a nullable value to string or None."""
+    if pd.isna(value):
+        return None
+    return str(value)
 
 
 def write_static_map(

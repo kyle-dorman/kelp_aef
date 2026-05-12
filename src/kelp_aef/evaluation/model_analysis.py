@@ -58,6 +58,7 @@ DEFAULT_ANALYSIS_SPLIT = "test"
 DEFAULT_ANALYSIS_YEAR = 2022
 DEFAULT_LATITUDE_BAND_COUNT = 12
 DEFAULT_MAX_PROJECTION_ROWS = 50_000
+DEFAULT_TOP_RESIDUAL_COUNT = 50
 DEFAULT_FALL_QUARTER = 4
 DEFAULT_WINTER_QUARTER = 1
 DEFAULT_OBSERVED_AREA_BINS = (0.0, 1.0, 90.0, 225.0, 450.0, 810.0, 900.0)
@@ -296,6 +297,70 @@ DATA_HEALTH_FIELDS = (
     "rate",
     "detail",
 )
+RESIDUAL_DOMAIN_CONTEXT_FIELDS = (
+    "model_name",
+    "split",
+    "year",
+    "mask_status",
+    "evaluation_scope",
+    "domain_mask_reason",
+    "depth_bin",
+    "elevation_bin",
+    "label_source",
+    "observed_bin",
+    "residual_class",
+    "row_count",
+    "observed_canopy_area",
+    "predicted_canopy_area",
+    "area_bias",
+    "area_pct_bias",
+    "mae",
+    "rmse",
+    "mean_residual",
+    "median_residual",
+    "underprediction_count",
+    "overprediction_count",
+    "high_error_count",
+    "high_error_threshold",
+    "zero_observed_count",
+    "positive_observed_count",
+    "high_canopy_count",
+    "saturated_count",
+    "mean_crm_depth_m",
+    "mean_crm_elevation_m",
+)
+TOP_RESIDUAL_CONTEXT_FIELDS = (
+    "residual_type",
+    "rank",
+    "model_name",
+    "split",
+    "year",
+    "mask_status",
+    "evaluation_scope",
+    "aef_grid_cell_id",
+    "aef_grid_row",
+    "aef_grid_col",
+    "kelpwatch_station_id",
+    "label_source",
+    "is_kelpwatch_observed",
+    "longitude",
+    "latitude",
+    "is_plausible_kelp_domain",
+    "domain_mask_reason",
+    "domain_mask_detail",
+    "domain_mask_version",
+    "crm_elevation_m",
+    "crm_depth_m",
+    "depth_bin",
+    "elevation_bin",
+    "kelp_max_y",
+    "pred_kelp_max_y",
+    "observed_canopy_area",
+    "predicted_canopy_area",
+    "residual_kelp_max_y",
+    "abs_residual_kelp_max_y",
+    "residual_class",
+)
 
 
 @dataclass(frozen=True)
@@ -336,6 +401,10 @@ class ModelAnalysisConfig:
     phase1_decision_path: Path
     phase1_model_comparison_path: Path
     data_health_path: Path
+    residual_domain_context_path: Path
+    residual_by_mask_reason_path: Path
+    residual_by_depth_bin_path: Path
+    top_residual_context_path: Path
     reference_area_calibration_path: Path
     fallback_summary_path: Path
     quarter_mapping_path: Path
@@ -347,8 +416,10 @@ class ModelAnalysisConfig:
     alternative_targets_figure: Path
     feature_projection_figure: Path
     spatial_readiness_figure: Path
+    residual_domain_context_figure: Path
     observed_predicted_residual_map_figure: Path
     residual_interactive_html: Path
+    top_residual_count: int
     domain_mask: ReportingDomainMask | None
 
 
@@ -367,6 +438,10 @@ class AnalysisTables:
     phase1_decision: list[dict[str, object]]
     phase1_model_comparison: list[dict[str, object]]
     data_health: list[dict[str, object]]
+    residual_domain_context: list[dict[str, object]]
+    residual_by_mask_reason: list[dict[str, object]]
+    residual_by_depth_bin: list[dict[str, object]]
+    top_residual_context: list[dict[str, object]]
     quarter_mapping: list[dict[str, object]]
     reference_area_calibration: list[dict[str, object]]
 
@@ -417,6 +492,7 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
     reports = require_mapping(config.get("reports"), "reports")
     outputs = require_mapping(reports.get("outputs"), "reports.outputs")
     settings = optional_mapping(reports.get("model_analysis"), "reports.model_analysis")
+    map_settings = optional_mapping(reports.get("map_residuals"), "reports.map_residuals")
     domain_mask = load_reporting_domain_mask(config)
     figures_dir = Path(require_string(reports.get("figures_dir"), "reports.figures_dir"))
     tables_dir = Path(require_string(reports.get("tables_dir"), "reports.tables_dir"))
@@ -562,6 +638,26 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             "model_analysis_data_health",
             tables_dir / "model_analysis_data_health.csv",
         ),
+        residual_domain_context_path=output_path(
+            outputs,
+            "model_analysis_residual_by_domain_context",
+            tables_dir / "model_analysis_residual_by_domain_context.csv",
+        ),
+        residual_by_mask_reason_path=output_path(
+            outputs,
+            "model_analysis_residual_by_mask_reason",
+            tables_dir / "model_analysis_residual_by_mask_reason.csv",
+        ),
+        residual_by_depth_bin_path=output_path(
+            outputs,
+            "model_analysis_residual_by_depth_bin",
+            tables_dir / "model_analysis_residual_by_depth_bin.csv",
+        ),
+        top_residual_context_path=output_path(
+            outputs,
+            "top_residual_stations_domain_context",
+            tables_dir / "top_residual_stations.domain_context.csv",
+        ),
         reference_area_calibration_path=masked_output_path(
             outputs,
             unmasked_key="reference_baseline_area_calibration",
@@ -619,6 +715,11 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             "model_analysis_spatial_readiness_figure",
             figures_dir / "model_analysis_spatial_holdout_readiness.png",
         ),
+        residual_domain_context_figure=output_path(
+            outputs,
+            "model_analysis_residual_by_domain_context_figure",
+            figures_dir / "model_analysis_residual_by_domain_context.png",
+        ),
         observed_predicted_residual_map_figure=masked_output_path(
             outputs,
             unmasked_key="ridge_observed_predicted_residual_map",
@@ -632,6 +733,11 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             masked_key="ridge_residual_interactive_masked",
             default=figures_dir / "ridge_2022_residual_interactive.html",
             mask_config=domain_mask,
+        ),
+        top_residual_count=optional_positive_int(
+            settings.get("top_residual_count", map_settings.get("top_residual_count")),
+            "reports.model_analysis.top_residual_count",
+            DEFAULT_TOP_RESIDUAL_COUNT,
         ),
         domain_mask=domain_mask,
     )
@@ -988,6 +1094,10 @@ def build_analysis_tables(
         data, analysis_config, reference_area_calibration
     )
     data_health = build_data_health_rows(data, analysis_config)
+    residual_domain_context = build_residual_domain_context(data.model_predictions, analysis_config)
+    residual_by_mask_reason = build_residual_by_mask_reason(data.model_predictions, analysis_config)
+    residual_by_depth_bin = build_residual_by_depth_bin(data.model_predictions, analysis_config)
+    top_residual_context = build_top_residual_context(data.model_predictions, analysis_config)
     quarter_mapping = build_quarter_mapping(analysis_config)
     data.aligned.attrs["model_analysis_projection_frame"] = projection_frame
     return AnalysisTables(
@@ -1002,6 +1112,10 @@ def build_analysis_tables(
         phase1_decision=phase1_decision,
         phase1_model_comparison=phase1_model_comparison,
         data_health=data_health,
+        residual_domain_context=residual_domain_context,
+        residual_by_mask_reason=residual_by_mask_reason,
+        residual_by_depth_bin=residual_by_depth_bin,
+        top_residual_context=top_residual_context,
         quarter_mapping=quarter_mapping,
         reference_area_calibration=reference_area_calibration,
     )
@@ -1167,7 +1281,11 @@ def row_int(row: dict[str, object], key: str, default: int = 0) -> int:
 
 def mean_absolute_error(observed: np.ndarray, predicted: np.ndarray) -> float:
     """Compute a mean absolute error for paired arrays."""
-    return float(np.nanmean(np.abs(observed - predicted)))
+    difference = observed - predicted
+    finite = difference[np.isfinite(difference)]
+    if finite.size == 0:
+        return math.nan
+    return float(np.nanmean(np.abs(finite)))
 
 
 def build_residual_by_observed_bin(
@@ -1276,6 +1394,314 @@ def build_residual_by_persistence(dataframe: pd.DataFrame) -> list[dict[str, obj
             }
         )
     return rows
+
+
+def build_residual_domain_context(
+    dataframe: pd.DataFrame, analysis_config: ModelAnalysisConfig
+) -> list[dict[str, object]]:
+    """Build retained-domain residual taxonomy rows by joined mask context."""
+    return residual_context_group_rows(
+        dataframe,
+        analysis_config,
+        group_columns=[
+            "domain_mask_reason",
+            "depth_bin",
+            "elevation_bin",
+            "label_source",
+            "observed_bin",
+            "residual_class",
+        ],
+    )
+
+
+def build_residual_by_mask_reason(
+    dataframe: pd.DataFrame, analysis_config: ModelAnalysisConfig
+) -> list[dict[str, object]]:
+    """Build retained-domain residual summaries grouped by mask reason."""
+    return residual_context_group_rows(
+        dataframe,
+        analysis_config,
+        group_columns=["domain_mask_reason"],
+    )
+
+
+def build_residual_by_depth_bin(
+    dataframe: pd.DataFrame, analysis_config: ModelAnalysisConfig
+) -> list[dict[str, object]]:
+    """Build retained-domain residual summaries grouped by depth/elevation bin."""
+    return residual_context_group_rows(
+        dataframe,
+        analysis_config,
+        group_columns=["depth_bin", "elevation_bin"],
+    )
+
+
+def residual_context_group_rows(
+    dataframe: pd.DataFrame,
+    analysis_config: ModelAnalysisConfig,
+    *,
+    group_columns: list[str],
+) -> list[dict[str, object]]:
+    """Aggregate residual diagnostics over a requested retained-domain grouping."""
+    frame = residual_diagnostic_frame(dataframe, analysis_config)
+    if frame.empty:
+        return []
+    rows: list[dict[str, object]] = []
+    for keys, group in frame.groupby(
+        group_columns,
+        sort=True,
+        dropna=False,
+        observed=True,
+    ):
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        group_values = {
+            column: normalized_group_value(value)
+            for column, value in zip(group_columns, key_tuple, strict=True)
+        }
+        rows.append(residual_context_row(group, analysis_config, group_values))
+    return rows
+
+
+def residual_diagnostic_frame(
+    dataframe: pd.DataFrame, analysis_config: ModelAnalysisConfig
+) -> pd.DataFrame:
+    """Return prediction rows annotated for retained-domain residual diagnostics."""
+    frame = dataframe.copy()
+    if MASK_RETAIN_COLUMN in frame.columns:
+        frame = frame.loc[frame[MASK_RETAIN_COLUMN].fillna(False).astype(bool)].copy()
+    frame = ensure_residual_context_columns(frame, analysis_config)
+    if frame.empty:
+        return frame
+    frame["observed_bin"] = observed_area_bin_labels(
+        frame["kelp_max_y"],
+        analysis_config.observed_area_bins,
+    )
+    frame["residual_class"] = residual_taxonomy_classes(frame)
+    abs_residual = frame["residual_kelp_max_y"].abs()
+    threshold = float(abs_residual.quantile(0.95)) if len(abs_residual) else math.nan
+    high_error = abs_residual >= threshold if np.isfinite(threshold) and threshold > 0 else False
+    frame["is_high_error"] = high_error
+    frame["high_error_threshold"] = threshold
+    frame.attrs["high_error_threshold"] = threshold
+    return frame
+
+
+def ensure_residual_context_columns(
+    dataframe: pd.DataFrame, analysis_config: ModelAnalysisConfig
+) -> pd.DataFrame:
+    """Fill optional mask-context columns used by residual diagnostics."""
+    frame = dataframe.copy()
+    defaults: dict[str, object] = {
+        "domain_mask_reason": "retained_domain"
+        if analysis_config.domain_mask is not None
+        else "unmasked",
+        "depth_bin": "missing_depth_bin",
+        "elevation_bin": "missing_elevation_bin",
+        "label_source": "unknown",
+        "crm_depth_m": math.nan,
+        "crm_elevation_m": math.nan,
+    }
+    for column, default in defaults.items():
+        if column not in frame.columns:
+            frame[column] = default
+    if MASK_RETAIN_COLUMN not in frame.columns:
+        frame[MASK_RETAIN_COLUMN] = analysis_config.domain_mask is not None
+    return frame
+
+
+def residual_taxonomy_classes(dataframe: pd.DataFrame) -> pd.Series:
+    """Classify residual rows into stable interpretation buckets."""
+    classes: list[str] = []
+    for observed, predicted, residual in zip(
+        dataframe["kelp_max_y"].to_numpy(dtype=float),
+        dataframe["pred_kelp_max_y"].to_numpy(dtype=float),
+        dataframe["residual_kelp_max_y"].to_numpy(dtype=float),
+        strict=True,
+    ):
+        if not np.isfinite(observed) or not np.isfinite(predicted) or not np.isfinite(residual):
+            classes.append("missing_or_uncalculable")
+        elif abs(residual) <= 1.0:
+            classes.append("near_correct")
+        elif observed == 0 and predicted > 0:
+            classes.append("observed_zero_false_positive")
+        elif observed >= 450.0 and residual > 0:
+            classes.append("high_canopy_underprediction")
+        elif residual > 0:
+            classes.append("positive_underprediction")
+        elif residual < 0:
+            classes.append("low_canopy_overprediction")
+        else:
+            classes.append("near_correct")
+    return pd.Series(classes, index=dataframe.index, dtype="object")
+
+
+def residual_context_row(
+    group: pd.DataFrame,
+    analysis_config: ModelAnalysisConfig,
+    group_values: dict[str, str],
+) -> dict[str, object]:
+    """Build one retained-domain residual diagnostic summary row."""
+    observed = group["kelp_max_y"].to_numpy(dtype=float)
+    predicted = group["pred_kelp_max_y"].to_numpy(dtype=float)
+    residual = group["residual_kelp_max_y"].to_numpy(dtype=float)
+    observed_area = float(np.nansum(observed))
+    predicted_area = float(np.nansum(predicted))
+    return {
+        "model_name": analysis_config.model_name,
+        "split": str(group["split"].iloc[0])
+        if "split" in group
+        else analysis_config.analysis_split,
+        "year": int(group["year"].iloc[0]) if "year" in group else analysis_config.analysis_year,
+        "mask_status": mask_status(analysis_config.domain_mask),
+        "evaluation_scope": evaluation_scope(analysis_config.domain_mask),
+        "domain_mask_reason": group_values.get("domain_mask_reason", "all"),
+        "depth_bin": group_values.get("depth_bin", "all"),
+        "elevation_bin": group_values.get("elevation_bin", "all"),
+        "label_source": group_values.get("label_source", "all"),
+        "observed_bin": group_values.get("observed_bin", "all"),
+        "residual_class": group_values.get("residual_class", "all"),
+        "row_count": int(len(group)),
+        "observed_canopy_area": observed_area,
+        "predicted_canopy_area": predicted_area,
+        "area_bias": predicted_area - observed_area,
+        "area_pct_bias": percent_bias(predicted_area, observed_area),
+        "mae": mean_absolute_error(observed, predicted),
+        "rmse": root_mean_squared_error(observed, predicted),
+        "mean_residual": safe_mean(residual),
+        "median_residual": safe_percentile(residual, 50),
+        "underprediction_count": int(np.count_nonzero(residual > 0)),
+        "overprediction_count": int(np.count_nonzero(residual < 0)),
+        "high_error_count": int(group["is_high_error"].sum()),
+        "high_error_threshold": float(group["high_error_threshold"].iloc[0]),
+        "zero_observed_count": int(np.count_nonzero(observed == 0)),
+        "positive_observed_count": int(np.count_nonzero(observed > 0)),
+        "high_canopy_count": int(np.count_nonzero(observed >= 450.0)),
+        "saturated_count": int(np.count_nonzero(observed >= KELPWATCH_PIXEL_AREA_M2)),
+        "mean_crm_depth_m": safe_mean(group["crm_depth_m"].to_numpy(dtype=float)),
+        "mean_crm_elevation_m": safe_mean(group["crm_elevation_m"].to_numpy(dtype=float)),
+    }
+
+
+def normalized_group_value(value: object) -> str:
+    """Normalize a pandas group key to a stable string label."""
+    if pd.isna(value):
+        return "missing"
+    return str(value)
+
+
+def build_top_residual_context(
+    dataframe: pd.DataFrame, analysis_config: ModelAnalysisConfig
+) -> list[dict[str, object]]:
+    """Build top underprediction and overprediction rows with domain context."""
+    frame = residual_diagnostic_frame(dataframe, analysis_config)
+    underpredicted = top_residual_context_rows(
+        frame.loc[frame["residual_kelp_max_y"] > 0],
+        analysis_config,
+        residual_type="underprediction",
+        ascending=False,
+    )
+    overpredicted = top_residual_context_rows(
+        frame.loc[frame["residual_kelp_max_y"] < 0],
+        analysis_config,
+        residual_type="overprediction",
+        ascending=True,
+    )
+    return underpredicted + overpredicted
+
+
+def top_residual_context_rows(
+    dataframe: pd.DataFrame,
+    analysis_config: ModelAnalysisConfig,
+    *,
+    residual_type: str,
+    ascending: bool,
+) -> list[dict[str, object]]:
+    """Build ranked top-residual rows for one residual sign."""
+    sorted_rows = dataframe.sort_values("residual_kelp_max_y", ascending=ascending).head(
+        analysis_config.top_residual_count
+    )
+    rows: list[dict[str, object]] = []
+    for rank, row in enumerate(sorted_rows.to_dict("records"), start=1):
+        rows.append(top_residual_context_row(row, analysis_config, residual_type, rank))
+    return rows
+
+
+def top_residual_context_row(
+    row: dict[str, object],
+    analysis_config: ModelAnalysisConfig,
+    residual_type: str,
+    rank: int,
+) -> dict[str, object]:
+    """Build one top-residual row with joined domain-mask context."""
+    observed_area = object_to_float(row.get("kelp_max_y"))
+    predicted_area = object_to_float(row.get("pred_kelp_max_y"))
+    residual = object_to_float(row.get("residual_kelp_max_y"))
+    return {
+        "residual_type": residual_type,
+        "rank": rank,
+        "model_name": str(row.get("model_name", analysis_config.model_name)),
+        "split": str(row.get("split", analysis_config.analysis_split)),
+        "year": object_to_int(row.get("year"), analysis_config.analysis_year),
+        "mask_status": mask_status(analysis_config.domain_mask),
+        "evaluation_scope": evaluation_scope(analysis_config.domain_mask),
+        "aef_grid_cell_id": nullable_int(row.get("aef_grid_cell_id")),
+        "aef_grid_row": nullable_int(row.get("aef_grid_row")),
+        "aef_grid_col": nullable_int(row.get("aef_grid_col")),
+        "kelpwatch_station_id": nullable_int(row.get("kelpwatch_station_id")),
+        "label_source": nullable_string(row.get("label_source")),
+        "is_kelpwatch_observed": nullable_bool(row.get("is_kelpwatch_observed")),
+        "longitude": object_to_float(row.get("longitude")),
+        "latitude": object_to_float(row.get("latitude")),
+        "is_plausible_kelp_domain": nullable_bool(row.get(MASK_RETAIN_COLUMN)),
+        "domain_mask_reason": nullable_string(row.get("domain_mask_reason")),
+        "domain_mask_detail": nullable_string(row.get("domain_mask_detail")),
+        "domain_mask_version": nullable_string(row.get("domain_mask_version")),
+        "crm_elevation_m": nullable_float(row.get("crm_elevation_m")),
+        "crm_depth_m": nullable_float(row.get("crm_depth_m")),
+        "depth_bin": nullable_string(row.get("depth_bin")),
+        "elevation_bin": nullable_string(row.get("elevation_bin")),
+        "kelp_max_y": observed_area,
+        "pred_kelp_max_y": predicted_area,
+        "observed_canopy_area": observed_area,
+        "predicted_canopy_area": predicted_area,
+        "residual_kelp_max_y": residual,
+        "abs_residual_kelp_max_y": abs(residual),
+        "residual_class": str(row.get("residual_class", "missing_or_uncalculable")),
+    }
+
+
+def nullable_int(value: object) -> int | None:
+    """Convert a nullable numeric value to int or None."""
+    if pd.isna(value):
+        return None
+    if not isinstance(value, int | float | np.integer | np.floating):
+        return None
+    return int(value)
+
+
+def nullable_float(value: object) -> float | None:
+    """Convert a nullable numeric value to float or None."""
+    if pd.isna(value):
+        return None
+    if not isinstance(value, int | float | np.integer | np.floating):
+        return None
+    return float(value)
+
+
+def nullable_bool(value: object) -> bool | None:
+    """Convert a nullable value to bool or None."""
+    if pd.isna(value):
+        return None
+    if isinstance(value, bool | np.bool_):
+        return bool(value)
+    return None
+
+
+def nullable_string(value: object) -> str | None:
+    """Convert a nullable value to string or None."""
+    if pd.isna(value):
+        return None
+    return str(value)
 
 
 def persistence_classes(dataframe: pd.DataFrame) -> pd.Series:
@@ -2203,6 +2629,26 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
         PHASE1_MODEL_COMPARISON_FIELDS,
     )
     write_csv(
+        tables.residual_domain_context,
+        analysis_config.residual_domain_context_path,
+        RESIDUAL_DOMAIN_CONTEXT_FIELDS,
+    )
+    write_csv(
+        tables.residual_by_mask_reason,
+        analysis_config.residual_by_mask_reason_path,
+        RESIDUAL_DOMAIN_CONTEXT_FIELDS,
+    )
+    write_csv(
+        tables.residual_by_depth_bin,
+        analysis_config.residual_by_depth_bin_path,
+        RESIDUAL_DOMAIN_CONTEXT_FIELDS,
+    )
+    write_csv(
+        tables.top_residual_context,
+        analysis_config.top_residual_context_path,
+        TOP_RESIDUAL_CONTEXT_FIELDS,
+    )
+    write_csv(
         tables.reference_area_calibration,
         analysis_config.reference_area_calibration_path,
         REFERENCE_AREA_CALIBRATION_FIELDS,
@@ -2235,6 +2681,7 @@ def write_analysis_figures(
     )
     write_feature_projection_figure(projection_frame, analysis_config)
     write_spatial_readiness_figure(tables, analysis_config)
+    write_residual_domain_context_figure(tables, analysis_config)
 
 
 def write_label_distribution_figure(
@@ -2460,6 +2907,36 @@ def write_spatial_readiness_figure(
     plt.close(fig)
 
 
+def write_residual_domain_context_figure(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> None:
+    """Write a compact retained-domain residual figure by depth/elevation bin."""
+    output_path = analysis_config.residual_domain_context_figure
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = filter_table_rows(
+        tables.residual_by_depth_bin,
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+    )
+    fig, axis = plt.subplots(figsize=(10, 4.5), constrained_layout=True)
+    if not rows:
+        axis.text(0.5, 0.5, "No retained-domain residual rows", ha="center", va="center")
+        axis.set_axis_off()
+    else:
+        labels = [f"{row['depth_bin']} | {row['elevation_bin']}" for row in rows]
+        values = [row_float(row, "mean_residual") for row in rows]
+        colors = ["#1f77b4" if value >= 0 else "#d62728" for value in values]
+        x_values = np.arange(len(labels))
+        axis.bar(x_values, values, color=colors)
+        axis.axhline(0, color="black", linewidth=0.8)
+        axis.set_xticks(x_values, labels, rotation=35, ha="right")
+        axis.set_title("Mean residual by retained depth/elevation bin")
+        axis.set_xlabel("Depth and elevation bin")
+        axis.set_ylabel("Mean residual area, observed - predicted")
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
 def write_report(
     data: AnalysisData, tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> None:
@@ -2568,6 +3045,16 @@ def write_report(
             output_path,
         ),
         "",
+        "## Mask-Aware Residual Diagnostics",
+        "",
+        mask_aware_residual_markdown(tables, analysis_config),
+        "",
+        image_markdown(
+            "Residual by retained domain context",
+            analysis_config.residual_domain_context_figure,
+            output_path,
+        ),
+        "",
         "## Binary Threshold Sensitivity",
         "",
         threshold_sensitivity_markdown(tables.threshold_sensitivity, analysis_config),
@@ -2588,6 +3075,10 @@ def write_report(
         f"- Prediction distribution table: `{analysis_config.prediction_distribution_path}`",
         f"- Residual by observed bin table: `{analysis_config.residual_by_bin_path}`",
         f"- Residual by persistence table: `{analysis_config.residual_by_persistence_path}`",
+        f"- Residual by domain context table: `{analysis_config.residual_domain_context_path}`",
+        f"- Residual by mask reason table: `{analysis_config.residual_by_mask_reason_path}`",
+        f"- Residual by depth/elevation bin table: `{analysis_config.residual_by_depth_bin_path}`",
+        f"- Top residual domain-context table: `{analysis_config.top_residual_context_path}`",
         f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
         f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
@@ -3399,6 +3890,136 @@ def residual_bin_interpretation_markdown(
     )
 
 
+def mask_aware_residual_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build Markdown for retained-domain residual diagnostics."""
+    reason_rows = filter_table_rows(
+        tables.residual_by_mask_reason,
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+    )
+    context_rows = filter_table_rows(
+        tables.residual_domain_context,
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+    )
+    if not reason_rows:
+        return "No retained-domain mask-aware residual rows were available."
+    largest_reason = max(reason_rows, key=lambda row: row_int(row, "row_count"))
+    highest_abs_reason = max(
+        reason_rows,
+        key=lambda row: abs(row_float(row, "mean_residual", default=0.0)),
+    )
+    false_positive_rows = [
+        row for row in context_rows if row.get("residual_class") == "observed_zero_false_positive"
+    ]
+    underprediction_rows = [
+        row
+        for row in context_rows
+        if row.get("residual_class") in {"positive_underprediction", "high_canopy_underprediction"}
+    ]
+    underprediction_focus = (
+        max(
+            underprediction_rows,
+            key=lambda row: (
+                row_int(row, "high_error_count"),
+                row_int(row, "row_count"),
+                row_float(row, "mean_residual", default=-math.inf),
+            ),
+        )
+        if underprediction_rows
+        else {}
+    )
+    false_positive_count = sum(row_int(row, "row_count") for row in false_positive_rows)
+    false_positive_area = sum(
+        row_float(row, "predicted_canopy_area") for row in false_positive_rows
+    )
+    underprediction_count = sum(row_int(row, "row_count") for row in underprediction_rows)
+    top_false_positive_source = dominant_label_source(false_positive_rows)
+    interpretation = residual_diagnostic_interpretation(
+        false_positive_count,
+        underprediction_count,
+        highest_abs_reason,
+        underprediction_focus,
+    )
+    lines = [
+        (
+            f"Primary mask-aware diagnostics use `mask_status = {mask_status(analysis_config.domain_mask)}` "
+            f"and `evaluation_scope = {evaluation_scope(analysis_config.domain_mask)}`. "
+            "Rows are restricted to retained plausible-kelp cells; off-domain leakage stays in the separate audit table."
+        ),
+        (
+            f"The largest retained group by row count is `{largest_reason['domain_mask_reason']}` "
+            f"(`{row_int(largest_reason, 'row_count')}` rows). The retained mask reason with the largest "
+            f"absolute mean residual is `{highest_abs_reason['domain_mask_reason']}` "
+            f"(`{format_decimal(row_float(highest_abs_reason, 'mean_residual'), 1)} m2`)."
+        ),
+    ]
+    if underprediction_focus:
+        lines.append(
+            f"The largest underprediction concentration is `{underprediction_focus['depth_bin']}` / "
+            f"`{underprediction_focus['elevation_bin']}` in "
+            f"`{underprediction_focus['residual_class']}` rows, with "
+            f"`{row_int(underprediction_focus, 'row_count')}` rows and "
+            f"`{row_int(underprediction_focus, 'high_error_count')}` high-error rows."
+        )
+    lines.extend(
+        [
+            (
+                "Observed-zero false positives inside retained habitat account for "
+                f"`{false_positive_count}` rows and `{format_decimal(false_positive_area, 1)} m2` "
+                f"of predicted canopy area; the largest label-source group is `{top_false_positive_source}`."
+            ),
+            interpretation,
+            "",
+            "| Mask reason | Rows | Mean residual | Area bias | High-error rows |",
+            "|---|---:|---:|---:|---:|",
+        ]
+    )
+    for row in sorted(reason_rows, key=lambda item: row_int(item, "row_count"), reverse=True)[:6]:
+        lines.append(
+            f"| {row['domain_mask_reason']} | {row_int(row, 'row_count')} | "
+            f"{format_decimal(row_float(row, 'mean_residual'), 1)} | "
+            f"{format_decimal(row_float(row, 'area_bias'), 1)} | "
+            f"{row_int(row, 'high_error_count')} |"
+        )
+    return "\n".join(lines)
+
+
+def dominant_label_source(rows: list[dict[str, object]]) -> str:
+    """Return the label-source value with the largest row count."""
+    if not rows:
+        return "none"
+    by_source: dict[str, int] = {}
+    for row in rows:
+        source = str(row.get("label_source", "unknown"))
+        by_source[source] = by_source.get(source, 0) + row_int(row, "row_count")
+    return max(by_source.items(), key=lambda item: item[1])[0]
+
+
+def residual_diagnostic_interpretation(
+    false_positive_count: int,
+    underprediction_count: int,
+    highest_abs_reason: dict[str, object],
+    under_depth: dict[str, object],
+) -> str:
+    """Build a concise interpretation of the residual diagnostic pattern."""
+    reason = str(highest_abs_reason.get("domain_mask_reason", "unknown"))
+    depth_bin = str(under_depth.get("depth_bin", "unknown"))
+    if false_positive_count > underprediction_count:
+        dominant_error = "false positives"
+    elif underprediction_count > false_positive_count:
+        dominant_error = "underprediction"
+    else:
+        dominant_error = "mixed false positives and underprediction"
+    return (
+        f"The retained-domain residuals point first to `{dominant_error}` inside the plausible habitat "
+        f"rather than off-domain leakage. Concentration in `{reason}` and `{depth_bin}` should be treated "
+        "as triage evidence for the next imbalance/objective task, not as a reason to tune mask thresholds here."
+    )
+
+
 def threshold_sensitivity_markdown(
     rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
 ) -> str:
@@ -3581,6 +4202,11 @@ def write_manifest(
             "prediction_distribution": str(analysis_config.prediction_distribution_path),
             "phase1_decision": str(analysis_config.phase1_decision_path),
             "phase1_model_comparison": str(analysis_config.phase1_model_comparison_path),
+            "residual_domain_context": str(analysis_config.residual_domain_context_path),
+            "residual_by_mask_reason": str(analysis_config.residual_by_mask_reason_path),
+            "residual_by_depth_bin": str(analysis_config.residual_by_depth_bin_path),
+            "top_residual_context": str(analysis_config.top_residual_context_path),
+            "residual_domain_context_figure": str(analysis_config.residual_domain_context_figure),
             "reference_area_calibration": str(analysis_config.reference_area_calibration_path),
             "data_health": str(analysis_config.data_health_path),
             "manifest": str(analysis_config.manifest_path),
@@ -3594,6 +4220,10 @@ def write_manifest(
             "target_framing": len(tables.target_framing),
             "phase1_decision": len(tables.phase1_decision),
             "phase1_model_comparison": len(tables.phase1_model_comparison),
+            "residual_domain_context": len(tables.residual_domain_context),
+            "residual_by_mask_reason": len(tables.residual_by_mask_reason),
+            "residual_by_depth_bin": len(tables.residual_by_depth_bin),
+            "top_residual_context": len(tables.top_residual_context),
             "reference_area_calibration": len(tables.reference_area_calibration),
             "data_health": len(tables.data_health),
         },

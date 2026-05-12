@@ -39,6 +39,9 @@ def test_map_residuals_writes_exploration_artifacts(tmp_path: Path) -> None:
 
     top_residuals = pd.read_csv(fixture["top_residuals"])
     assert set(top_residuals["residual_type"]) == {"underprediction", "overprediction"}
+    assert {"mask_status", "evaluation_scope", "domain_mask_reason", "depth_bin"} <= set(
+        top_residuals.columns
+    )
     underprediction = top_residuals.query("residual_type == 'underprediction'").iloc[0]
     overprediction = top_residuals.query("residual_type == 'overprediction'").iloc[0]
     assert np.isclose(float(underprediction["residual_kelp_max_y"]), 90.0)
@@ -69,9 +72,12 @@ def test_map_residuals_filters_full_grid_rows_to_domain_mask(tmp_path: Path) -> 
 
     manifest = json.loads(fixture["manifest"].read_text())
     audit = pd.read_csv(fixture["off_domain_audit"])
+    top_residuals = pd.read_csv(fixture["top_residuals"])
     assert manifest["map_row_count"] == 2
     assert manifest["mask_status"] == "plausible_kelp_domain"
     assert set(audit["domain_mask_reason"]) == {"dropped_too_deep"}
+    assert set(top_residuals["domain_mask_reason"]) == {"retained_shallow_depth"}
+    assert set(top_residuals["depth_bin"]) == {"shallow_depth"}
 
 
 def write_residual_map_fixture(
@@ -223,16 +229,36 @@ def write_domain_mask(mask_path: Path, manifest_path: Path) -> None:
             "aef_grid_cell_id": [1, 2, 3, 4, 5, 6, 7],
             "is_plausible_kelp_domain": [True, False, True, False, True, False, True],
             "domain_mask_reason": [
-                "retained",
+                "retained_shallow_depth",
                 "dropped_too_deep",
-                "retained",
+                "retained_shallow_depth",
                 "dropped_too_deep",
-                "retained",
+                "retained_shallow_depth",
                 "dropped_too_deep",
-                "retained",
+                "retained_shallow_depth",
             ],
             "domain_mask_detail": ["fixture"] * 7,
             "domain_mask_version": ["test_mask_v1"] * 7,
+            "crm_elevation_m": [-4.0, -100.0, -4.0, -100.0, -4.0, -100.0, -4.0],
+            "crm_depth_m": [4.0, 100.0, 4.0, 100.0, 4.0, 100.0, 4.0],
+            "depth_bin": [
+                "shallow_depth",
+                "deep_water",
+                "shallow_depth",
+                "deep_water",
+                "shallow_depth",
+                "deep_water",
+                "shallow_depth",
+            ],
+            "elevation_bin": [
+                "subtidal",
+                "deep_subtidal",
+                "subtidal",
+                "deep_subtidal",
+                "subtidal",
+                "deep_subtidal",
+                "subtidal",
+            ],
         }
     ).to_parquet(mask_path, index=False)
     manifest_path.write_text(json.dumps({"mask_version": "test_mask_v1"}))
