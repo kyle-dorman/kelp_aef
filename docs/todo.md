@@ -374,6 +374,7 @@ masking change should end with an updated model-analysis report.
     and `make check`.
 - [ ] P1-19: Calibrate binary probabilities and thresholds on validation.
   - Goal: Separate ranking skill from area calibration.
+  - Plan: `tasks/27_calibrate_binary_probabilities_thresholds.md`.
   - Output: calibrated probabilities or selected thresholds plus calibration
     tables.
   - Validation: calibration is fit on 2021 and evaluated on 2022.
