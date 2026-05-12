@@ -384,7 +384,7 @@ masking change should end with an updated model-analysis report.
     assumed-background strata such as `retained_ambiguous_coast`, downsample
     easy retained strata such as `50_100m`, and do not use CRM depth/elevation
     as model predictors.
-- [ ] P1-19: Calibrate binary probabilities and thresholds on validation.
+- [x] P1-19: Calibrate binary probabilities and thresholds on validation.
   - Goal: Separate ranking skill from area calibration.
   - Plan: `tasks/27_calibrate_binary_probabilities_thresholds.md`.
   - Output: calibrated probabilities or selected thresholds plus calibration
