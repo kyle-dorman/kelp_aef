@@ -27,6 +27,7 @@ from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
 
 from kelp_aef.config import load_yaml_config, require_mapping, require_string
 from kelp_aef.domain.reporting_mask import (
+    MASK_RETAIN_COLUMN,
     ReportingDomainMask,
     apply_reporting_domain_mask,
     evaluation_scope,
@@ -1649,17 +1650,37 @@ def build_phase1_model_comparison(
     """Build the Phase 1 compact model comparison rows."""
     rows: list[dict[str, object]] = []
     split_years = split_year_labels(data.split_manifest)
+    input_mask_status = model_input_mask_status(data.aligned, analysis_config)
     for metric in data.metrics.to_dict("records"):
         comparison_row = metric_comparison_row(
             cast(dict[str, object], metric),
             split_years,
+            input_mask_status,
         )
         if comparison_row:
             rows.append(comparison_row)
     rows.extend(reference_area_calibration_comparison_rows(reference_area_calibration))
-    if not any(row.get("evaluation_scope") == "full_grid_prediction" for row in rows):
+    if not has_primary_full_grid_comparison(rows, analysis_config):
         rows.extend(full_grid_comparison_rows(data.model_predictions, analysis_config))
     return rows
+
+
+def model_input_mask_status(dataframe: pd.DataFrame, analysis_config: ModelAnalysisConfig) -> str:
+    """Infer whether sample metric rows came from the configured retained mask domain."""
+    if analysis_config.domain_mask is None or MASK_RETAIN_COLUMN not in dataframe.columns:
+        return "unmasked"
+    retained = dataframe[MASK_RETAIN_COLUMN].dropna().astype(bool)
+    if retained.empty or not bool(retained.all()):
+        return "unmasked"
+    return mask_status(analysis_config.domain_mask)
+
+
+def has_primary_full_grid_comparison(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> bool:
+    """Return whether compact full-grid calibration rows are already present."""
+    primary_scope = evaluation_scope(analysis_config.domain_mask)
+    return any(row.get("evaluation_scope") == primary_scope for row in rows)
 
 
 def reference_area_calibration_comparison_rows(
@@ -1726,7 +1747,7 @@ def split_year_labels(split_manifest: pd.DataFrame) -> dict[str, str]:
 
 
 def metric_comparison_row(
-    metric: dict[str, object], split_years: dict[str, str]
+    metric: dict[str, object], split_years: dict[str, str], input_mask_status: str
 ) -> dict[str, object]:
     """Convert one metrics CSV row into the Phase 1 comparison schema."""
     if bool_from_metric(metric.get("weighted")):
@@ -1749,7 +1770,7 @@ def metric_comparison_row(
         "model_name": metric.get("model_name", ""),
         "split": split,
         "year": split_years.get(split, ""),
-        "mask_status": "unmasked",
+        "mask_status": input_mask_status,
         "evaluation_scope": evaluation_scope,
         "label_source": label_source,
         "row_count": metric.get("row_count", ""),

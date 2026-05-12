@@ -69,6 +69,12 @@ alignment:
     output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet
     output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table_manifest.json
     summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table_summary.csv
+    domain_mask:
+      policy: plausible_kelp_domain
+      output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
+      output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked_manifest.json
+      summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked_summary.csv
+      fail_on_dropped_positive: true
     random_seed: 13
     background_rows_per_year: 250000
     include_all_kelpwatch_observed: true
@@ -277,7 +283,7 @@ splits:
 
 models:
   baselines:
-    input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet
+    input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
     inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
     target: kelp_fraction_y
     features: A00-A63

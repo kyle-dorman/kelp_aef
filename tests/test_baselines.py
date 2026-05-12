@@ -76,6 +76,25 @@ def test_predict_full_grid_streams_trained_ridge_predictions(tmp_path: Path) -> 
     assert set(fallback_summary["evaluation_scope"]) == {"background_inclusive_sample"}
 
 
+def test_train_baselines_preserves_domain_mask_metadata(tmp_path: Path) -> None:
+    """Verify sample-level outputs keep domain-mask provenance columns."""
+    fixture = write_baseline_fixture(tmp_path, include_training_mask_columns=True)
+
+    assert main(["train-baselines", "--config", str(fixture["config_path"])]) == 0
+
+    split_manifest = pd.read_parquet(fixture["split_manifest"])
+    predictions = pd.read_parquet(fixture["predictions"])
+    mask_columns = {
+        "is_plausible_kelp_domain",
+        "domain_mask_reason",
+        "domain_mask_detail",
+        "domain_mask_version",
+    }
+    assert mask_columns.issubset(split_manifest.columns)
+    assert mask_columns.issubset(predictions.columns)
+    assert set(split_manifest["is_plausible_kelp_domain"]) == {True}
+
+
 def test_reference_area_calibration_writes_compact_full_grid_rows(tmp_path: Path) -> None:
     """Verify reference baselines write aggregate full-grid calibration rows only."""
     fixture = write_baseline_fixture(tmp_path, include_full_grid=True)
@@ -128,6 +147,7 @@ def write_baseline_fixture(
     *,
     include_full_grid: bool = False,
     include_domain_mask: bool = False,
+    include_training_mask_columns: bool = False,
 ) -> dict[str, Path]:
     """Write a synthetic aligned table and minimal baseline training config."""
     aligned_table = tmp_path / "interim/aligned_training_table.parquet"
@@ -150,7 +170,7 @@ def write_baseline_fixture(
     manifest = tmp_path / "interim/baseline_eval_manifest.json"
     geographic_model = tmp_path / "models/baselines/geographic_ridge_lon_lat_year.joblib"
     config_path = tmp_path / "config.yaml"
-    write_aligned_table(aligned_table)
+    write_aligned_table(aligned_table, include_training_mask_columns=include_training_mask_columns)
     if include_full_grid:
         write_aligned_table(full_grid_table)
     if include_domain_mask:
@@ -224,7 +244,7 @@ reports:
     }
 
 
-def write_aligned_table(path: Path) -> None:
+def write_aligned_table(path: Path, *, include_training_mask_columns: bool = False) -> None:
     """Write a tiny aligned feature/label table with one missing test feature row."""
     path.parent.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, object]] = []
@@ -255,6 +275,16 @@ def write_aligned_table(path: Path) -> None:
                 }
             )
     rows[-1]["A00"] = np.nan
+    if include_training_mask_columns:
+        for row in rows:
+            row.update(
+                {
+                    "is_plausible_kelp_domain": True,
+                    "domain_mask_reason": "retained",
+                    "domain_mask_detail": "fixture",
+                    "domain_mask_version": "test_mask_v1",
+                }
+            )
     pd.DataFrame(rows).to_parquet(path, index=False)
 
 

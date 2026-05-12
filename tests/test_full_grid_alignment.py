@@ -36,7 +36,37 @@ def test_align_full_grid_fast_writes_background_and_observed_rows(tmp_path: Path
     )
 
 
-def write_full_grid_fixture(tmp_path: Path) -> dict[str, Path]:
+def test_align_full_grid_fast_writes_masked_background_sample(tmp_path: Path) -> None:
+    """Verify domain masking writes a retained-domain training sample sidecar."""
+    fixture = write_full_grid_fixture(tmp_path, include_domain_mask=True)
+
+    assert main(["align-full-grid", "--config", str(fixture["config_path"]), "--fast"]) == 0
+
+    masked_sample = pd.read_parquet(fixture["fast_masked_sample"])
+    summary = pd.read_csv(fixture["fast_masked_summary"])
+    manifest = json.loads(fixture["fast_masked_manifest"].read_text())
+
+    assert len(masked_sample) == 2
+    assert set(masked_sample["aef_grid_cell_id"]) == {0, 1}
+    assert set(masked_sample["is_plausible_kelp_domain"]) == {True}
+    assert {"domain_mask_reason", "domain_mask_detail", "domain_mask_version"}.issubset(
+        masked_sample.columns
+    )
+    background = masked_sample.query("label_source == 'assumed_background'")
+    assert background["sample_weight"].iloc[0] == pytest.approx(1.0)
+    dropped = summary.query("is_plausible_kelp_domain == False")
+    assert int(dropped["row_count"].sum()) == 2
+    assert int(dropped["kelpwatch_observed_row_count"].sum()) == 1
+    assert int(dropped["kelpwatch_positive_row_count"].sum()) == 0
+    assert manifest["masked_sample_row_count"] == 2
+    assert manifest["dropped_observed_row_count"] == 1
+    assert manifest["dropped_positive_row_count"] == 0
+    assert manifest["population_counts"]["2018"]["assumed_background"] == 1
+
+
+def write_full_grid_fixture(
+    tmp_path: Path, *, include_domain_mask: bool = False
+) -> dict[str, Path]:
     """Write a tiny full-grid config, annual labels, manifest, and AEF raster."""
     labels_path = tmp_path / "interim/labels_annual.parquet"
     label_manifest_path = tmp_path / "interim/labels_annual_manifest.json"
@@ -47,11 +77,48 @@ def write_full_grid_fixture(tmp_path: Path) -> dict[str, Path]:
     fast_manifest = tmp_path / "interim/full_grid.fast_manifest.json"
     sample = tmp_path / "interim/sample.parquet"
     fast_sample = tmp_path / "interim/sample.fast.parquet"
+    masked_sample = tmp_path / "interim/sample.masked.parquet"
+    fast_masked_sample = tmp_path / "interim/sample.masked.fast.parquet"
+    fast_masked_manifest = tmp_path / "interim/sample.masked.fast_manifest.json"
+    fast_masked_summary = tmp_path / "tables/sample.masked.fast_summary.csv"
+    domain_mask = tmp_path / "interim/plausible_kelp_domain_mask.parquet"
+    domain_manifest = tmp_path / "interim/plausible_kelp_domain_mask_manifest.json"
     config_path = tmp_path / "config.yaml"
     write_label_table(labels_path)
     write_label_manifest(label_manifest_path)
     write_aef_raster(raster_path)
     write_tile_manifest(tile_manifest_path, raster_path)
+    if include_domain_mask:
+        write_full_grid_domain_mask(domain_mask, domain_manifest)
+    domain_mask_config = (
+        f"""
+reports:
+  domain_mask:
+    primary_full_grid_domain: plausible_kelp_domain
+    mask_status: plausible_kelp_domain
+    evaluation_scope: full_grid_masked
+    mask_table: {domain_mask}
+    mask_manifest: {domain_manifest}
+"""
+        if include_domain_mask
+        else ""
+    )
+    sample_domain_mask_config = (
+        f"""
+    domain_mask:
+      policy: plausible_kelp_domain
+      output_table: {masked_sample}
+      output_manifest: {tmp_path / "interim/sample.masked_manifest.json"}
+      summary_table: {tmp_path / "tables/sample.masked_summary.csv"}
+      fail_on_dropped_positive: true
+      fast:
+        output_table: {fast_masked_sample}
+        output_manifest: {fast_masked_manifest}
+        summary_table: {fast_masked_summary}
+"""
+        if include_domain_mask
+        else ""
+    )
     config_path.write_text(
         f"""
 years:
@@ -87,6 +154,8 @@ alignment:
     random_seed: 13
     include_all_kelpwatch_observed: true
     sample_weight_column: sample_weight
+{sample_domain_mask_config}
+{domain_mask_config}
 """.lstrip()
     )
     return {
@@ -94,6 +163,9 @@ alignment:
         "fast_full_grid": fast_full_grid,
         "fast_manifest": fast_manifest,
         "fast_sample": fast_sample,
+        "fast_masked_sample": fast_masked_sample,
+        "fast_masked_manifest": fast_masked_manifest,
+        "fast_masked_summary": fast_masked_summary,
     }
 
 
@@ -175,3 +247,23 @@ def write_tile_manifest(path: Path, raster_path: Path) -> None:
             }
         )
     )
+
+
+def write_full_grid_domain_mask(mask_path: Path, manifest_path: Path) -> None:
+    """Write a tiny domain mask that retains one observed and one background cell."""
+    mask_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "aef_grid_cell_id": [0, 1, 2, 3],
+            "is_plausible_kelp_domain": [True, True, False, False],
+            "domain_mask_reason": [
+                "retained",
+                "retained",
+                "dropped_too_deep",
+                "dropped_too_deep",
+            ],
+            "domain_mask_detail": ["fixture"] * 4,
+            "domain_mask_version": ["test_mask_v1"] * 4,
+        }
+    ).to_parquet(mask_path, index=False)
+    manifest_path.write_text(json.dumps({"mask_version": "test_mask_v1"}))

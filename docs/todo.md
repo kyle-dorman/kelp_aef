@@ -243,7 +243,7 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml`,
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
     and `make check`.
-- [ ] P1-14: Apply the domain mask to training and sampling.
+- [x] P1-14: Apply the domain mask to training and sampling.
   - Goal: Train only on physically plausible cells unless explicitly comparing
     against the unmasked run.
   - Plan: `tasks/22_apply_domain_mask_to_training_sampling.md`.
@@ -251,6 +251,24 @@ masking change should end with an updated model-analysis report.
   - Validation: rerun baselines and report the effect on station skill and
     masked-domain full-grid calibration. Here, full-grid calibration means all
     retained plausible-kelp mask cells, not the unmasked AEF tile.
+  - Completed: added a mask-aware background-sample sidecar that joins the
+    P1-12 mask by `aef_grid_cell_id`, carries mask metadata into model-input
+    rows, recomputes retained-domain background sample weights, and points
+    `train-baselines` at the masked sample by default.
+  - Result: masked the existing sample from 1,400,809 rows to 313,954 retained
+    plausible-domain rows, with 0 dropped Kelpwatch-observed rows and 0 dropped
+    Kelpwatch-positive rows. Retrained baselines, refreshed full-grid
+    predictions, residual maps, masked area-bias tables, reference area
+    calibration, and the Phase 1 model-analysis report.
+  - Validation passed:
+    `uv run pytest tests/test_full_grid_alignment.py tests/test_baselines.py tests/test_model_analysis.py`,
+    `uv run kelp-aef align-full-grid --config configs/monterey_smoke.yaml --fast`,
+    masked-sample derivation from the existing full-grid/sample artifacts,
+    `uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
+    and `make check`.
 - [ ] P1-15: Add mask-aware residual diagnostics.
   - Goal: Explain false positives and underprediction by domain-mask reason,
     depth/elevation bin, label source, and observed canopy bin.

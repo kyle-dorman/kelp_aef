@@ -102,13 +102,22 @@ def test_analyze_model_treats_domain_mask_as_primary_full_grid_scope(
     tmp_path: Path,
 ) -> None:
     """Verify model-analysis labels masked full-grid rows as the primary scope."""
-    fixture = write_model_analysis_fixture(tmp_path, include_domain_mask=True)
+    fixture = write_model_analysis_fixture(
+        tmp_path,
+        include_domain_mask=True,
+        include_training_mask_columns=True,
+        include_reference_area_calibration=True,
+    )
 
     assert main(["analyze-model", "--config", str(fixture["config_path"])]) == 0
 
     model_comparison = pd.read_csv(fixture["phase1_model_comparison"])
+    sample_rows = model_comparison.query("evaluation_scope == 'background_inclusive_sample'")
+    assert set(sample_rows["mask_status"]) == {"plausible_kelp_domain"}
     full_grid = model_comparison.query("evaluation_scope == 'full_grid_masked'")
     assert set(full_grid["mask_status"]) == {"plausible_kelp_domain"}
+    ridge_all = full_grid.query("model_name == 'ridge_regression' and label_source == 'all'")
+    assert len(ridge_all) == 1
     assert int(full_grid.iloc[0]["row_count"]) == 2
 
     manifest = json.loads(fixture["manifest"].read_text())
@@ -116,10 +125,15 @@ def test_analyze_model_treats_domain_mask_as_primary_full_grid_scope(
     assert manifest["mask_status"] == "plausible_kelp_domain"
     assert manifest["evaluation_scope"] == "full_grid_masked"
     assert "plausible_kelp_domain" in report
+    assert "| ridge_regression | background_inclusive_sample | plausible_kelp_domain |" in report
 
 
 def write_model_analysis_fixture(
-    tmp_path: Path, *, include_domain_mask: bool = False
+    tmp_path: Path,
+    *,
+    include_domain_mask: bool = False,
+    include_training_mask_columns: bool = False,
+    include_reference_area_calibration: bool = False,
 ) -> dict[str, Path]:
     """Write synthetic model-analysis inputs and configured output paths."""
     labels = tmp_path / "interim/labels_annual.parquet"
@@ -132,7 +146,7 @@ def write_model_analysis_fixture(
     domain_mask = tmp_path / "interim/plausible_kelp_domain_mask.parquet"
     domain_manifest = tmp_path / "interim/plausible_kelp_domain_mask_manifest.json"
     write_labels(labels)
-    write_aligned(aligned)
+    write_aligned(aligned, include_training_mask_columns=include_training_mask_columns)
     write_split_manifest(split_manifest)
     write_predictions(predictions)
     write_metrics(metrics)
@@ -155,6 +169,8 @@ def write_model_analysis_fixture(
             domain_manifest=domain_manifest if include_domain_mask else None,
         )
     )
+    if include_reference_area_calibration:
+        write_reference_area_calibration(paths["reference_area_calibration"])
     return {"config_path": config_path, **paths}
 
 
@@ -327,7 +343,7 @@ def label_row(year: int, station_id: int, area: float, quarters: list[float]) ->
     }
 
 
-def write_aligned(path: Path) -> None:
+def write_aligned(path: Path, *, include_training_mask_columns: bool = False) -> None:
     """Write aligned labels with two simple AEF feature columns."""
     labels = pd.DataFrame(
         [
@@ -339,8 +355,56 @@ def write_aligned(path: Path) -> None:
             {**label_row(2022, 3, 900.0, [900.0, 900.0, 900.0, 900.0]), "A00": 1.0, "A01": 0.9},
         ]
     )
+    if include_training_mask_columns:
+        labels["is_plausible_kelp_domain"] = True
+        labels["domain_mask_reason"] = "retained"
+        labels["domain_mask_detail"] = "fixture"
+        labels["domain_mask_version"] = "test_mask_v1"
     path.parent.mkdir(parents=True, exist_ok=True)
     labels.to_parquet(path, index=False)
+
+
+def write_reference_area_calibration(path: Path) -> None:
+    """Write cached masked full-grid calibration rows for duplicate checks."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "ridge_regression",
+                "split": "test",
+                "year": 2022,
+                "mask_status": "plausible_kelp_domain",
+                "evaluation_scope": "full_grid_masked",
+                "label_source": "all",
+                "row_count": 2,
+                "observed_canopy_area": 900.0,
+                "predicted_canopy_area": 540.0,
+                "area_bias": -360.0,
+                "area_pct_bias": -0.4,
+                "mae": 0.25,
+                "rmse": 0.32,
+                "r2": 0.5,
+                "f1_ge_10pct": 0.8,
+            },
+            {
+                "model_name": "no_skill_train_mean",
+                "split": "test",
+                "year": 2022,
+                "mask_status": "plausible_kelp_domain",
+                "evaluation_scope": "full_grid_masked",
+                "label_source": "all",
+                "row_count": 2,
+                "observed_canopy_area": 900.0,
+                "predicted_canopy_area": 450.0,
+                "area_bias": -450.0,
+                "area_pct_bias": -0.5,
+                "mae": 0.35,
+                "rmse": 0.4,
+                "r2": 0.0,
+                "f1_ge_10pct": 0.5,
+            },
+        ]
+    ).to_csv(path, index=False)
 
 
 def write_split_manifest(path: Path) -> None:

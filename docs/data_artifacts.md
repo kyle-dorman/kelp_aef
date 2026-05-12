@@ -185,7 +185,7 @@ artifacts and should not be tracked in git.
 ## Phase 1 Masked Reporting Outputs
 
 These outputs apply the P1-12 plausible-kelp domain mask to full-grid reporting
-without changing the training or sampling artifacts.
+and pair with the masked training sample used by the current baseline run.
 
 | Output | Path | Purpose | Git |
 | --- | --- | --- | --- |
@@ -195,3 +195,15 @@ without changing the training or sampling artifacts.
 | Masked area bias by latitude band | `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_latitude_band.masked.csv` | Ridge full-grid area-bias rows by latitude band inside the retained plausible-kelp domain. | Not tracked |
 | Masked reference baseline area calibration | `/Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.masked.csv` | Compact reference-baseline and ridge area calibration rows computed inside the retained plausible-kelp domain. | Not tracked |
 | Off-domain prediction leakage audit | `/Volumes/x10pro/kelp_aef/reports/tables/off_domain_prediction_leakage_audit.csv` | Separate diagnostic for predicted area on cells dropped by the domain mask, grouped by model, split, year, and mask reason. | Not tracked |
+
+## Phase 1 Masked Training Outputs
+
+These outputs apply the P1-12 plausible-kelp domain mask to the model-input
+background sample while preserving the unmasked sample as a sidecar comparison
+artifact.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| Masked background sample training table | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet` | Background-inclusive model-input sample filtered to `is_plausible_kelp_domain = true`, with mask metadata columns retained for audit. | Not tracked |
+| Masked background sample manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked_manifest.json` | Source sample path, mask inputs, retained/dropped counts, dropped observed/positive counts, retained-domain population counts, and schema. | Not tracked |
+| Masked background sample summary | `/Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked_summary.csv` | Retained and dropped sample rows by year, label source, mask flag, and mask reason, including observed-positive counts. | Not tracked |

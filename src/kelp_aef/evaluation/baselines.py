@@ -129,6 +129,10 @@ OPTIONAL_PROVENANCE_COLUMNS = (
     "is_kelpwatch_observed",
     "kelpwatch_station_count",
     "sample_weight",
+    "is_plausible_kelp_domain",
+    "domain_mask_reason",
+    "domain_mask_detail",
+    "domain_mask_version",
 )
 FULL_GRID_PREDICTION_BATCH_SIZE = 100_000
 

@@ -13,6 +13,7 @@ from typing import Any, SupportsIndex, cast
 
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
+import polars as pl
 import rasterio  # type: ignore[import-untyped]
 from rasterio.enums import Resampling  # type: ignore[import-untyped]
 from rasterio.vrt import WarpedVRT  # type: ignore[import-untyped]
@@ -33,6 +34,14 @@ from kelp_aef.alignment.feature_label_table import (
     transformed_label_points,
 )
 from kelp_aef.config import load_yaml_config, require_mapping, require_string
+from kelp_aef.domain.reporting_mask import (
+    DEFAULT_PRIMARY_DOMAIN,
+    MASK_DETAIL_COLUMNS,
+    MASK_KEY_COLUMN,
+    MASK_RETAIN_COLUMN,
+    load_reporting_domain_mask,
+    mask_columns_in_frame,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -67,6 +76,30 @@ SAMPLE_SUMMARY_FIELDS = (
     "sample_weight_min",
     "sample_weight_max",
 )
+MASKED_SAMPLE_SUMMARY_FIELDS = (
+    "year",
+    "label_source",
+    "is_plausible_kelp_domain",
+    "domain_mask_reason",
+    "row_count",
+    "kelpwatch_observed_row_count",
+    "kelpwatch_positive_row_count",
+    "sample_weight_min",
+    "sample_weight_max",
+)
+
+
+@dataclass(frozen=True)
+class SampleDomainMaskConfig:
+    """Resolved plausible-kelp mask settings for model-input sampling."""
+
+    table_path: Path
+    manifest_path: Path | None
+    policy: str
+    output_path: Path
+    manifest_output_path: Path
+    summary_path: Path
+    fail_on_dropped_positive: bool
 
 
 @dataclass(frozen=True)
@@ -92,9 +125,22 @@ class FullGridAlignmentConfig:
     include_all_kelpwatch_observed: bool
     random_seed: int
     sample_weight_column: str
+    sample_domain_mask: SampleDomainMaskConfig | None
     fast: bool
     row_window: tuple[int, int] | None
     col_window: tuple[int, int] | None
+
+
+@dataclass(frozen=True)
+class MaskedSampleResult:
+    """Metadata returned after writing a masked background sample sidecar."""
+
+    sample: pd.DataFrame
+    population_counts: dict[int, dict[str, int]]
+    retained_counts: dict[str, int]
+    dropped_counts: dict[str, int]
+    dropped_observed_row_count: int
+    dropped_positive_row_count: int
 
 
 @dataclass(frozen=True)
@@ -145,11 +191,24 @@ def align_full_grid(config_path: Path, *, fast: bool = False) -> int:
         population_counts=population_counts,
         sample_weight_column=grid_config.sample_weight_column,
     )
+    masked_sample_result = write_masked_sample_artifacts(sample, grid_config)
     write_full_grid_summary(counters, sample, grid_config)
-    write_full_grid_manifest(counters, sample, population_counts, assets, grid_config)
+    write_full_grid_manifest(
+        counters,
+        sample,
+        population_counts,
+        assets,
+        grid_config,
+        masked_sample_result,
+    )
     validate_fast_sample(sample, grid_config)
     LOGGER.info("Wrote full-grid table: %s", grid_config.full_grid_output_path)
     LOGGER.info("Wrote background sample table: %s", grid_config.sample_output_path)
+    if masked_sample_result is not None and grid_config.sample_domain_mask is not None:
+        LOGGER.info(
+            "Wrote masked background sample table: %s",
+            grid_config.sample_domain_mask.output_path,
+        )
     LOGGER.info("Wrote full-grid manifest: %s", grid_config.full_grid_manifest_path)
     return 0
 
@@ -205,6 +264,14 @@ def load_full_grid_alignment_config(config_path: Path, *, fast: bool) -> FullGri
             "alignment.background_sample.summary_table",
         )
     )
+    sample_domain_mask = load_sample_domain_mask_config(
+        config=config,
+        background_sample=background_sample,
+        sample_output=sample_output,
+        sample_manifest=sample_manifest,
+        sample_summary=sample_summary,
+        fast=fast,
+    )
     return FullGridAlignmentConfig(
         config_path=config_path,
         years=selected_years,
@@ -254,6 +321,7 @@ def load_full_grid_alignment_config(config_path: Path, *, fast: bool) -> FullGri
         sample_weight_column=str(
             background_sample.get("sample_weight_column", DEFAULT_SAMPLE_WEIGHT_COLUMN)
         ),
+        sample_domain_mask=sample_domain_mask,
         fast=fast,
         row_window=window_from_config(
             fast_config.get("row_window"), "alignment.full_grid.fast.row_window"
@@ -265,6 +333,91 @@ def load_full_grid_alignment_config(config_path: Path, *, fast: bool) -> FullGri
         )
         if fast
         else None,
+    )
+
+
+def load_sample_domain_mask_config(
+    *,
+    config: dict[str, Any],
+    background_sample: dict[str, Any],
+    sample_output: Path,
+    sample_manifest: Path,
+    sample_summary: Path,
+    fast: bool,
+) -> SampleDomainMaskConfig | None:
+    """Load optional model-input domain-mask settings from the workflow config."""
+    mask_value = background_sample.get("domain_mask")
+    if mask_value is None:
+        return None
+    mask_config = require_mapping(mask_value, "alignment.background_sample.domain_mask")
+    reporting_mask = load_reporting_domain_mask(config)
+    policy = str(
+        mask_config.get(
+            "policy",
+            reporting_mask.primary_domain if reporting_mask is not None else DEFAULT_PRIMARY_DOMAIN,
+        )
+    )
+    if policy in {"none", "unmasked"}:
+        return None
+    if policy != DEFAULT_PRIMARY_DOMAIN:
+        msg = f"unsupported training/sampling domain-mask policy: {policy}"
+        raise ValueError(msg)
+    if reporting_mask is None:
+        msg = "alignment.background_sample.domain_mask requires reports.domain_mask mask inputs"
+        raise ValueError(msg)
+    fast_config = optional_mapping(
+        mask_config.get("fast"), "alignment.background_sample.domain_mask.fast"
+    )
+    output_value = mask_config.get("output_table")
+    manifest_value = mask_config.get("output_manifest")
+    summary_value = mask_config.get("summary_table")
+    output_path = (
+        Path(
+            require_string(
+                output_value,
+                "alignment.background_sample.domain_mask.output_table",
+            )
+        )
+        if output_value is not None
+        else suffix_path(sample_output, ".masked")
+    )
+    manifest_output_path = (
+        Path(
+            require_string(
+                manifest_value,
+                "alignment.background_sample.domain_mask.output_manifest",
+            )
+        )
+        if manifest_value is not None
+        else suffix_path(sample_manifest, ".masked")
+    )
+    summary_path = (
+        Path(
+            require_string(
+                summary_value,
+                "alignment.background_sample.domain_mask.summary_table",
+            )
+        )
+        if summary_value is not None
+        else suffix_path(sample_summary, ".masked")
+    )
+    return SampleDomainMaskConfig(
+        table_path=reporting_mask.table_path,
+        manifest_path=reporting_mask.manifest_path,
+        policy=policy,
+        output_path=fast_path(output_path, fast, fast_config, "output_table"),
+        manifest_output_path=fast_path(
+            manifest_output_path,
+            fast,
+            fast_config,
+            "output_manifest",
+        ),
+        summary_path=fast_path(summary_path, fast, fast_config, "summary_table"),
+        fail_on_dropped_positive=optional_bool(
+            mask_config.get("fail_on_dropped_positive"),
+            "alignment.background_sample.domain_mask.fail_on_dropped_positive",
+            True,
+        ),
     )
 
 
@@ -703,6 +856,211 @@ def finalize_sample_weights(
     return sample
 
 
+def write_masked_sample_artifacts(
+    sample: pd.DataFrame, grid_config: FullGridAlignmentConfig
+) -> MaskedSampleResult | None:
+    """Write a retained-domain sidecar sample and its audit artifacts."""
+    mask_config = grid_config.sample_domain_mask
+    if mask_config is None:
+        return None
+    LOGGER.info("Applying %s mask to background sample", mask_config.policy)
+    joined = join_sample_to_domain_mask(sample, mask_config)
+    retained_mask = joined[MASK_RETAIN_COLUMN].astype(bool)
+    dropped = joined.loc[~retained_mask]
+    dropped_positive = dropped.loc[
+        (dropped["label_source"] == KELPWATCH_STATION) & (dropped["kelp_max_y"] > 0)
+    ]
+    if mask_config.fail_on_dropped_positive and not dropped_positive.empty:
+        msg = f"domain mask dropped Kelpwatch-positive training rows: {len(dropped_positive)} rows"
+        raise ValueError(msg)
+    population_counts = masked_full_grid_population_counts(
+        grid_config.full_grid_output_path,
+        mask_config,
+    )
+    masked = joined.loc[retained_mask].copy()
+    if masked.empty:
+        msg = f"domain mask retained no sample rows: {mask_config.table_path}"
+        raise ValueError(msg)
+    masked = recompute_sample_weights(
+        masked,
+        population_counts,
+        grid_config.sample_weight_column,
+    )
+    summary_frame = joined.copy()
+    summary_frame.loc[masked.index, grid_config.sample_weight_column] = masked[
+        grid_config.sample_weight_column
+    ]
+    summary_rows = masked_sample_summary_rows(
+        summary_frame,
+        grid_config.sample_weight_column,
+    )
+    reset_output_path(mask_config.output_path)
+    write_part(masked, mask_config.output_path, year=0, part_index=0)
+    write_csv(summary_rows, mask_config.summary_path, MASKED_SAMPLE_SUMMARY_FIELDS)
+    result = MaskedSampleResult(
+        sample=masked,
+        population_counts=population_counts,
+        retained_counts=count_rows_by_year_label(masked),
+        dropped_counts=count_rows_by_year_label(dropped),
+        dropped_observed_row_count=observed_row_count(dropped),
+        dropped_positive_row_count=len(dropped_positive),
+    )
+    write_masked_sample_manifest(
+        result=result,
+        source_sample=sample,
+        summary_rows=summary_rows,
+        grid_config=grid_config,
+        mask_config=mask_config,
+    )
+    LOGGER.info(
+        "Retained %s of %s sample rows after domain mask",
+        len(masked),
+        len(joined),
+    )
+    return result
+
+
+def join_sample_to_domain_mask(
+    sample: pd.DataFrame, mask_config: SampleDomainMaskConfig
+) -> pd.DataFrame:
+    """Join sample rows to static plausible-kelp mask metadata."""
+    if MASK_KEY_COLUMN not in sample.columns:
+        msg = f"domain mask requires sample column: {MASK_KEY_COLUMN}"
+        raise ValueError(msg)
+    clean = sample.drop(columns=mask_columns_in_frame(sample), errors="ignore")
+    joined = clean.join(read_sample_mask_lookup(mask_config), on=MASK_KEY_COLUMN, how="left")
+    missing = joined[MASK_RETAIN_COLUMN].isna()
+    if bool(missing.any()):
+        msg = f"domain mask is missing rows for {int(missing.sum())} sample cells"
+        raise ValueError(msg)
+    return cast(pd.DataFrame, joined)
+
+
+def read_sample_mask_lookup(mask_config: SampleDomainMaskConfig) -> pd.DataFrame:
+    """Read mask metadata indexed by target-grid cell id for sample joins."""
+    mask = pd.read_parquet(mask_config.table_path, columns=list(MASK_DETAIL_COLUMNS))
+    missing = [column for column in (MASK_KEY_COLUMN, MASK_RETAIN_COLUMN) if column not in mask]
+    if missing:
+        msg = f"domain mask table is missing required columns: {missing}"
+        raise ValueError(msg)
+    columns = [column for column in MASK_DETAIL_COLUMNS if column in mask.columns]
+    indexed = mask[columns].set_index(MASK_KEY_COLUMN)
+    if not indexed.index.is_unique:
+        msg = f"domain mask table has duplicate cell ids: {mask_config.table_path}"
+        raise ValueError(msg)
+    return cast(pd.DataFrame, indexed)
+
+
+def masked_full_grid_population_counts(
+    full_grid_path: Path,
+    mask_config: SampleDomainMaskConfig,
+) -> dict[int, dict[str, int]]:
+    """Count retained full-grid cells by year and label source for weighting."""
+    full_grid = pl.scan_parquet(str(full_grid_path)).select(
+        ["year", "label_source", MASK_KEY_COLUMN]
+    )
+    mask = pl.scan_parquet(str(mask_config.table_path)).select(
+        [MASK_KEY_COLUMN, MASK_RETAIN_COLUMN]
+    )
+    missing = (
+        full_grid.join(mask.select(MASK_KEY_COLUMN), on=MASK_KEY_COLUMN, how="anti")
+        .select(pl.len().alias("row_count"))
+        .collect()
+    )
+    missing_count = int(missing["row_count"][0])
+    if missing_count:
+        msg = f"domain mask is missing rows for {missing_count} full-grid cells"
+        raise ValueError(msg)
+    counts_frame = (
+        full_grid.join(
+            mask.filter(pl.col(MASK_RETAIN_COLUMN)).select(MASK_KEY_COLUMN),
+            on=MASK_KEY_COLUMN,
+            how="inner",
+        )
+        .group_by(["year", "label_source"])
+        .agg(pl.len().alias("row_count"))
+        .collect()
+    )
+    counts: dict[int, dict[str, int]] = {}
+    for row in counts_frame.to_dicts():
+        year = int(cast(Any, row["year"]))
+        label_source = str(row["label_source"])
+        counts.setdefault(year, {})[label_source] = int(cast(Any, row["row_count"]))
+    return counts
+
+
+def recompute_sample_weights(
+    sample: pd.DataFrame,
+    population_counts: dict[int, dict[str, int]],
+    sample_weight_column: str,
+) -> pd.DataFrame:
+    """Recompute sample expansion weights against the retained mask domain."""
+    weighted = sample.copy()
+    weighted[sample_weight_column] = 1.0
+    for keys, group in weighted.groupby(["year", "label_source"], sort=False):
+        year, label_source = cast(tuple[int, str], keys)
+        if label_source != ASSUMED_BACKGROUND:
+            continue
+        population = population_counts.get(int(year), {}).get(ASSUMED_BACKGROUND, 0)
+        if population <= 0:
+            msg = f"no retained assumed-background population for year {int(year)}"
+            raise ValueError(msg)
+        weighted.loc[group.index, sample_weight_column] = float(population / max(len(group), 1))
+    return weighted
+
+
+def masked_sample_summary_rows(
+    dataframe: pd.DataFrame,
+    sample_weight_column: str,
+) -> list[dict[str, object]]:
+    """Summarize retained and dropped sample rows by year, source, and mask reason."""
+    rows: list[dict[str, object]] = []
+    group_columns = ["year", "label_source", MASK_RETAIN_COLUMN, "domain_mask_reason"]
+    for keys, group in dataframe.groupby(group_columns, dropna=False, sort=True):
+        year, label_source, retained, reason = cast(tuple[int, str, bool, object], keys)
+        weights = group[sample_weight_column].to_numpy(dtype=float)
+        rows.append(
+            {
+                "year": int(year),
+                "label_source": str(label_source),
+                "is_plausible_kelp_domain": bool(retained),
+                "domain_mask_reason": "" if pd.isna(reason) else str(reason),
+                "row_count": int(len(group)),
+                "kelpwatch_observed_row_count": observed_row_count(group),
+                "kelpwatch_positive_row_count": positive_observed_row_count(group),
+                "sample_weight_min": float(np.nanmin(weights)),
+                "sample_weight_max": float(np.nanmax(weights)),
+            }
+        )
+    return rows
+
+
+def count_rows_by_year_label(dataframe: pd.DataFrame) -> dict[str, int]:
+    """Count rows by stable year and label-source manifest keys."""
+    counts: dict[str, int] = {}
+    for keys, group in dataframe.groupby(["year", "label_source"], sort=True):
+        year, label_source = cast(tuple[int, str], keys)
+        counts[f"{int(year)}:{label_source}"] = int(len(group))
+    return counts
+
+
+def observed_row_count(dataframe: pd.DataFrame) -> int:
+    """Count Kelpwatch-observed rows in a sample frame."""
+    if "is_kelpwatch_observed" in dataframe.columns:
+        return int(dataframe["is_kelpwatch_observed"].fillna(False).sum())
+    return int((dataframe["label_source"] == KELPWATCH_STATION).sum())
+
+
+def positive_observed_row_count(dataframe: pd.DataFrame) -> int:
+    """Count Kelpwatch-observed rows with positive annual max canopy."""
+    observed = (
+        dataframe["is_kelpwatch_observed"].fillna(False).astype(bool)
+        if "is_kelpwatch_observed" in dataframe.columns
+        else dataframe["label_source"] == KELPWATCH_STATION
+    )
+    return int((observed & (dataframe["kelp_max_y"] > 0)).sum())
+
+
 def write_full_grid_summary(
     counters: CountAccumulator, sample: pd.DataFrame, grid_config: FullGridAlignmentConfig
 ) -> None:
@@ -755,6 +1113,7 @@ def write_full_grid_manifest(
     population_counts: dict[int, dict[str, int]],
     assets: dict[int, AefYearAsset],
     grid_config: FullGridAlignmentConfig,
+    masked_sample_result: MaskedSampleResult | None,
 ) -> None:
     """Write manifests for full-grid and sampled training artifacts."""
     full_payload = {
@@ -788,6 +1147,10 @@ def write_full_grid_manifest(
             for year, asset in sorted(assets.items())
         },
     }
+    if masked_sample_result is not None and grid_config.sample_domain_mask is not None:
+        full_payload["masked_sample_output"] = str(grid_config.sample_domain_mask.output_path)
+        full_payload["masked_sample_counts"] = masked_sample_result.retained_counts
+        full_payload["masked_population_counts"] = masked_sample_result.population_counts
     sample_payload = {
         "command": "align-full-grid",
         "artifact": "background_sample",
@@ -801,6 +1164,45 @@ def write_full_grid_manifest(
     }
     write_json(grid_config.full_grid_manifest_path, full_payload)
     write_json(grid_config.sample_manifest_path, sample_payload)
+
+
+def write_masked_sample_manifest(
+    *,
+    result: MaskedSampleResult,
+    source_sample: pd.DataFrame,
+    summary_rows: list[dict[str, object]],
+    grid_config: FullGridAlignmentConfig,
+    mask_config: SampleDomainMaskConfig,
+) -> None:
+    """Write a JSON manifest for the masked model-input sample sidecar."""
+    payload = {
+        "command": "align-full-grid",
+        "artifact": "background_sample_domain_mask",
+        "config_path": str(grid_config.config_path),
+        "fast": grid_config.fast,
+        "domain_policy": mask_config.policy,
+        "mask_table": str(mask_config.table_path),
+        "mask_manifest": str(mask_config.manifest_path) if mask_config.manifest_path else None,
+        "source_sample_output": str(grid_config.sample_output_path),
+        "masked_sample_output": str(mask_config.output_path),
+        "masked_sample_summary": str(mask_config.summary_path),
+        "source_sample_row_count": int(len(source_sample)),
+        "masked_sample_row_count": int(len(result.sample)),
+        "dropped_sample_row_count": int(len(source_sample) - len(result.sample)),
+        "retained_counts": result.retained_counts,
+        "dropped_counts": result.dropped_counts,
+        "dropped_observed_row_count": result.dropped_observed_row_count,
+        "dropped_positive_row_count": result.dropped_positive_row_count,
+        "population_counts": result.population_counts,
+        "sample_weight_column": grid_config.sample_weight_column,
+        "background_rows_per_year": grid_config.background_rows_per_year,
+        "include_all_kelpwatch_observed": grid_config.include_all_kelpwatch_observed,
+        "random_seed": grid_config.random_seed,
+        "fail_on_dropped_positive": mask_config.fail_on_dropped_positive,
+        "summary_row_count": len(summary_rows),
+        "schema": list(result.sample.columns),
+    }
+    write_json(mask_config.manifest_output_path, payload)
 
 
 def validate_fast_sample(sample: pd.DataFrame, grid_config: FullGridAlignmentConfig) -> None:
