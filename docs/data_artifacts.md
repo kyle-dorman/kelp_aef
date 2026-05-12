@@ -209,6 +209,18 @@ domain. They do not change mask thresholds, model inputs, or fitted models.
 | Top residuals with domain context | `/Volumes/x10pro/kelp_aef/reports/tables/top_residual_stations.domain_context.csv` | Highest underprediction and overprediction rows with mask reason, CRM depth/elevation, depth bin, elevation bin, label source, coordinates, and residual class. | Not tracked |
 | Residual by domain context figure | `/Volumes/x10pro/kelp_aef/reports/figures/model_analysis_residual_by_domain_context.png` | Compact report figure showing mean residual by retained depth/elevation bin. | Not tracked |
 
+## Phase 1 Class And Target-Balance Diagnostics
+
+These outputs quantify annual-max target imbalance before changing thresholds,
+objectives, model classes, sample weights, or label inputs.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| Class balance by split | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_class_balance_by_split.csv` | Positive, high-canopy, saturated, zero, and assumed-background rates by data scope, split, year, label source, mask status, and evaluation scope. | Not tracked |
+| Target balance by label source | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_target_balance_by_label_source.csv` | Source-level annual-max target distribution by label source and mask status. | Not tracked |
+| Background rate summary | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_background_rate_summary.csv` | Compact assumed-background rate summary by data scope, split, year, mask status, and evaluation scope. | Not tracked |
+| Class balance figure | `/Volumes/x10pro/kelp_aef/reports/figures/model_analysis_class_balance.png` | Compact report figure comparing zero, positive, high-canopy, and saturated rates for primary analysis scopes. | Not tracked |
+
 ## Phase 1 Masked Training Outputs
 
 These outputs apply the P1-12 plausible-kelp domain mask to the model-input

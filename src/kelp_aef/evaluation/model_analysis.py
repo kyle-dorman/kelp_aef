@@ -297,6 +297,38 @@ DATA_HEALTH_FIELDS = (
     "rate",
     "detail",
 )
+CLASS_BALANCE_FIELDS = (
+    "data_scope",
+    "mask_status",
+    "evaluation_scope",
+    "split",
+    "year",
+    "label_source",
+    "row_count",
+    "station_count",
+    "zero_count",
+    "zero_rate",
+    "positive_count",
+    "positive_rate",
+    "positive_ge_1pct_count",
+    "positive_ge_1pct_rate",
+    "positive_ge_5pct_count",
+    "positive_ge_5pct_rate",
+    "positive_ge_10pct_count",
+    "positive_ge_10pct_rate",
+    "high_canopy_count",
+    "high_canopy_rate",
+    "very_high_canopy_count",
+    "very_high_canopy_rate",
+    "saturated_count",
+    "saturated_rate",
+    "assumed_background_count",
+    "assumed_background_rate",
+    "observed_canopy_area",
+    "mean_observed_canopy_area",
+)
+TARGET_BALANCE_FIELDS = CLASS_BALANCE_FIELDS
+BACKGROUND_RATE_FIELDS = CLASS_BALANCE_FIELDS
 RESIDUAL_DOMAIN_CONTEXT_FIELDS = (
     "model_name",
     "split",
@@ -374,6 +406,7 @@ class ModelAnalysisConfig:
     source_manifest_path: Path | None
     aligned_table_path: Path
     split_manifest_path: Path
+    sample_predictions_path: Path | None
     predictions_path: Path
     metrics_path: Path
     model_name: str
@@ -401,6 +434,9 @@ class ModelAnalysisConfig:
     phase1_decision_path: Path
     phase1_model_comparison_path: Path
     data_health_path: Path
+    class_balance_by_split_path: Path
+    target_balance_by_label_source_path: Path
+    background_rate_summary_path: Path
     residual_domain_context_path: Path
     residual_by_mask_reason_path: Path
     residual_by_depth_bin_path: Path
@@ -416,11 +452,22 @@ class ModelAnalysisConfig:
     alternative_targets_figure: Path
     feature_projection_figure: Path
     spatial_readiness_figure: Path
+    class_balance_figure: Path
     residual_domain_context_figure: Path
     observed_predicted_residual_map_figure: Path
     residual_interactive_html: Path
     top_residual_count: int
     domain_mask: ReportingDomainMask | None
+
+
+@dataclass(frozen=True)
+class BalanceSource:
+    """Prepared target-balance source frame plus report metadata."""
+
+    data_scope: str
+    mask_status: str
+    evaluation_scope: str
+    frame: pd.DataFrame
 
 
 @dataclass(frozen=True)
@@ -438,6 +485,9 @@ class AnalysisTables:
     phase1_decision: list[dict[str, object]]
     phase1_model_comparison: list[dict[str, object]]
     data_health: list[dict[str, object]]
+    class_balance_by_split: list[dict[str, object]]
+    target_balance_by_label_source: list[dict[str, object]]
+    background_rate_summary: list[dict[str, object]]
     residual_domain_context: list[dict[str, object]]
     residual_by_mask_reason: list[dict[str, object]]
     residual_by_depth_bin: list[dict[str, object]]
@@ -454,6 +504,7 @@ class AnalysisData:
     aligned: pd.DataFrame
     split_manifest: pd.DataFrame
     predictions: pd.DataFrame
+    sample_predictions: pd.DataFrame
     metrics: pd.DataFrame
     model_predictions: pd.DataFrame
     labels_with_targets: pd.DataFrame
@@ -523,6 +574,7 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
         split_manifest_path=Path(
             require_string(splits.get("output_manifest"), "splits.output_manifest")
         ),
+        sample_predictions_path=optional_path(baselines.get("sample_predictions")),
         predictions_path=Path(
             require_string(baselines.get("predictions"), "models.baselines.predictions")
         ),
@@ -638,6 +690,21 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             "model_analysis_data_health",
             tables_dir / "model_analysis_data_health.csv",
         ),
+        class_balance_by_split_path=output_path(
+            outputs,
+            "model_analysis_class_balance_by_split",
+            tables_dir / "model_analysis_class_balance_by_split.csv",
+        ),
+        target_balance_by_label_source_path=output_path(
+            outputs,
+            "model_analysis_target_balance_by_label_source",
+            tables_dir / "model_analysis_target_balance_by_label_source.csv",
+        ),
+        background_rate_summary_path=output_path(
+            outputs,
+            "model_analysis_background_rate_summary",
+            tables_dir / "model_analysis_background_rate_summary.csv",
+        ),
         residual_domain_context_path=output_path(
             outputs,
             "model_analysis_residual_by_domain_context",
@@ -714,6 +781,11 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             outputs,
             "model_analysis_spatial_readiness_figure",
             figures_dir / "model_analysis_spatial_holdout_readiness.png",
+        ),
+        class_balance_figure=output_path(
+            outputs,
+            "model_analysis_class_balance_figure",
+            figures_dir / "model_analysis_class_balance.png",
         ),
         residual_domain_context_figure=output_path(
             outputs,
@@ -816,6 +888,7 @@ def load_analysis_data(analysis_config: ModelAnalysisConfig) -> AnalysisData:
     labels = pd.read_parquet(analysis_config.label_path)
     aligned = pd.read_parquet(analysis_config.aligned_table_path)
     split_manifest = pd.read_parquet(analysis_config.split_manifest_path)
+    sample_predictions = read_sample_prediction_rows(analysis_config)
     predictions = read_model_prediction_rows(analysis_config)
     metrics = pd.read_csv(analysis_config.metrics_path)
     validate_columns(labels, REQUIRED_LABEL_COLUMNS, "annual labels")
@@ -845,6 +918,7 @@ def load_analysis_data(analysis_config: ModelAnalysisConfig) -> AnalysisData:
         aligned=aligned,
         split_manifest=split_manifest,
         predictions=predictions,
+        sample_predictions=sample_predictions,
         metrics=metrics,
         model_predictions=model_predictions,
         labels_with_targets=labels_with_targets,
@@ -953,6 +1027,31 @@ def read_model_prediction_rows(analysis_config: ModelAnalysisConfig) -> pd.DataF
         analysis_config.predictions_path,
     )
     return masked
+
+
+def read_sample_prediction_rows(analysis_config: ModelAnalysisConfig) -> pd.DataFrame:
+    """Read configured sample-prediction rows for balance diagnostics."""
+    if analysis_config.sample_predictions_path is None:
+        return pd.DataFrame()
+    if not analysis_config.sample_predictions_path.exists():
+        LOGGER.info(
+            "Skipping sample-prediction balance diagnostics; path is missing: %s",
+            analysis_config.sample_predictions_path,
+        )
+        return pd.DataFrame()
+    columns = available_prediction_columns(analysis_config.sample_predictions_path)
+    dataset = ds.dataset(analysis_config.sample_predictions_path, format="parquet")  # type: ignore[no-untyped-call]
+    table = dataset.to_table(
+        columns=columns,
+        filter=dataset_field("model_name") == analysis_config.model_name,
+    )
+    frame = table.to_pandas()
+    LOGGER.info(
+        "Loaded %s %s sample-prediction rows for balance diagnostics",
+        len(frame),
+        analysis_config.model_name,
+    )
+    return cast(pd.DataFrame, frame)
 
 
 def available_prediction_columns(path: Path) -> list[str]:
@@ -1094,6 +1193,10 @@ def build_analysis_tables(
         data, analysis_config, reference_area_calibration
     )
     data_health = build_data_health_rows(data, analysis_config)
+    balance_sources = build_balance_sources(data, analysis_config)
+    class_balance_by_split = build_class_balance_by_split(balance_sources)
+    target_balance_by_label_source = build_target_balance_by_label_source(balance_sources)
+    background_rate_summary = build_background_rate_summary(balance_sources)
     residual_domain_context = build_residual_domain_context(data.model_predictions, analysis_config)
     residual_by_mask_reason = build_residual_by_mask_reason(data.model_predictions, analysis_config)
     residual_by_depth_bin = build_residual_by_depth_bin(data.model_predictions, analysis_config)
@@ -1112,6 +1215,9 @@ def build_analysis_tables(
         phase1_decision=phase1_decision,
         phase1_model_comparison=phase1_model_comparison,
         data_health=data_health,
+        class_balance_by_split=class_balance_by_split,
+        target_balance_by_label_source=target_balance_by_label_source,
+        background_rate_summary=background_rate_summary,
         residual_domain_context=residual_domain_context,
         residual_by_mask_reason=residual_by_mask_reason,
         residual_by_depth_bin=residual_by_depth_bin,
@@ -2312,6 +2418,205 @@ def build_data_health_rows(
     return rows
 
 
+def build_balance_sources(
+    data: AnalysisData, analysis_config: ModelAnalysisConfig
+) -> list[BalanceSource]:
+    """Prepare the model-analysis sources used for target-balance diagnostics."""
+    split_by_year = split_by_year_mapping(data.split_manifest)
+    sources = [
+        BalanceSource(
+            data_scope="model_input_sample",
+            mask_status=frame_mask_status(data.aligned, analysis_config),
+            evaluation_scope="model_input_sample",
+            frame=prepare_balance_frame(data.aligned, split_by_year),
+        )
+    ]
+    retained_split_manifest = retained_split_manifest_rows(data.split_manifest)
+    sources.append(
+        BalanceSource(
+            data_scope="split_manifest_retained",
+            mask_status=frame_mask_status(retained_split_manifest, analysis_config),
+            evaluation_scope="split_manifest_retained",
+            frame=prepare_balance_frame(retained_split_manifest, split_by_year),
+        )
+    )
+    if not data.sample_predictions.empty:
+        sources.append(
+            BalanceSource(
+                data_scope="sample_predictions",
+                mask_status=frame_mask_status(data.sample_predictions, analysis_config),
+                evaluation_scope="sample_predictions",
+                frame=prepare_balance_frame(data.sample_predictions, split_by_year),
+            )
+        )
+    sources.append(
+        BalanceSource(
+            data_scope=evaluation_scope(analysis_config.domain_mask),
+            mask_status=mask_status(analysis_config.domain_mask),
+            evaluation_scope=evaluation_scope(analysis_config.domain_mask),
+            frame=prepare_balance_frame(data.model_predictions, split_by_year),
+        )
+    )
+    return [source for source in sources if not source.frame.empty]
+
+
+def split_by_year_mapping(split_manifest: pd.DataFrame) -> dict[int, str]:
+    """Infer split labels from split-manifest years for tables lacking split columns."""
+    if "year" not in split_manifest.columns or "split" not in split_manifest.columns:
+        return {}
+    mapping: dict[int, str] = {}
+    for year, group in split_manifest.groupby("year", sort=True):
+        splits = sorted(str(value) for value in group["split"].dropna().unique())
+        mapping[int(cast(int, year))] = splits[0] if len(splits) == 1 else ",".join(splits)
+    return mapping
+
+
+def retained_split_manifest_rows(split_manifest: pd.DataFrame) -> pd.DataFrame:
+    """Return split-manifest rows retained for model training and evaluation."""
+    if "used_for_training_eval" not in split_manifest.columns:
+        return split_manifest.copy()
+    retained = split_manifest["used_for_training_eval"].fillna(False).astype(bool)
+    return cast(pd.DataFrame, split_manifest.loc[retained].copy())
+
+
+def frame_mask_status(dataframe: pd.DataFrame, analysis_config: ModelAnalysisConfig) -> str:
+    """Infer the mask-status label for a sample-like balance source."""
+    if analysis_config.domain_mask is None:
+        return "unmasked"
+    if MASK_RETAIN_COLUMN not in dataframe.columns:
+        return "unmasked"
+    retained = dataframe[MASK_RETAIN_COLUMN].dropna().astype(bool)
+    if retained.empty or not bool(retained.all()):
+        return "unmasked"
+    return mask_status(analysis_config.domain_mask)
+
+
+def prepare_balance_frame(dataframe: pd.DataFrame, split_by_year: dict[int, str]) -> pd.DataFrame:
+    """Normalize target, split, and label-source columns for balance summaries."""
+    frame = dataframe.copy()
+    if "kelp_max_y" not in frame.columns and "kelp_fraction_y" in frame.columns:
+        frame["kelp_max_y"] = frame["kelp_fraction_y"].astype(float) * KELPWATCH_PIXEL_AREA_M2
+    if "kelp_fraction_y" not in frame.columns and "kelp_max_y" in frame.columns:
+        frame["kelp_fraction_y"] = frame["kelp_max_y"].astype(float) / KELPWATCH_PIXEL_AREA_M2
+    if "split" not in frame.columns:
+        frame["split"] = frame["year"].map(lambda year: split_by_year.get(int(year), "all"))
+    frame["label_source"] = label_source_series(frame)
+    return frame
+
+
+def build_class_balance_by_split(sources: list[BalanceSource]) -> list[dict[str, object]]:
+    """Build class-balance diagnostics grouped by split, year, and label source."""
+    rows: list[dict[str, object]] = []
+    for source in sources:
+        rows.extend(balance_group_rows(source, ["split", "year"]))
+        rows.extend(balance_group_rows(source, ["split", "year", "label_source"]))
+    return rows
+
+
+def build_target_balance_by_label_source(
+    sources: list[BalanceSource],
+) -> list[dict[str, object]]:
+    """Build target-balance diagnostics grouped by source and label provenance."""
+    rows: list[dict[str, object]] = []
+    for source in sources:
+        rows.extend(balance_group_rows(source, []))
+        rows.extend(balance_group_rows(source, ["label_source"]))
+    return rows
+
+
+def build_background_rate_summary(sources: list[BalanceSource]) -> list[dict[str, object]]:
+    """Build compact assumed-background rate rows by split and source scope."""
+    rows: list[dict[str, object]] = []
+    for source in sources:
+        rows.extend(balance_group_rows(source, ["split", "year"]))
+    return rows
+
+
+def balance_group_rows(source: BalanceSource, group_columns: list[str]) -> list[dict[str, object]]:
+    """Aggregate one balance source over requested grouping columns."""
+    if source.frame.empty:
+        return []
+    if not group_columns:
+        return [
+            balance_summary_row(
+                source,
+                source.frame,
+                {"split": "all", "year": "all", "label_source": "all"},
+            )
+        ]
+    rows: list[dict[str, object]] = []
+    for keys, group in source.frame.groupby(group_columns, sort=True, dropna=False):
+        key_tuple = keys if isinstance(keys, tuple) else (keys,)
+        group_values: dict[str, object] = {
+            "split": "all",
+            "year": "all",
+            "label_source": "all",
+        }
+        for column, value in zip(group_columns, key_tuple, strict=True):
+            group_values[column] = normalized_group_value(value)
+        rows.append(balance_summary_row(source, group, group_values))
+    return rows
+
+
+def balance_summary_row(
+    source: BalanceSource, group: pd.DataFrame, group_values: dict[str, object]
+) -> dict[str, object]:
+    """Build one class and target-balance row."""
+    observed_area = group["kelp_max_y"].to_numpy(dtype=float)
+    observed_fraction = group["kelp_fraction_y"].to_numpy(dtype=float)
+    finite_area = observed_area[np.isfinite(observed_area)]
+    target_count = int(finite_area.size)
+    label_sources = label_source_series(group)
+    assumed_background_count = int(np.count_nonzero(label_sources == "assumed_background"))
+    row_count = int(len(group))
+    zero_count = int(np.count_nonzero(finite_area == 0))
+    positive_count = int(np.count_nonzero(finite_area > 0))
+    positive_ge_1pct_count = int(np.count_nonzero(observed_fraction >= 0.01))
+    positive_ge_5pct_count = int(np.count_nonzero(observed_fraction >= 0.05))
+    positive_ge_10pct_count = int(np.count_nonzero(observed_fraction >= 0.10))
+    high_canopy_count = int(np.count_nonzero(finite_area >= 450.0))
+    very_high_canopy_count = int(np.count_nonzero(finite_area >= 810.0))
+    saturated_count = int(np.count_nonzero(finite_area >= KELPWATCH_PIXEL_AREA_M2))
+    observed_canopy_area = float(np.nansum(finite_area)) if target_count else math.nan
+    return {
+        "data_scope": source.data_scope,
+        "mask_status": source.mask_status,
+        "evaluation_scope": source.evaluation_scope,
+        "split": group_values["split"],
+        "year": group_values["year"],
+        "label_source": group_values["label_source"],
+        "row_count": row_count,
+        "station_count": balance_station_count(group),
+        "zero_count": zero_count,
+        "zero_rate": safe_ratio(zero_count, target_count),
+        "positive_count": positive_count,
+        "positive_rate": safe_ratio(positive_count, target_count),
+        "positive_ge_1pct_count": positive_ge_1pct_count,
+        "positive_ge_1pct_rate": safe_ratio(positive_ge_1pct_count, target_count),
+        "positive_ge_5pct_count": positive_ge_5pct_count,
+        "positive_ge_5pct_rate": safe_ratio(positive_ge_5pct_count, target_count),
+        "positive_ge_10pct_count": positive_ge_10pct_count,
+        "positive_ge_10pct_rate": safe_ratio(positive_ge_10pct_count, target_count),
+        "high_canopy_count": high_canopy_count,
+        "high_canopy_rate": safe_ratio(high_canopy_count, target_count),
+        "very_high_canopy_count": very_high_canopy_count,
+        "very_high_canopy_rate": safe_ratio(very_high_canopy_count, target_count),
+        "saturated_count": saturated_count,
+        "saturated_rate": safe_ratio(saturated_count, target_count),
+        "assumed_background_count": assumed_background_count,
+        "assumed_background_rate": safe_ratio(assumed_background_count, row_count),
+        "observed_canopy_area": observed_canopy_area,
+        "mean_observed_canopy_area": safe_mean(finite_area),
+    }
+
+
+def balance_station_count(group: pd.DataFrame) -> int:
+    """Count unique Kelpwatch station ids when a grouped frame has station support."""
+    if "kelpwatch_station_id" not in group.columns:
+        return 0
+    return int(group["kelpwatch_station_id"].dropna().nunique())
+
+
 def year_count_health_rows(check_name: str, dataframe: pd.DataFrame) -> list[dict[str, object]]:
     """Build data-health count rows by year."""
     rows: list[dict[str, object]] = []
@@ -2629,6 +2934,21 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
         PHASE1_MODEL_COMPARISON_FIELDS,
     )
     write_csv(
+        tables.class_balance_by_split,
+        analysis_config.class_balance_by_split_path,
+        CLASS_BALANCE_FIELDS,
+    )
+    write_csv(
+        tables.target_balance_by_label_source,
+        analysis_config.target_balance_by_label_source_path,
+        TARGET_BALANCE_FIELDS,
+    )
+    write_csv(
+        tables.background_rate_summary,
+        analysis_config.background_rate_summary_path,
+        BACKGROUND_RATE_FIELDS,
+    )
+    write_csv(
         tables.residual_domain_context,
         analysis_config.residual_domain_context_path,
         RESIDUAL_DOMAIN_CONTEXT_FIELDS,
@@ -2681,6 +3001,7 @@ def write_analysis_figures(
     )
     write_feature_projection_figure(projection_frame, analysis_config)
     write_spatial_readiness_figure(tables, analysis_config)
+    write_class_balance_figure(tables, analysis_config)
     write_residual_domain_context_figure(tables, analysis_config)
 
 
@@ -2907,6 +3228,54 @@ def write_spatial_readiness_figure(
     plt.close(fig)
 
 
+def write_class_balance_figure(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> None:
+    """Write a compact class-balance figure for the primary analysis split."""
+    output_path = analysis_config.class_balance_figure
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        row
+        for row in tables.class_balance_by_split
+        if row.get("label_source") == "all"
+        and row.get("split") == analysis_config.analysis_split
+        and str(row.get("year")) == str(analysis_config.analysis_year)
+    ]
+    if not rows:
+        rows = [
+            row for row in tables.target_balance_by_label_source if row.get("label_source") == "all"
+        ]
+    fig, axis = plt.subplots(figsize=(10, 4.8), constrained_layout=True)
+    if not rows:
+        axis.text(0.5, 0.5, "No class-balance rows", ha="center", va="center")
+        axis.set_axis_off()
+    else:
+        labels = [str(row["data_scope"]) for row in rows]
+        x_values = np.arange(len(labels))
+        width = 0.2
+        series = [
+            ("zero", "zero_rate"),
+            ("positive", "positive_rate"),
+            ("high", "high_canopy_rate"),
+            ("saturated", "saturated_rate"),
+        ]
+        for index, (label, column) in enumerate(series):
+            offset = (index - 1.5) * width
+            axis.bar(
+                x_values + offset,
+                [row_float(row, column, default=0.0) for row in rows],
+                width=width,
+                label=label,
+            )
+        axis.set_xticks(x_values, labels, rotation=20, ha="right")
+        axis.set_ylim(0, 1)
+        axis.set_title("Annual-max class balance")
+        axis.set_ylabel("Share of rows")
+        axis.legend()
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
 def write_residual_domain_context_figure(
     tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> None:
@@ -3055,6 +3424,16 @@ def write_report(
             output_path,
         ),
         "",
+        "## Class And Target Balance",
+        "",
+        class_target_balance_markdown(tables, analysis_config),
+        "",
+        image_markdown(
+            "Annual-max class balance",
+            analysis_config.class_balance_figure,
+            output_path,
+        ),
+        "",
         "## Binary Threshold Sensitivity",
         "",
         threshold_sensitivity_markdown(tables.threshold_sensitivity, analysis_config),
@@ -3079,6 +3458,9 @@ def write_report(
         f"- Residual by mask reason table: `{analysis_config.residual_by_mask_reason_path}`",
         f"- Residual by depth/elevation bin table: `{analysis_config.residual_by_depth_bin_path}`",
         f"- Top residual domain-context table: `{analysis_config.top_residual_context_path}`",
+        f"- Class balance by split table: `{analysis_config.class_balance_by_split_path}`",
+        f"- Target balance by label source table: `{analysis_config.target_balance_by_label_source_path}`",
+        f"- Background rate summary table: `{analysis_config.background_rate_summary_path}`",
         f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
         f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
@@ -4020,6 +4402,108 @@ def residual_diagnostic_interpretation(
     )
 
 
+def class_target_balance_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build Markdown explaining annual-max class and target imbalance."""
+    primary_rows = [
+        row
+        for row in tables.class_balance_by_split
+        if row.get("label_source") == "all"
+        and row.get("split") == analysis_config.analysis_split
+        and str(row.get("year")) == str(analysis_config.analysis_year)
+    ]
+    if not primary_rows:
+        primary_rows = [
+            row for row in tables.target_balance_by_label_source if row.get("label_source") == "all"
+        ]
+    if not primary_rows:
+        return "Class and target-balance rows were not available."
+    model_sample = first_balance_scope_row(
+        tables.target_balance_by_label_source, "model_input_sample"
+    )
+    full_grid = first_balance_scope_row(
+        tables.class_balance_by_split,
+        evaluation_scope(analysis_config.domain_mask),
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+    )
+    if not full_grid:
+        full_grid = first_balance_scope_row(
+            tables.target_balance_by_label_source,
+            evaluation_scope(analysis_config.domain_mask),
+        )
+    sample_zero_rate = row_float(model_sample, "zero_rate")
+    sample_background_rate = row_float(model_sample, "assumed_background_rate")
+    full_grid_zero_rate = row_float(full_grid, "zero_rate")
+    full_grid_background_rate = row_float(full_grid, "assumed_background_rate")
+    full_grid_positive_rate = row_float(full_grid, "positive_rate")
+    full_grid_high_rate = row_float(full_grid, "high_canopy_rate")
+    full_grid_saturated_rate = row_float(full_grid, "saturated_rate")
+    lines = [
+        (
+            "These diagnostics quantify Kelpwatch-style annual-max imbalance before any binary, "
+            "balanced, hurdle, or conditional model is introduced. They do not choose a production "
+            "threshold and do not tune on the primary test split."
+        ),
+        (
+            f"In the current model-input sample, zero rows are `{format_percent(sample_zero_rate, 1)}` "
+            f"and assumed-background rows are `{format_percent(sample_background_rate, 1)}` of rows. "
+            f"In the primary `{evaluation_scope(analysis_config.domain_mask)}` report scope, zero rows "
+            f"are `{format_percent(full_grid_zero_rate, 1)}` and assumed-background rows are "
+            f"`{format_percent(full_grid_background_rate, 1)}`."
+        ),
+        (
+            f"Primary full-grid positives are `{format_percent(full_grid_positive_rate, 2)}` of rows; "
+            f"high canopy rows at `>=450 m2` are `{format_percent(full_grid_high_rate, 2)}`, and "
+            f"saturated or near-saturated rows are `{format_percent(full_grid_saturated_rate, 2)}`. "
+            "The mask removes off-domain background from the report scope, but the retained plausible "
+            "domain still has strong within-domain target imbalance."
+        ),
+        (
+            "Later threshold, binary, balanced, hurdle, and conditional models should be evaluated "
+            "against these rates so improvements are measured against the actual annual-max class mix, "
+            "not introduced blindly."
+        ),
+        "",
+        "| Scope | Split | Year | Rows | Positive | High canopy | Saturated | Assumed background |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in primary_rows[:8]:
+        lines.append(
+            f"| {row.get('data_scope', '')} | "
+            f"{row.get('split', '')} | "
+            f"{row.get('year', '')} | "
+            f"{row.get('row_count', '')} | "
+            f"{format_percent(row_float(row, 'positive_rate'), 2)} | "
+            f"{format_percent(row_float(row, 'high_canopy_rate'), 2)} | "
+            f"{format_percent(row_float(row, 'saturated_rate'), 2)} | "
+            f"{format_percent(row_float(row, 'assumed_background_rate'), 1)} |"
+        )
+    return "\n".join(lines)
+
+
+def first_balance_scope_row(
+    rows: list[dict[str, object]],
+    data_scope: str,
+    *,
+    split: str | None = None,
+    year: int | None = None,
+) -> dict[str, object]:
+    """Return the first balance row matching a source scope and optional split/year."""
+    for row in rows:
+        if row.get("data_scope") != data_scope:
+            continue
+        if row.get("label_source") != "all":
+            continue
+        if split is not None and row.get("split") != split:
+            continue
+        if year is not None and str(row.get("year")) != str(year):
+            continue
+        return row
+    return {}
+
+
 def threshold_sensitivity_markdown(
     rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
 ) -> str:
@@ -4177,6 +4661,9 @@ def write_manifest(
             "labels": str(analysis_config.label_path),
             "aligned_table": str(analysis_config.aligned_table_path),
             "split_manifest": str(analysis_config.split_manifest_path),
+            "sample_predictions": str(analysis_config.sample_predictions_path)
+            if analysis_config.sample_predictions_path is not None
+            else None,
             "predictions": str(analysis_config.predictions_path),
             "metrics": str(analysis_config.metrics_path),
             "domain_mask": str(analysis_config.domain_mask.table_path)
@@ -4202,10 +4689,16 @@ def write_manifest(
             "prediction_distribution": str(analysis_config.prediction_distribution_path),
             "phase1_decision": str(analysis_config.phase1_decision_path),
             "phase1_model_comparison": str(analysis_config.phase1_model_comparison_path),
+            "class_balance_by_split": str(analysis_config.class_balance_by_split_path),
+            "target_balance_by_label_source": str(
+                analysis_config.target_balance_by_label_source_path
+            ),
+            "background_rate_summary": str(analysis_config.background_rate_summary_path),
             "residual_domain_context": str(analysis_config.residual_domain_context_path),
             "residual_by_mask_reason": str(analysis_config.residual_by_mask_reason_path),
             "residual_by_depth_bin": str(analysis_config.residual_by_depth_bin_path),
             "top_residual_context": str(analysis_config.top_residual_context_path),
+            "class_balance_figure": str(analysis_config.class_balance_figure),
             "residual_domain_context_figure": str(analysis_config.residual_domain_context_figure),
             "reference_area_calibration": str(analysis_config.reference_area_calibration_path),
             "data_health": str(analysis_config.data_health_path),
@@ -4215,11 +4708,15 @@ def write_manifest(
             "labels": int(len(data.labels)),
             "aligned": int(len(data.aligned)),
             "split_manifest": int(len(data.split_manifest)),
+            "sample_predictions": int(len(data.sample_predictions)),
             "model_predictions": int(len(data.model_predictions)),
             "stage_distribution": len(tables.stage_distribution),
             "target_framing": len(tables.target_framing),
             "phase1_decision": len(tables.phase1_decision),
             "phase1_model_comparison": len(tables.phase1_model_comparison),
+            "class_balance_by_split": len(tables.class_balance_by_split),
+            "target_balance_by_label_source": len(tables.target_balance_by_label_source),
+            "background_rate_summary": len(tables.background_rate_summary),
             "residual_domain_context": len(tables.residual_domain_context),
             "residual_by_mask_reason": len(tables.residual_by_mask_reason),
             "residual_by_depth_bin": len(tables.residual_by_depth_bin),

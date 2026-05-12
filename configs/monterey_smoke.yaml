@@ -357,6 +357,9 @@ reports:
     model_analysis_phase1_decision_matrix: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_phase1_decision_matrix.csv
     model_analysis_phase1_model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_phase1_model_comparison.csv
     model_analysis_data_health: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_data_health.csv
+    model_analysis_class_balance_by_split: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_class_balance_by_split.csv
+    model_analysis_target_balance_by_label_source: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_target_balance_by_label_source.csv
+    model_analysis_background_rate_summary: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_background_rate_summary.csv
     model_analysis_quarter_mapping: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_quarter_mapping.csv
     model_analysis_residual_by_domain_context: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_residual_by_domain_context.csv
     model_analysis_residual_by_mask_reason: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_residual_by_mask_reason.csv
@@ -368,6 +371,7 @@ reports:
     model_analysis_observed_900_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_observed_900_predictions.png
     model_analysis_residual_by_persistence_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_residual_by_persistence.png
     model_analysis_residual_by_domain_context_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_residual_by_domain_context.png
+    model_analysis_class_balance_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_class_balance.png
     model_analysis_alternative_targets_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_alternative_target_framings.png
     model_analysis_feature_projection_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_feature_projection.png
     model_analysis_spatial_readiness_figure: /Volumes/x10pro/kelp_aef/reports/figures/model_analysis_spatial_holdout_readiness.png

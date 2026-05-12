@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd  # type: ignore[import-untyped]
 
 from kelp_aef import main
+from kelp_aef.evaluation.model_analysis import BalanceSource, build_class_balance_by_split
 
 
 def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
@@ -29,6 +30,9 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         "phase1_model_comparison",
         "reference_area_calibration",
         "data_health",
+        "class_balance_by_split",
+        "target_balance_by_label_source",
+        "background_rate_summary",
         "residual_domain_context",
         "residual_by_mask_reason",
         "residual_by_depth_bin",
@@ -42,6 +46,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         "alternative_targets_figure",
         "feature_projection_figure",
         "spatial_readiness_figure",
+        "class_balance_figure",
         "residual_domain_context_figure",
     ):
         assert fixture[key].is_file()
@@ -75,6 +80,29 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     )
     assert int(missing_feature_rows.iloc[0]["row_count"]) == 1
 
+    class_balance = pd.read_csv(fixture["class_balance_by_split"])
+    required_balance_columns = {
+        "data_scope",
+        "mask_status",
+        "evaluation_scope",
+        "split",
+        "year",
+        "label_source",
+        "positive_rate",
+        "high_canopy_rate",
+        "saturated_rate",
+        "assumed_background_rate",
+    }
+    assert required_balance_columns <= set(class_balance.columns)
+    test_balance = class_balance.query(
+        "data_scope == 'full_grid_prediction' "
+        "and split == 'test' "
+        "and year == 2022 "
+        "and label_source == 'all'"
+    ).iloc[0]
+    assert float(test_balance["positive_rate"]) == 2 / 3
+    assert float(test_balance["high_canopy_rate"]) == 2 / 3
+
     quarter_mapping = pd.read_csv(fixture["quarter_mapping"])
     assert set(quarter_mapping["derived_quarter"]) == {1, 2, 3, 4}
 
@@ -96,11 +124,13 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "previous-year persistence" in report
     assert "Observed, Predicted, And Error Map" in report
     assert "Mask-Aware Residual Diagnostics" in report
+    assert "Class And Target Balance" in report
     assert "![Observed, predicted, and residual map]" in report
     assert "ridge_2022_residual_interactive.html" in report
     assert "Alternative Target-Framing Findings" not in report
     assert "<h1>Monterey Phase 1 Model Analysis</h1>" in html_report
     assert "<h2>Model Comparison</h2>" in html_report
+    assert "<h2>Class And Target Balance</h2>" in html_report
     assert 'src="data:image/png;base64,' in html_report
 
 
@@ -132,6 +162,7 @@ def test_analyze_model_treats_domain_mask_as_primary_full_grid_scope(
     mask_reason = pd.read_csv(fixture["residual_by_mask_reason"])
     depth_bins = pd.read_csv(fixture["residual_by_depth_bin"])
     top_context = pd.read_csv(fixture["top_residual_context"])
+    class_balance = pd.read_csv(fixture["class_balance_by_split"])
     assert manifest["mask_status"] == "plausible_kelp_domain"
     assert manifest["evaluation_scope"] == "full_grid_masked"
     assert "plausible_kelp_domain" in report
@@ -154,6 +185,90 @@ def test_analyze_model_treats_domain_mask_as_primary_full_grid_scope(
     assert {"crm_depth_m", "crm_elevation_m", "depth_bin", "elevation_bin"} <= set(
         top_context.columns
     )
+    full_grid_balance = class_balance.query(
+        "data_scope == 'full_grid_masked' "
+        "and split == 'test' "
+        "and year == 2022 "
+        "and label_source == 'all'"
+    ).iloc[0]
+    assert full_grid_balance["mask_status"] == "plausible_kelp_domain"
+    assert full_grid_balance["evaluation_scope"] == "full_grid_masked"
+
+
+def test_class_balance_rows_cover_grouped_rates_and_metadata() -> None:
+    """Verify grouped balance rows include rates, label sources, and mask metadata."""
+    frame = pd.DataFrame(
+        [
+            balance_row("test", 2022, "assumed_background", None, 0.0),
+            balance_row("test", 2022, "kelpwatch_station", 1, 0.0),
+            balance_row("test", 2022, "kelpwatch_station", 2, 0.01),
+            balance_row("test", 2022, "kelpwatch_station", 3, 0.50),
+            balance_row("test", 2022, "kelpwatch_station", 4, 1.00),
+        ]
+    )
+    source = BalanceSource(
+        data_scope="model_input_sample",
+        mask_status="plausible_kelp_domain",
+        evaluation_scope="model_input_sample",
+        frame=frame,
+    )
+
+    rows = build_class_balance_by_split([source])
+
+    all_row = next(row for row in rows if row["label_source"] == "all")
+    assert all_row["mask_status"] == "plausible_kelp_domain"
+    assert all_row["evaluation_scope"] == "model_input_sample"
+    assert all_row["row_count"] == 5
+    assert all_row["station_count"] == 4
+    assert all_row["positive_count"] == 3
+    assert all_row["positive_ge_1pct_count"] == 3
+    assert all_row["positive_ge_10pct_count"] == 2
+    assert all_row["high_canopy_count"] == 2
+    assert all_row["saturated_count"] == 1
+    assert all_row["assumed_background_count"] == 1
+    assert all_row["positive_rate"] == 3 / 5
+    assert all_row["high_canopy_rate"] == 2 / 5
+    assert all_row["assumed_background_rate"] == 1 / 5
+
+
+def test_class_balance_rows_handle_no_positive_or_high_canopy() -> None:
+    """Verify balance rows remain numeric when a group has no positive canopy."""
+    frame = pd.DataFrame(
+        [
+            balance_row("validation", 2021, "assumed_background", None, 0.0),
+            balance_row("validation", 2021, "kelpwatch_station", 1, 0.0),
+        ]
+    )
+    source = BalanceSource(
+        data_scope="split_manifest_retained",
+        mask_status="plausible_kelp_domain",
+        evaluation_scope="split_manifest_retained",
+        frame=frame,
+    )
+
+    rows = build_class_balance_by_split([source])
+
+    all_row = next(row for row in rows if row["label_source"] == "all")
+    assert all_row["zero_count"] == 2
+    assert all_row["positive_count"] == 0
+    assert all_row["high_canopy_count"] == 0
+    assert all_row["saturated_count"] == 0
+    assert all_row["positive_rate"] == 0
+    assert all_row["high_canopy_rate"] == 0
+
+
+def balance_row(
+    split: str, year: int, label_source: str, station_id: int | None, fraction: float
+) -> dict[str, object]:
+    """Build one tiny target-balance test row."""
+    return {
+        "split": split,
+        "year": year,
+        "label_source": label_source,
+        "kelpwatch_station_id": station_id,
+        "kelp_fraction_y": fraction,
+        "kelp_max_y": fraction * 900.0,
+    }
 
 
 def write_model_analysis_fixture(
@@ -228,6 +343,12 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         "reference_area_calibration": tmp_path
         / "reports/tables/reference_baseline_area_calibration.csv",
         "data_health": tmp_path / "reports/tables/model_analysis_data_health.csv",
+        "class_balance_by_split": tmp_path
+        / "reports/tables/model_analysis_class_balance_by_split.csv",
+        "target_balance_by_label_source": tmp_path
+        / "reports/tables/model_analysis_target_balance_by_label_source.csv",
+        "background_rate_summary": tmp_path
+        / "reports/tables/model_analysis_background_rate_summary.csv",
         "residual_domain_context": tmp_path
         / "reports/tables/model_analysis_residual_by_domain_context.csv",
         "residual_by_mask_reason": tmp_path
@@ -253,6 +374,7 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/figures/model_analysis_feature_projection.png",
         "spatial_readiness_figure": tmp_path
         / "reports/figures/model_analysis_spatial_holdout_readiness.png",
+        "class_balance_figure": tmp_path / "reports/figures/model_analysis_class_balance.png",
         "residual_domain_context_figure": tmp_path
         / "reports/figures/model_analysis_residual_by_domain_context.png",
     }
@@ -303,6 +425,7 @@ splits:
 models:
   baselines:
     features: A00-A01
+    sample_predictions: {predictions}
     predictions: {predictions}
     metrics: {metrics}
 reports:
@@ -337,6 +460,9 @@ reports:
     reference_baseline_area_calibration: {paths["reference_area_calibration"]}
 {masked_outputs}
     model_analysis_data_health: {paths["data_health"]}
+    model_analysis_class_balance_by_split: {paths["class_balance_by_split"]}
+    model_analysis_target_balance_by_label_source: {paths["target_balance_by_label_source"]}
+    model_analysis_background_rate_summary: {paths["background_rate_summary"]}
     model_analysis_residual_by_domain_context: {paths["residual_domain_context"]}
     model_analysis_residual_by_mask_reason: {paths["residual_by_mask_reason"]}
     model_analysis_residual_by_depth_bin: {paths["residual_by_depth_bin"]}
@@ -350,6 +476,7 @@ reports:
     model_analysis_alternative_targets_figure: {paths["alternative_targets_figure"]}
     model_analysis_feature_projection_figure: {paths["feature_projection_figure"]}
     model_analysis_spatial_readiness_figure: {paths["spatial_readiness_figure"]}
+    model_analysis_class_balance_figure: {paths["class_balance_figure"]}
     model_analysis_residual_by_domain_context_figure: {paths["residual_domain_context_figure"]}
 """.lstrip()
 

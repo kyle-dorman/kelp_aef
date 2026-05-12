@@ -298,12 +298,28 @@ masking change should end with an updated model-analysis report.
 
 ## Imbalance-Robust Models
 
-- [ ] P1-16: Add class and target-balance diagnostics for annual max.
+- [x] P1-16: Add class and target-balance diagnostics for annual max.
   - Goal: Make imbalance visible before changing objectives.
   - Plan: `tasks/24_class_target_balance_diagnostics.md`.
   - Output: positive-rate, high-canopy-rate, and background-rate summaries by
     split, label source, and mask status.
   - Validation: report reproduces Phase 0 class imbalance.
+  - Completed: added package-generated class/target-balance tables and a
+    compact class-balance figure to `analyze-model`, with rows for the masked
+    model-input sample, retained split manifest, sample predictions, and
+    masked full-grid report scope.
+  - Result: the primary 2022 masked full-grid report scope has 999,519 rows,
+    1.29% positive annual-max rows, 0.41% high-canopy rows, 0.06%
+    saturated/near-saturated rows, 98.7% zero rows, and 97.0%
+    assumed-background rows. The report now includes `Class And Target Balance`
+    before threshold/model-objective changes.
+  - Validation passed:
+    `uv run pytest tests/test_model_analysis.py`,
+    `uv run ruff check .`, `uv run mypy src`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
+    manual inspection of
+    `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_class_balance_by_split.csv`
+    and the refreshed report section, and `make check`.
 - [ ] P1-17: Add annual-max binary threshold comparison on the validation year.
   - Goal: Choose candidate binary targets derived only from annual max.
   - Output: threshold table for 1%, 5%, 10%, and any retained diagnostic
