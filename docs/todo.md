@@ -337,6 +337,10 @@ masking change should end with an updated model-analysis report.
     full repo validation passed with `make check`.
 - [ ] P1-18: Train a balanced binary presence model.
   - Goal: Reduce background leakage with an objective designed for imbalance.
+  - Plan: `tasks/26_train_balanced_binary_presence_model.md`.
+  - Target: use P1-17's validation-backed `annual_max_ge_10pct`
+    (`kelp_fraction_y >= 0.10`, `kelp_max_y >= 90 m2`) as the candidate binary
+    target.
   - Output: class-weighted or balanced-sampling classifier and probability
     predictions.
   - Validation: report includes AUROC, AUPRC, precision-recall, selected
