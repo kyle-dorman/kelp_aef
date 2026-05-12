@@ -201,13 +201,26 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef align-noaa-crm --config configs/monterey_smoke.yaml --fast`,
     `uv run kelp-aef align-noaa-crm --config configs/monterey_smoke.yaml`,
     full-output row-count inspection, and `make check`.
-- [ ] P1-12: Build the first plausible-kelp domain mask.
+- [x] P1-12: Build the first plausible-kelp domain mask.
   - Goal: Exclude land, very deep water, and other impossible cells, starting
     with a permissive depth cutoff such as approximately 100 m.
   - Plan: `tasks/20_build_plausible_kelp_domain_mask.md`.
   - Output: mask artifact with reason codes and coverage table.
   - Validation: report shows retained/dropped cells and retained Kelpwatch
     positives by year.
+  - Completed: added `kelp-aef build-domain-mask`, wrote
+    `/Volumes/x10pro/kelp_aef/interim/plausible_kelp_domain_mask.parquet`,
+    and generated coverage, Kelpwatch-positive retention, depth-bin, manifest,
+    and visual QA outputs.
+  - Result: full mask has 7,458,361 unique target-grid cells, retains 999,519
+    cells, drops 6,458,842 cells, and retains all 58,497 Kelpwatch-positive
+    cell-year rows in 2018-2022. Five positive rows fall in the 40-50 m QA bin;
+    none fall deeper than 50 m.
+  - Validation passed:
+    `uv run pytest tests/test_domain_mask.py`,
+    `uv run kelp-aef build-domain-mask --config configs/monterey_smoke.yaml --fast`,
+    `uv run kelp-aef build-domain-mask --config configs/monterey_smoke.yaml`,
+    and `make check`.
 - [ ] P1-13: Apply the domain mask to full-grid inference/reporting first.
   - Goal: Measure how much area leakage is off-domain before retraining.
   - Output: masked full-grid area-bias rows and residual maps.

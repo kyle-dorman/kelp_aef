@@ -10,6 +10,7 @@ from pathlib import Path
 from kelp_aef.alignment.feature_label_table import align_features_labels
 from kelp_aef.alignment.full_grid import align_full_grid
 from kelp_aef.domain.crm_alignment import align_noaa_crm
+from kelp_aef.domain.domain_mask import build_domain_mask
 from kelp_aef.domain.noaa_crm import download_noaa_crm, query_noaa_crm
 from kelp_aef.domain.noaa_cudem import download_noaa_cudem, query_noaa_cudem
 from kelp_aef.domain.noaa_cusp import download_noaa_cusp, query_noaa_cusp
@@ -43,6 +44,7 @@ COMMANDS: dict[str, str] = {
     "query-noaa-crm": "Query NOAA CRM topo-bathy sources for the configured region.",
     "download-noaa-crm": "Download selected NOAA CRM sources from the query manifest.",
     "align-noaa-crm": "Align NOAA CRM topo-bathy values to the target grid.",
+    "build-domain-mask": "Build a plausible-kelp domain mask from aligned CRM support.",
     "query-usgs-3dep": "Query USGS 3DEP DEM sources for the configured region.",
     "download-usgs-3dep": "Download selected USGS 3DEP DEM sources from the query manifest.",
     "inspect-kelpwatch": "Inspect Kelpwatch metadata for the configured region.",
@@ -160,6 +162,8 @@ def build_parser() -> argparse.ArgumentParser:
             add_download_noaa_crm_arguments(subparser)
         if command == "align-noaa-crm":
             add_align_noaa_crm_arguments(subparser)
+        if command == "build-domain-mask":
+            add_build_domain_mask_arguments(subparser)
         if command == "query-usgs-3dep":
             add_query_usgs_3dep_arguments(subparser)
         if command == "download-usgs-3dep":
@@ -439,6 +443,15 @@ def add_align_noaa_crm_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_build_domain_mask_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add plausible-kelp domain-mask options to the build-domain-mask command."""
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Run the configured small target-grid window and fast-path artifacts.",
+    )
+
+
 def add_query_usgs_3dep_arguments(parser: argparse.ArgumentParser) -> None:
     """Add USGS 3DEP source-query options to the query-usgs-3dep subcommand."""
     parser.add_argument(
@@ -710,6 +723,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif command == "align-noaa-crm":
             exit_code = align_noaa_crm(config_path, fast=bool(args.fast))
+        elif command == "build-domain-mask":
+            exit_code = build_domain_mask(config_path, fast=bool(args.fast))
         elif command == "query-usgs-3dep":
             exit_code = query_usgs_3dep(
                 config_path,

@@ -220,6 +220,33 @@ domain:
       south: 32.0
       east: -114.0
       north: 49.5
+  plausible_kelp_mask:
+    aligned_crm_table: /Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm.parquet
+    aligned_crm_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm_manifest.json
+    full_grid_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
+    full_grid_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table_manifest.json
+    cusp_source_manifest: /Volumes/x10pro/kelp_aef/interim/noaa_cusp_source_manifest.json
+    output_table: /Volumes/x10pro/kelp_aef/interim/plausible_kelp_domain_mask.parquet
+    output_manifest: /Volumes/x10pro/kelp_aef/interim/plausible_kelp_domain_mask_manifest.json
+    coverage_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/plausible_kelp_domain_mask_summary.csv
+    kelpwatch_retention_table: /Volumes/x10pro/kelp_aef/reports/tables/plausible_kelp_domain_mask_kelpwatch_retention.csv
+    depth_bin_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/plausible_kelp_domain_mask_depth_bins.csv
+    visual_qa_figure: /Volumes/x10pro/kelp_aef/reports/figures/plausible_kelp_domain_mask_qa.png
+    max_depth_m: 100.0
+    definite_land_elevation_m: 5.0
+    ambiguous_coast_elevation_band_m: [-5.0, 5.0]
+    nearshore_shallow_depth_m: 40.0
+    intermediate_depth_m: 50.0
+    row_chunk_size: 250000
+    fast:
+      aligned_crm_table: /Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm.fast.parquet
+      aligned_crm_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm.fast_manifest.json
+      output_table: /Volumes/x10pro/kelp_aef/interim/plausible_kelp_domain_mask.fast.parquet
+      output_manifest: /Volumes/x10pro/kelp_aef/interim/plausible_kelp_domain_mask.fast_manifest.json
+      coverage_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/plausible_kelp_domain_mask.fast_summary.csv
+      kelpwatch_retention_table: /Volumes/x10pro/kelp_aef/reports/tables/plausible_kelp_domain_mask_kelpwatch_retention.fast.csv
+      depth_bin_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/plausible_kelp_domain_mask_depth_bins.fast.csv
+      visual_qa_figure: /Volumes/x10pro/kelp_aef/reports/figures/plausible_kelp_domain_mask.fast_qa.png
   usgs_3dep:
     source_name: USGS 3DEP 1/3 Arc-Second Digital Elevation Model
     source_role: land_dem_fallback

@@ -21,6 +21,7 @@ def test_cli_imports() -> None:
         "query-noaa-crm",
         "download-noaa-crm",
         "align-noaa-crm",
+        "build-domain-mask",
         "query-usgs-3dep",
         "download-usgs-3dep",
         "inspect-kelpwatch",
