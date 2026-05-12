@@ -335,7 +335,7 @@ masking change should end with an updated model-analysis report.
     `uv run mypy src`, and
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`;
     full repo validation passed with `make check`.
-- [ ] P1-18: Train a balanced binary presence model.
+- [x] P1-18: Train a balanced binary presence model.
   - Goal: Reduce background leakage with an objective designed for imbalance.
   - Plan: `tasks/26_train_balanced_binary_presence_model.md`.
   - Target: use P1-17's validation-backed `annual_max_ge_10pct`
@@ -345,6 +345,33 @@ masking change should end with an updated model-analysis report.
     predictions.
   - Validation: report includes AUROC, AUPRC, precision-recall, selected
     threshold, and full-grid positive-area behavior.
+  - Completed: added `kelp-aef train-binary-presence`, configured
+    `models.binary_presence`, trained a class-weighted logistic regression for
+    `annual_max_ge_10pct`, wrote sample and masked full-grid probability
+    predictions, and added a balanced binary model section to the Phase 1
+    report.
+  - Follow-up: added a 2022 binary full-grid map and a thresholded model
+    comparison table that evaluates the balanced binary classifier against the
+    continuous reference baselines thresholded at the same `>=10%` annual-max
+    target.
+  - Result: validation selected probability threshold `0.91` by max F1.
+    Held-out 2022 sample metrics are AUPRC `0.945`, AUROC `0.988`, precision
+    `0.892`, recall `0.834`, and F1 `0.862`. In the 2022 masked full-grid
+    scope, the model predicts 9,840 of 999,519 retained rows positive
+    (`0.98%`), or 8,856,000 m2 in 30 m cell area, with assumed-background
+    predicted-positive rate `0.21%`.
+  - Validation passed:
+    `uv run pytest tests/test_binary_presence.py tests/test_model_analysis.py tests/test_baselines.py`,
+    `uv run mypy src`,
+    `uv run kelp-aef train-binary-presence --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
+    manual inspection of
+    `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_metrics.csv`,
+    `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_threshold_selection.csv`,
+    `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_full_grid_area_summary.csv`,
+    `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_thresholded_model_comparison.csv`,
+    `/Volumes/x10pro/kelp_aef/reports/figures/binary_presence_2022_map.png`,
+    and `make check`.
 - [ ] P1-19: Calibrate binary probabilities and thresholds on validation.
   - Goal: Separate ranking skill from area calibration.
   - Output: calibrated probabilities or selected thresholds plus calibration

@@ -1,3 +1,4 @@
+import base64
 import json
 from pathlib import Path
 
@@ -149,6 +150,10 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "Mask-Aware Residual Diagnostics" in report
     assert "Class And Target Balance" in report
     assert "Annual-Max Binary Threshold Comparison" in report
+    assert "Balanced Binary Presence Model" in report
+    assert "Thresholded baseline comparison" in report
+    assert "Binary presence 2022 map" in report
+    assert "class-weighted logistic regression" in report
     assert "validation` rows from `2021`" in report
     assert "![Observed, predicted, and residual map]" in report
     assert "ridge_2022_residual_interactive.html" in report
@@ -445,6 +450,7 @@ def write_model_analysis_fixture(
     write_split_manifest(split_manifest)
     write_predictions(predictions)
     write_metrics(metrics)
+    write_binary_presence_outputs(paths)
     if include_domain_mask:
         write_model_analysis_domain_mask(domain_mask, domain_manifest)
     label_manifest.parent.mkdir(parents=True, exist_ok=True)
@@ -507,6 +513,16 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/tables/model_analysis_binary_threshold_comparison.csv",
         "binary_threshold_recommendation": tmp_path
         / "reports/tables/model_analysis_binary_threshold_recommendation.csv",
+        "binary_presence_metrics": tmp_path / "reports/tables/binary_presence_metrics.csv",
+        "binary_presence_threshold_selection": tmp_path
+        / "reports/tables/binary_presence_threshold_selection.csv",
+        "binary_presence_full_grid_area_summary": tmp_path
+        / "reports/tables/binary_presence_full_grid_area_summary.csv",
+        "binary_presence_thresholded_model_comparison": tmp_path
+        / "reports/tables/binary_presence_thresholded_model_comparison.csv",
+        "binary_presence_precision_recall_figure": tmp_path
+        / "reports/figures/binary_presence_precision_recall.png",
+        "binary_presence_map_figure": tmp_path / "reports/figures/binary_presence_2022_map.png",
         "residual_domain_context": tmp_path
         / "reports/tables/model_analysis_residual_by_domain_context.csv",
         "residual_by_mask_reason": tmp_path
@@ -588,6 +604,13 @@ models:
     sample_predictions: {predictions}
     predictions: {predictions}
     metrics: {metrics}
+  binary_presence:
+    metrics: {paths["binary_presence_metrics"]}
+    threshold_selection: {paths["binary_presence_threshold_selection"]}
+    full_grid_area_summary: {paths["binary_presence_full_grid_area_summary"]}
+    thresholded_model_comparison: {paths["binary_presence_thresholded_model_comparison"]}
+    precision_recall_figure: {paths["binary_presence_precision_recall_figure"]}
+    map_figure: {paths["binary_presence_map_figure"]}
 reports:
   figures_dir: {tmp_path / "reports/figures"}
   tables_dir: {tmp_path / "reports/tables"}
@@ -696,6 +719,118 @@ def write_aligned(path: Path, *, include_training_mask_columns: bool = False) ->
         labels["domain_mask_version"] = "test_mask_v1"
     path.parent.mkdir(parents=True, exist_ok=True)
     labels.to_parquet(path, index=False)
+
+
+def write_binary_presence_outputs(paths: dict[str, Path]) -> None:
+    """Write compact binary-presence outputs consumed by model analysis."""
+    paths["binary_presence_metrics"].parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "logistic_annual_max_ge_10pct",
+                "target_label": "annual_max_ge_10pct",
+                "split": "validation",
+                "year": 2021,
+                "label_source": "all",
+                "row_count": 3,
+                "probability_threshold": 0.42,
+                "auroc": 0.9,
+                "auprc": 0.85,
+                "precision": 0.8,
+                "recall": 1.0,
+                "f1": 0.889,
+                "predicted_positive_rate": 2 / 3,
+            },
+            {
+                "model_name": "logistic_annual_max_ge_10pct",
+                "target_label": "annual_max_ge_10pct",
+                "split": "test",
+                "year": 2022,
+                "label_source": "all",
+                "row_count": 3,
+                "probability_threshold": 0.42,
+                "auroc": 0.8,
+                "auprc": 0.75,
+                "precision": 0.75,
+                "recall": 1.0,
+                "f1": 0.857,
+                "predicted_positive_rate": 2 / 3,
+            },
+        ]
+    ).to_csv(paths["binary_presence_metrics"], index=False)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "logistic_annual_max_ge_10pct",
+                "target_label": "annual_max_ge_10pct",
+                "selection_status": "selected_from_validation_max_f1",
+                "selected_threshold": True,
+                "probability_threshold": 0.42,
+                "f1": 0.889,
+            }
+        ]
+    ).to_csv(paths["binary_presence_threshold_selection"], index=False)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "logistic_annual_max_ge_10pct",
+                "target_label": "annual_max_ge_10pct",
+                "split": "test",
+                "year": 2022,
+                "label_source": "all",
+                "evaluation_scope": "full_grid_prediction",
+                "row_count": 3,
+                "predicted_positive_rate": 2 / 3,
+                "predicted_positive_area_m2": 1800.0,
+                "assumed_background_predicted_positive_rate": 0.5,
+            }
+        ]
+    ).to_csv(paths["binary_presence_full_grid_area_summary"], index=False)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "logistic_annual_max_ge_10pct",
+                "model_family": "balanced_binary",
+                "split": "test",
+                "year": 2022,
+                "label_source": "all",
+                "row_count": 3,
+                "auroc": 0.8,
+                "auprc": 0.75,
+                "precision": 0.75,
+                "recall": 1.0,
+                "f1": 0.857,
+                "predicted_positive_rate": 2 / 3,
+                "assumed_background_false_positive_rate": 0.5,
+            },
+            {
+                "model_name": "ridge_regression",
+                "model_family": "thresholded_continuous_baseline",
+                "split": "test",
+                "year": 2022,
+                "label_source": "all",
+                "row_count": 3,
+                "auroc": 0.75,
+                "auprc": 0.7,
+                "precision": 1.0,
+                "recall": 0.5,
+                "f1": 0.667,
+                "predicted_positive_rate": 1 / 3,
+                "assumed_background_false_positive_rate": 0.0,
+            },
+        ]
+    ).to_csv(paths["binary_presence_thresholded_model_comparison"], index=False)
+    write_tiny_png(paths["binary_presence_map_figure"])
+
+
+def write_tiny_png(path: Path) -> None:
+    """Write a valid one-pixel PNG fixture for report image linking."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        )
+    )
 
 
 def write_reference_area_calibration(path: Path) -> None:

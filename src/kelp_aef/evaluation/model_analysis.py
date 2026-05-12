@@ -538,6 +538,12 @@ class ModelAnalysisConfig:
     binary_threshold_comparison_path: Path
     binary_threshold_recommendation_path: Path
     binary_threshold_prevalence_path: Path
+    binary_presence_metrics_path: Path | None
+    binary_presence_threshold_selection_path: Path | None
+    binary_presence_full_grid_area_summary_path: Path | None
+    binary_presence_thresholded_model_comparison_path: Path | None
+    binary_presence_precision_recall_figure: Path | None
+    binary_presence_map_figure: Path | None
     spatial_readiness_path: Path
     feature_separability_path: Path
     phase1_decision_path: Path
@@ -663,6 +669,7 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
     splits = require_mapping(config.get("splits"), "splits")
     models = require_mapping(config.get("models"), "models")
     baselines = require_mapping(models.get("baselines"), "models.baselines")
+    binary_presence = optional_mapping(models.get("binary_presence"), "models.binary_presence")
     reports = require_mapping(config.get("reports"), "reports")
     outputs = require_mapping(reports.get("outputs"), "reports.outputs")
     settings = optional_mapping(reports.get("model_analysis"), "reports.model_analysis")
@@ -803,6 +810,20 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             "model_analysis_binary_threshold_prevalence",
             tables_dir / "model_analysis_binary_threshold_prevalence.csv",
         ),
+        binary_presence_metrics_path=optional_output_path(binary_presence, "metrics"),
+        binary_presence_threshold_selection_path=optional_output_path(
+            binary_presence, "threshold_selection"
+        ),
+        binary_presence_full_grid_area_summary_path=optional_output_path(
+            binary_presence, "full_grid_area_summary"
+        ),
+        binary_presence_thresholded_model_comparison_path=optional_output_path(
+            binary_presence, "thresholded_model_comparison"
+        ),
+        binary_presence_precision_recall_figure=optional_output_path(
+            binary_presence, "precision_recall_figure"
+        ),
+        binary_presence_map_figure=optional_output_path(binary_presence, "map_figure"),
         spatial_readiness_path=output_path(
             outputs,
             "model_analysis_spatial_holdout_readiness",
@@ -978,6 +999,14 @@ def output_path(outputs: dict[str, Any], key: str, default: Path) -> Path:
     if value is None:
         return default
     return Path(require_string(value, f"reports.outputs.{key}"))
+
+
+def optional_output_path(mapping: dict[str, Any], key: str) -> Path | None:
+    """Read an optional path from a model-specific config mapping."""
+    value = mapping.get(key)
+    if value is None:
+        return None
+    return Path(require_string(value, f"models.binary_presence.{key}"))
 
 
 def read_float_tuple(value: object, name: str, default: tuple[float, ...]) -> tuple[float, ...]:
@@ -4114,6 +4143,12 @@ def write_report(
             output_path,
         ),
         "",
+        "## Balanced Binary Presence Model",
+        "",
+        binary_presence_markdown(tables, analysis_config),
+        "",
+        binary_presence_figure_markdown(analysis_config, output_path),
+        "",
         "## Binary Threshold Sensitivity",
         "",
         threshold_sensitivity_markdown(tables.threshold_sensitivity, analysis_config),
@@ -4144,6 +4179,7 @@ def write_report(
         f"- Binary threshold prevalence table: `{analysis_config.binary_threshold_prevalence_path}`",
         f"- Binary threshold comparison table: `{analysis_config.binary_threshold_comparison_path}`",
         f"- Binary threshold recommendation table: `{analysis_config.binary_threshold_recommendation_path}`",
+        binary_presence_appendix_markdown(analysis_config),
         f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
         f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
@@ -5267,6 +5303,252 @@ def selected_or_first_recommendation_row(rows: list[dict[str, object]]) -> dict[
         if bool(row.get("selected_candidate")):
             return row
     return rows[0] if rows else {}
+
+
+def binary_presence_markdown(tables: AnalysisTables, analysis_config: ModelAnalysisConfig) -> str:
+    """Build Markdown for the balanced binary annual-max model section."""
+    metrics = read_optional_csv_rows(analysis_config.binary_presence_metrics_path)
+    threshold_rows = read_optional_csv_rows(
+        analysis_config.binary_presence_threshold_selection_path
+    )
+    full_grid_rows = read_optional_csv_rows(
+        analysis_config.binary_presence_full_grid_area_summary_path
+    )
+    comparison_rows = read_optional_csv_rows(
+        analysis_config.binary_presence_thresholded_model_comparison_path
+    )
+    if not metrics or not threshold_rows or not full_grid_rows:
+        return (
+            "Balanced binary model outputs were not available yet. Run "
+            "`uv run kelp-aef train-binary-presence --config configs/monterey_smoke.yaml` "
+            "before interpreting this section."
+        )
+    selected_threshold = selected_probability_threshold_row(threshold_rows)
+    validation = binary_metric_lookup(metrics, split="validation", label_source="all")
+    test = binary_metric_lookup(metrics, split="test", label_source="all")
+    full_grid = binary_full_grid_lookup(
+        full_grid_rows,
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+        label_source="all",
+    )
+    ridge = phase1_comparison_lookup(
+        tables.phase1_model_comparison,
+        model_name=analysis_config.model_name,
+        split=analysis_config.analysis_split,
+        evaluation_scope=evaluation_scope(analysis_config.domain_mask),
+        label_source="all",
+    )
+    selected_probability = row_float(selected_threshold, "probability_threshold")
+    selection_status = str(selected_threshold.get("selection_status", "missing"))
+    lines = [
+        (
+            "The balanced binary model predicts the Kelpwatch-style annual-max target "
+            "`annual_max_ge_10pct`, defined as `kelp_fraction_y >= 0.10` "
+            "or `kelp_max_y >= 90 m2`. The current implementation is a class-weighted "
+            "logistic regression with `class_weight = balanced`; it is not calibrated and "
+            "does not claim independent ecological presence truth."
+        ),
+        (
+            f"The diagnostic operating threshold is `{format_decimal(selected_probability, 3)}` "
+            f"selected on validation rows only with status `{selection_status}`. The held-out "
+            "2022 test rows are used only for audit metrics."
+        ),
+        "",
+        "| Split | Year | Rows | AUPRC | AUROC | Precision | Recall | F1 | Predicted positive |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        binary_metric_markdown_row(validation),
+        binary_metric_markdown_row(test),
+        "",
+        binary_thresholded_model_comparison_markdown(comparison_rows, analysis_config),
+        "",
+        (
+            f"In the primary `{evaluation_scope(analysis_config.domain_mask)}` 2022 report scope, "
+            f"the binary model predicts `{format_percent(row_float(full_grid, 'predicted_positive_rate'), 2)}` "
+            f"of retained rows as annual-max `>=10%`, or "
+            f"`{format_decimal(row_float(full_grid, 'predicted_positive_area_m2'), 1)} m2` of 30 m cell area. "
+            f"Assumed-background predicted positives are "
+            f"`{format_percent(row_float(full_grid, 'assumed_background_predicted_positive_rate'), 2)}` "
+            "of assumed-background rows."
+        ),
+        (
+            f"The current ridge/reference comparison row for the same scope has "
+            f"`f1_ge_10pct = {format_decimal(row_float(ridge, 'f1_ge_10pct'), 3)}` and "
+            f"`predicted_canopy_area = {format_decimal(row_float(ridge, 'predicted_canopy_area'), 1)} m2`. "
+            "This compares binary ranking and operating-threshold behavior against the ridge leakage "
+            "diagnostics without treating either output as final production calibration."
+        ),
+    ]
+    return "\n".join(line for line in lines if line is not None)
+
+
+def binary_presence_figure_markdown(analysis_config: ModelAnalysisConfig, report_path: Path) -> str:
+    """Return binary-presence figure links for available artifacts."""
+    figures: list[str] = []
+    map_figure = analysis_config.binary_presence_map_figure
+    if map_figure is not None and map_figure.exists():
+        figures.append(image_markdown("Binary presence 2022 map", map_figure, report_path))
+    pr_figure = analysis_config.binary_presence_precision_recall_figure
+    if pr_figure is not None and pr_figure.exists():
+        figures.append(
+            image_markdown("Binary presence precision-recall threshold", pr_figure, report_path)
+        )
+    return "\n\n".join(figures)
+
+
+def binary_presence_appendix_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Return appendix links for binary-presence artifacts."""
+    paths = [
+        ("Binary presence metrics table", analysis_config.binary_presence_metrics_path),
+        (
+            "Binary presence threshold-selection table",
+            analysis_config.binary_presence_threshold_selection_path,
+        ),
+        (
+            "Binary presence full-grid area summary",
+            analysis_config.binary_presence_full_grid_area_summary_path,
+        ),
+        (
+            "Binary presence thresholded model comparison",
+            analysis_config.binary_presence_thresholded_model_comparison_path,
+        ),
+        ("Binary presence map figure", analysis_config.binary_presence_map_figure),
+    ]
+    lines = [f"- {label}: `{path}`" for label, path in paths if path is not None]
+    return "\n".join(lines)
+
+
+def read_optional_csv_rows(path: Path | None) -> list[dict[str, object]]:
+    """Read optional CSV rows for report integration."""
+    if path is None or not path.exists():
+        return []
+    return cast(list[dict[str, object]], pd.read_csv(path).to_dict("records"))
+
+
+def selected_probability_threshold_row(rows: list[dict[str, object]]) -> dict[str, object]:
+    """Return the selected probability-threshold row, falling back to the first row."""
+    for row in rows:
+        if str(row.get("selected_threshold", "")).lower() in {"true", "1"}:
+            return row
+    return rows[0] if rows else {}
+
+
+def binary_metric_lookup(
+    rows: list[dict[str, object]], *, split: str, label_source: str
+) -> dict[str, object]:
+    """Return the first binary metric row matching split and source."""
+    for row in rows:
+        if row.get("split") == split and row.get("label_source") == label_source:
+            return row
+    return {}
+
+
+def binary_full_grid_lookup(
+    rows: list[dict[str, object]], *, split: str, year: int, label_source: str
+) -> dict[str, object]:
+    """Return the full-grid binary summary row for a split/year/source."""
+    for row in rows:
+        if (
+            row.get("split") == split
+            and str(row.get("year")) == str(year)
+            and row.get("label_source") == label_source
+        ):
+            return row
+    return {}
+
+
+def phase1_comparison_lookup(
+    rows: list[dict[str, object]],
+    *,
+    model_name: str,
+    split: str,
+    evaluation_scope: str,
+    label_source: str,
+) -> dict[str, object]:
+    """Return the Phase 1 comparison row matching model/scope/source."""
+    for row in rows:
+        if (
+            row.get("model_name") == model_name
+            and row.get("split") == split
+            and row.get("evaluation_scope") == evaluation_scope
+            and row.get("label_source") == label_source
+        ):
+            return row
+    return {}
+
+
+def binary_metric_markdown_row(row: dict[str, object]) -> str:
+    """Format one binary metrics row for the report table."""
+    if not row:
+        return "| missing |  |  | nan | nan | nan | nan | nan | nan |"
+    return (
+        f"| {row.get('split', '')} | "
+        f"{row.get('year', '')} | "
+        f"{row.get('row_count', '')} | "
+        f"{format_decimal(row_float(row, 'auprc'), 3)} | "
+        f"{format_decimal(row_float(row, 'auroc'), 3)} | "
+        f"{format_decimal(row_float(row, 'precision'), 3)} | "
+        f"{format_decimal(row_float(row, 'recall'), 3)} | "
+        f"{format_decimal(row_float(row, 'f1'), 3)} | "
+        f"{format_percent(row_float(row, 'predicted_positive_rate'), 2)} |"
+    )
+
+
+def binary_thresholded_model_comparison_markdown(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the binary-vs-thresholded-baseline comparison table."""
+    primary_rows = binary_thresholded_model_comparison_rows(rows, analysis_config)
+    if not primary_rows:
+        return "Thresholded baseline comparison rows were not available."
+    lines = [
+        (
+            "Thresholded baseline comparison at `kelp_fraction_y >= 0.10` for the "
+            f"primary `{analysis_config.analysis_split}` `{analysis_config.analysis_year}` "
+            "rows:"
+        ),
+        "",
+        "| Model | Family | AUPRC | AUROC | Precision | Recall | F1 | Predicted positive | Assumed-bg FP |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    lines.extend(binary_thresholded_model_comparison_row(row) for row in primary_rows)
+    return "\n".join(lines)
+
+
+def binary_thresholded_model_comparison_rows(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> list[dict[str, object]]:
+    """Return report rows for the primary split/year/all-label comparison."""
+    primary = [
+        row
+        for row in rows
+        if row.get("split") == analysis_config.analysis_split
+        and str(row.get("year")) == str(analysis_config.analysis_year)
+        and row.get("label_source") == "all"
+    ]
+    return sorted(primary, key=binary_thresholded_model_comparison_sort_key)
+
+
+def binary_thresholded_model_comparison_sort_key(row: dict[str, object]) -> tuple[int, str]:
+    """Sort the direct binary model before thresholded continuous baselines."""
+    family_order = {"balanced_binary": 0, "thresholded_continuous_baseline": 1}
+    family = str(row.get("model_family", ""))
+    return (family_order.get(family, 99), str(row.get("model_name", "")))
+
+
+def binary_thresholded_model_comparison_row(row: dict[str, object]) -> str:
+    """Format one thresholded model-comparison row for Markdown."""
+    return (
+        f"| {row.get('model_name', '')} | "
+        f"{row.get('model_family', '')} | "
+        f"{format_decimal(row_float(row, 'auprc'), 3)} | "
+        f"{format_decimal(row_float(row, 'auroc'), 3)} | "
+        f"{format_decimal(row_float(row, 'precision'), 3)} | "
+        f"{format_decimal(row_float(row, 'recall'), 3)} | "
+        f"{format_decimal(row_float(row, 'f1'), 3)} | "
+        f"{format_percent(row_float(row, 'predicted_positive_rate'), 2)} | "
+        f"{format_percent(row_float(row, 'assumed_background_false_positive_rate'), 2)} |"
+    )
 
 
 def threshold_sensitivity_markdown(

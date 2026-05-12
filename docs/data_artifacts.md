@@ -221,6 +221,25 @@ objectives, model classes, sample weights, or label inputs.
 | Background rate summary | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_background_rate_summary.csv` | Compact assumed-background rate summary by data scope, split, year, mask status, and evaluation scope. | Not tracked |
 | Class balance figure | `/Volumes/x10pro/kelp_aef/reports/figures/model_analysis_class_balance.png` | Compact report figure comparing zero, positive, high-canopy, and saturated rates for primary analysis scopes. | Not tracked |
 
+## Phase 1 Balanced Binary Presence Model
+
+These outputs train and report the first imbalance-aware binary model for the
+validation-backed `annual_max_ge_10pct` target. They remain Kelpwatch-style
+annual-max weak-label artifacts, not independent ecological presence truth.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| Binary presence model | `/Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct.joblib` | Serialized class-weighted logistic regression payload, feature list, target metadata, and validation-selected probability threshold. | Not tracked |
+| Binary presence sample predictions | `/Volumes/x10pro/kelp_aef/processed/binary_presence_sample_predictions.parquet` | Row-level masked model-input sample probabilities, selected classes, split labels, label-source fields, and mask metadata. | Not tracked |
+| Binary presence full-grid predictions | `/Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.parquet` | Streamed masked full-grid probability predictions and selected classes inside the retained plausible-kelp domain. | Not tracked |
+| Binary presence metrics | `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_metrics.csv` | AUROC, AUPRC, precision, recall, F1, predicted-positive rates, and false-positive behavior by split, year, and label source. | Not tracked |
+| Binary presence threshold selection | `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_threshold_selection.csv` | Validation-only diagnostic probability-threshold grid and selected max-F1 operating threshold. | Not tracked |
+| Binary presence full-grid area summary | `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_full_grid_area_summary.csv` | Predicted positive count/rate/area and assumed-background leakage summaries for the masked full-grid scope. | Not tracked |
+| Binary presence thresholded model comparison | `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_thresholded_model_comparison.csv` | Balanced binary model metrics alongside continuous baseline predictions thresholded at the same `kelp_fraction_y >= 0.10` target. | Not tracked |
+| Binary presence prediction manifest | `/Volumes/x10pro/kelp_aef/interim/binary_presence_prediction_manifest.json` | Inputs, outputs, split policy, selected logistic settings, threshold policy, row counts, and mask/report scope metadata. | Not tracked |
+| Binary presence precision-recall figure | `/Volumes/x10pro/kelp_aef/reports/figures/binary_presence_precision_recall.png` | Compact validation precision, recall, and F1 diagnostic by probability threshold. | Not tracked |
+| Binary presence map figure | `/Volumes/x10pro/kelp_aef/reports/figures/binary_presence_2022_map.png` | Four-panel 2022 retained-domain map of observed binary target, predicted probability, selected class, and classification outcome. | Not tracked |
+
 ## Phase 1 Masked Training Outputs
 
 These outputs apply the P1-12 plausible-kelp domain mask to the model-input

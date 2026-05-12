@@ -297,6 +297,28 @@ models:
     prediction_manifest: /Volumes/x10pro/kelp_aef/interim/baseline_full_grid_prediction_manifest.json
     metrics: /Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.csv
     manifest: /Volumes/x10pro/kelp_aef/interim/baseline_eval_manifest.json
+  binary_presence:
+    input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
+    inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
+    target_label: annual_max_ge_10pct
+    target_column: kelp_fraction_y
+    target_threshold_fraction: 0.10
+    target_threshold_area: 90.0
+    features: A00-A63
+    class_weight: balanced
+    c_grid: [1.0]
+    max_iter: 1000
+    drop_missing_features: true
+    model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct.joblib
+    sample_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_sample_predictions.parquet
+    full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.parquet
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_metrics.csv
+    threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_threshold_selection.csv
+    full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_full_grid_area_summary.csv
+    thresholded_model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_thresholded_model_comparison.csv
+    prediction_manifest: /Volumes/x10pro/kelp_aef/interim/binary_presence_prediction_manifest.json
+    precision_recall_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_precision_recall.png
+    map_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_2022_map.png
 
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures
