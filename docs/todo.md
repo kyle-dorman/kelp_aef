@@ -204,6 +204,7 @@ masking change should end with an updated model-analysis report.
 - [ ] P1-12: Build the first plausible-kelp domain mask.
   - Goal: Exclude land, very deep water, and other impossible cells, starting
     with a permissive depth cutoff such as approximately 100 m.
+  - Plan: `tasks/20_build_plausible_kelp_domain_mask.md`.
   - Output: mask artifact with reason codes and coverage table.
   - Validation: report shows retained/dropped cells and retained Kelpwatch
     positives by year.
