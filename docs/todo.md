@@ -164,7 +164,7 @@ masking change should end with an updated model-analysis report.
     metadata-only query for inspection at `/private/tmp/usgs_3dep_query_manifest.json`,
     download dry-run for that query at `/private/tmp/usgs_3dep_source_manifest.json`,
     and `make check`.
-- [ ] P1-10d: Add NOAA CRM California mosaic query and download scripts.
+- [x] P1-10d: Add NOAA CRM California mosaic query and download scripts.
   - Goal: Query the current target-grid footprint against NOAA CRM Southern
     California v2 and CRM Volume 7, then write a reviewable manifest before
     any real CRM download.
@@ -175,6 +175,13 @@ masking change should end with an updated model-analysis report.
     to `/private/tmp`.
   - Constraint: run the query/manifest step first; do not download CRM source
     data until the manifest has been inspected.
+  - Validation passed:
+    `uv run pytest tests/test_noaa_crm.py tests/test_package.py`,
+    `make check`,
+    `uv run kelp-aef query-noaa-crm --config configs/monterey_smoke.yaml --skip-remote-checks --manifest-output /private/tmp/noaa_crm_query_manifest.json`,
+    `uv run kelp-aef download-noaa-crm --config configs/monterey_smoke.yaml --dry-run --query-manifest /private/tmp/noaa_crm_query_manifest.json --manifest-output /private/tmp/noaa_crm_source_manifest_dry_run.json`,
+    and metadata-only query with THREDDS checks at
+    `/private/tmp/noaa_crm_query_manifest_remote.json`.
 - [ ] P1-11: Align NOAA CRM California mosaic to the 30 m target grid.
   - Goal: Produce one CRM-derived depth/elevation row per existing full-grid
     cell, using the broad California topo-bathy source selected in P1-10d.

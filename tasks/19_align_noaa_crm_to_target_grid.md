@@ -90,6 +90,11 @@ Brief implementation plan before editing code. Include:
 - Use maintained geospatial libraries such as Rasterio, xarray, rioxarray,
   PyArrow, Polars, or Pandas. Do not hand-roll CRS transforms, raster windows,
   or table readers.
+- For NOAA CRM NetCDFs, use xarray coordinate variables as the source of truth
+  for geographic extent and sampling coordinates. A post-download check on
+  2026-05-11 found that Rasterio can report misleading bounds for
+  `crm_vol7_2025.nc` from the embedded GeoTransform even though the NetCDF
+  `lat` and `lon` coordinate arrays are correct.
 - Preserve grid identifiers from the existing full-grid artifact:
   `aef_grid_row`, `aef_grid_col`, `aef_grid_cell_id`, `longitude`, and
   `latitude`.

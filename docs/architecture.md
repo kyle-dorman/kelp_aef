@@ -73,6 +73,8 @@ kelp-aef query-noaa-cudem --config configs/monterey_smoke.yaml
 kelp-aef download-noaa-cudem --config configs/monterey_smoke.yaml
 kelp-aef query-noaa-cusp --config configs/monterey_smoke.yaml
 kelp-aef download-noaa-cusp --config configs/monterey_smoke.yaml
+kelp-aef query-noaa-crm --config configs/monterey_smoke.yaml
+kelp-aef download-noaa-crm --config configs/monterey_smoke.yaml
 kelp-aef query-usgs-3dep --config configs/monterey_smoke.yaml
 kelp-aef download-usgs-3dep --config configs/monterey_smoke.yaml
 ```

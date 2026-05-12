@@ -18,6 +18,8 @@ def test_cli_imports() -> None:
         "download-noaa-cudem",
         "query-noaa-cusp",
         "download-noaa-cusp",
+        "query-noaa-crm",
+        "download-noaa-crm",
         "query-usgs-3dep",
         "download-usgs-3dep",
         "inspect-kelpwatch",
