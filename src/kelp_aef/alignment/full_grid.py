@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import math
 import operator
 import shutil
 from dataclasses import dataclass
@@ -87,6 +88,30 @@ MASKED_SAMPLE_SUMMARY_FIELDS = (
     "sample_weight_min",
     "sample_weight_max",
 )
+CRM_STRATIFIED_SAMPLE_SUMMARY_FIELDS = (
+    "year",
+    "label_source",
+    "is_plausible_kelp_domain",
+    "domain_mask_reason",
+    "depth_bin",
+    "population_row_count",
+    "sampled_row_count",
+    "dropped_row_count",
+    "configured_fraction",
+    "configured_min_rows_per_year",
+    "configured_max_rows_per_year",
+    "effective_sample_fraction",
+    "kelpwatch_observed_row_count",
+    "kelpwatch_positive_row_count",
+    "sample_weight_min",
+    "sample_weight_max",
+)
+CRM_STRATIFIED_REQUIRED_MASK_COLUMNS = (
+    MASK_KEY_COLUMN,
+    MASK_RETAIN_COLUMN,
+    "domain_mask_reason",
+    "depth_bin",
+)
 
 
 @dataclass(frozen=True)
@@ -100,6 +125,33 @@ class SampleDomainMaskConfig:
     manifest_output_path: Path
     summary_path: Path
     fail_on_dropped_positive: bool
+
+
+@dataclass(frozen=True)
+class CrmStratifiedQuota:
+    """One configured assumed-background sampling quota rule."""
+
+    domain_mask_reason: str | None
+    depth_bin: str | None
+    fraction: float
+    min_rows_per_year: int
+    max_rows_per_year: int | None
+
+
+@dataclass(frozen=True)
+class CrmStratifiedSampleConfig:
+    """Resolved settings for CRM-stratified background sidecar sampling."""
+
+    table_path: Path
+    manifest_path: Path | None
+    policy: str
+    output_path: Path
+    manifest_output_path: Path
+    summary_path: Path
+    quotas: tuple[CrmStratifiedQuota, ...]
+    default_fraction: float
+    default_min_rows_per_year: int
+    random_seed: int
 
 
 @dataclass(frozen=True)
@@ -126,6 +178,7 @@ class FullGridAlignmentConfig:
     random_seed: int
     sample_weight_column: str
     sample_domain_mask: SampleDomainMaskConfig | None
+    crm_stratified_sample: CrmStratifiedSampleConfig | None
     fast: bool
     row_window: tuple[int, int] | None
     col_window: tuple[int, int] | None
@@ -141,6 +194,27 @@ class MaskedSampleResult:
     dropped_counts: dict[str, int]
     dropped_observed_row_count: int
     dropped_positive_row_count: int
+
+
+@dataclass(frozen=True)
+class CrmStratifiedSelection:
+    """Selected CRM-stratified sample rows and audit summaries."""
+
+    selected_metadata: pd.DataFrame
+    summary_rows: list[dict[str, object]]
+    population_row_count: int
+    sampled_row_count: int
+    retained_counts: dict[str, int]
+    population_counts: dict[str, int]
+    dropped_counts: dict[str, int]
+
+
+@dataclass(frozen=True)
+class CrmStratifiedSampleResult:
+    """Metadata returned after writing the CRM-stratified sample sidecar."""
+
+    sample: pd.DataFrame
+    selection: CrmStratifiedSelection
 
 
 @dataclass(frozen=True)
@@ -192,6 +266,7 @@ def align_full_grid(config_path: Path, *, fast: bool = False) -> int:
         sample_weight_column=grid_config.sample_weight_column,
     )
     masked_sample_result = write_masked_sample_artifacts(sample, grid_config)
+    crm_stratified_sample_result = write_crm_stratified_sample_artifacts(grid_config)
     write_full_grid_summary(counters, sample, grid_config)
     write_full_grid_manifest(
         counters,
@@ -200,6 +275,7 @@ def align_full_grid(config_path: Path, *, fast: bool = False) -> int:
         assets,
         grid_config,
         masked_sample_result,
+        crm_stratified_sample_result,
     )
     validate_fast_sample(sample, grid_config)
     LOGGER.info("Wrote full-grid table: %s", grid_config.full_grid_output_path)
@@ -208,6 +284,11 @@ def align_full_grid(config_path: Path, *, fast: bool = False) -> int:
         LOGGER.info(
             "Wrote masked background sample table: %s",
             grid_config.sample_domain_mask.output_path,
+        )
+    if crm_stratified_sample_result is not None and grid_config.crm_stratified_sample is not None:
+        LOGGER.info(
+            "Wrote CRM-stratified background sample table: %s",
+            grid_config.crm_stratified_sample.output_path,
         )
     LOGGER.info("Wrote full-grid manifest: %s", grid_config.full_grid_manifest_path)
     return 0
@@ -272,6 +353,19 @@ def load_full_grid_alignment_config(config_path: Path, *, fast: bool) -> FullGri
         sample_summary=sample_summary,
         fast=fast,
     )
+    crm_stratified_sample = load_crm_stratified_sample_config(
+        config=config,
+        background_sample=background_sample,
+        sample_output=sample_output,
+        sample_manifest=sample_manifest,
+        sample_summary=sample_summary,
+        random_seed=optional_int(
+            background_sample.get("random_seed"),
+            "alignment.background_sample.random_seed",
+            DEFAULT_RANDOM_SEED,
+        ),
+        fast=fast,
+    )
     return FullGridAlignmentConfig(
         config_path=config_path,
         years=selected_years,
@@ -322,6 +416,7 @@ def load_full_grid_alignment_config(config_path: Path, *, fast: bool) -> FullGri
             background_sample.get("sample_weight_column", DEFAULT_SAMPLE_WEIGHT_COLUMN)
         ),
         sample_domain_mask=sample_domain_mask,
+        crm_stratified_sample=crm_stratified_sample,
         fast=fast,
         row_window=window_from_config(
             fast_config.get("row_window"), "alignment.full_grid.fast.row_window"
@@ -419,6 +514,162 @@ def load_sample_domain_mask_config(
             True,
         ),
     )
+
+
+def load_crm_stratified_sample_config(
+    *,
+    config: dict[str, Any],
+    background_sample: dict[str, Any],
+    sample_output: Path,
+    sample_manifest: Path,
+    sample_summary: Path,
+    random_seed: int,
+    fast: bool,
+) -> CrmStratifiedSampleConfig | None:
+    """Load optional CRM-stratified model-input sidecar settings."""
+    sidecar_value = background_sample.get("crm_stratified")
+    if sidecar_value is None:
+        return None
+    sidecar = require_mapping(sidecar_value, "alignment.background_sample.crm_stratified")
+    if not optional_bool(
+        sidecar.get("enabled"), "alignment.background_sample.crm_stratified.enabled", True
+    ):
+        return None
+    reporting_mask = load_reporting_domain_mask(config)
+    policy = str(
+        sidecar.get(
+            "policy",
+            reporting_mask.primary_domain if reporting_mask is not None else DEFAULT_PRIMARY_DOMAIN,
+        )
+    )
+    if policy != DEFAULT_PRIMARY_DOMAIN:
+        msg = f"unsupported CRM-stratified sampling policy: {policy}"
+        raise ValueError(msg)
+    if reporting_mask is None:
+        msg = "alignment.background_sample.crm_stratified requires reports.domain_mask mask inputs"
+        raise ValueError(msg)
+    fast_config = optional_mapping(
+        sidecar.get("fast"), "alignment.background_sample.crm_stratified.fast"
+    )
+    output_path = crm_stratified_path(
+        sidecar,
+        "output_table",
+        suffix_path(sample_output, ".crm_stratified.masked"),
+    )
+    manifest_path = crm_stratified_path(
+        sidecar,
+        "output_manifest",
+        suffix_path(sample_manifest, ".crm_stratified.masked"),
+    )
+    summary_path = crm_stratified_path(
+        sidecar,
+        "summary_table",
+        suffix_path(sample_summary, ".crm_stratified.masked"),
+    )
+    return CrmStratifiedSampleConfig(
+        table_path=reporting_mask.table_path,
+        manifest_path=reporting_mask.manifest_path,
+        policy=policy,
+        output_path=fast_path(output_path, fast, fast_config, "output_table"),
+        manifest_output_path=fast_path(manifest_path, fast, fast_config, "output_manifest"),
+        summary_path=fast_path(summary_path, fast, fast_config, "summary_table"),
+        quotas=read_crm_stratified_quotas(sidecar),
+        default_fraction=optional_probability(
+            sidecar.get("default_fraction"),
+            "alignment.background_sample.crm_stratified.default_fraction",
+            0.02,
+        ),
+        default_min_rows_per_year=optional_nonnegative_int(
+            sidecar.get("default_min_rows_per_year"),
+            "alignment.background_sample.crm_stratified.default_min_rows_per_year",
+            0,
+        ),
+        random_seed=optional_int(
+            sidecar.get("random_seed"),
+            "alignment.background_sample.crm_stratified.random_seed",
+            random_seed,
+        ),
+    )
+
+
+def crm_stratified_path(config: dict[str, Any], key: str, default: Path) -> Path:
+    """Read a CRM-stratified sidecar path from config with a default."""
+    value = config.get(key)
+    if value is None:
+        return default
+    return Path(require_string(value, f"alignment.background_sample.crm_stratified.{key}"))
+
+
+def read_crm_stratified_quotas(config: dict[str, Any]) -> tuple[CrmStratifiedQuota, ...]:
+    """Read ordered CRM stratum quota rules from config."""
+    values = config.get("strata")
+    if not isinstance(values, list) or not values:
+        msg = "alignment.background_sample.crm_stratified.strata must be a non-empty list"
+        raise ValueError(msg)
+    quotas = []
+    for index, value in enumerate(values):
+        item_name = f"alignment.background_sample.crm_stratified.strata[{index}]"
+        item = require_mapping(value, item_name)
+        quotas.append(
+            CrmStratifiedQuota(
+                domain_mask_reason=optional_string(item.get("domain_mask_reason")),
+                depth_bin=optional_string(item.get("depth_bin")),
+                fraction=optional_probability(item.get("fraction"), f"{item_name}.fraction", 0.0),
+                min_rows_per_year=optional_nonnegative_int(
+                    item.get("min_rows_per_year"),
+                    f"{item_name}.min_rows_per_year",
+                    0,
+                ),
+                max_rows_per_year=optional_positive_int_or_none(
+                    item.get("max_rows_per_year"),
+                    f"{item_name}.max_rows_per_year",
+                ),
+            )
+        )
+    return tuple(quotas)
+
+
+def optional_string(value: object) -> str | None:
+    """Read an optional string value from dynamic config."""
+    if value is None:
+        return None
+    return str(value)
+
+
+def optional_probability(value: object, name: str, default: float) -> float:
+    """Read a probability value from dynamic config."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        msg = f"field must be numeric, not boolean: {name}"
+        raise ValueError(msg)
+    parsed = float(cast(Any, value))
+    if not 0.0 <= parsed <= 1.0:
+        msg = f"field must be between 0 and 1: {name}"
+        raise ValueError(msg)
+    return parsed
+
+
+def optional_nonnegative_int(value: object, name: str, default: int) -> int:
+    """Validate an optional non-negative integer dynamic value."""
+    if value is None:
+        return default
+    parsed = require_int_value(value, name)
+    if parsed < 0:
+        msg = f"field must be non-negative: {name}"
+        raise ValueError(msg)
+    return parsed
+
+
+def optional_positive_int_or_none(value: object, name: str) -> int | None:
+    """Validate an optional positive integer dynamic value."""
+    if value is None:
+        return None
+    parsed = require_int_value(value, name)
+    if parsed <= 0:
+        msg = f"field must be positive: {name}"
+        raise ValueError(msg)
+    return parsed
 
 
 def resolve_years(
@@ -1037,6 +1288,396 @@ def masked_sample_summary_rows(
     return rows
 
 
+def write_crm_stratified_sample_artifacts(
+    grid_config: FullGridAlignmentConfig,
+) -> CrmStratifiedSampleResult | None:
+    """Write the optional CRM-stratified masked sample sidecar."""
+    sample_config = grid_config.crm_stratified_sample
+    if sample_config is None:
+        return None
+    LOGGER.info("Building CRM-stratified background sample from retained full-grid rows")
+    population = read_crm_stratified_population_frame(
+        full_grid_path=grid_config.full_grid_output_path,
+        sample_config=sample_config,
+    )
+    selection = select_crm_stratified_sample_metadata(population, sample_config)
+    if selection.selected_metadata.empty:
+        msg = "CRM-stratified sampling selected no rows"
+        raise ValueError(msg)
+    sample = crm_stratified_sample_frame(
+        full_grid_path=grid_config.full_grid_output_path,
+        sample_config=sample_config,
+        selected_metadata=selection.selected_metadata,
+        sample_weight_column=grid_config.sample_weight_column,
+    )
+    if sample.empty:
+        msg = "CRM-stratified selected keys produced no sample rows"
+        raise ValueError(msg)
+    reset_output_path(sample_config.output_path)
+    write_part(sample, sample_config.output_path, year=0, part_index=0)
+    write_csv(
+        selection.summary_rows,
+        sample_config.summary_path,
+        CRM_STRATIFIED_SAMPLE_SUMMARY_FIELDS,
+    )
+    result = CrmStratifiedSampleResult(sample=sample, selection=selection)
+    write_crm_stratified_sample_manifest(
+        result=result,
+        grid_config=grid_config,
+        sample_config=sample_config,
+    )
+    LOGGER.info(
+        "Selected %s CRM-stratified rows from %s retained population rows",
+        selection.sampled_row_count,
+        selection.population_row_count,
+    )
+    return result
+
+
+def read_crm_stratified_population_frame(
+    *,
+    full_grid_path: Path,
+    sample_config: CrmStratifiedSampleConfig,
+) -> pd.DataFrame:
+    """Read retained full-grid identifiers and mask strata for sampling."""
+    validate_crm_stratified_mask_schema(sample_config)
+    full_grid = pl.scan_parquet(str(full_grid_path)).select(
+        [
+            "year",
+            "label_source",
+            MASK_KEY_COLUMN,
+            "kelp_max_y",
+            "is_kelpwatch_observed",
+        ]
+    )
+    mask = pl.scan_parquet(str(sample_config.table_path)).select(
+        list(CRM_STRATIFIED_REQUIRED_MASK_COLUMNS)
+    )
+    missing_count = crm_stratified_missing_mask_count(full_grid, mask)
+    if missing_count:
+        msg = f"domain mask is missing rows for {missing_count} full-grid cells"
+        raise ValueError(msg)
+    retained = (
+        full_grid.join(mask, on=MASK_KEY_COLUMN, how="inner")
+        .filter(pl.col(MASK_RETAIN_COLUMN))
+        .collect()
+        .to_pandas()
+    )
+    if retained.empty:
+        msg = f"CRM-stratified sampling retained no full-grid rows: {sample_config.table_path}"
+        raise ValueError(msg)
+    retained["domain_mask_reason"] = retained["domain_mask_reason"].map(normalize_stratum_value)
+    retained["depth_bin"] = retained["depth_bin"].map(normalize_stratum_value)
+    return cast(pd.DataFrame, retained)
+
+
+def validate_crm_stratified_mask_schema(sample_config: CrmStratifiedSampleConfig) -> None:
+    """Validate that the mask table contains CRM stratum columns."""
+    available = set(pl.scan_parquet(str(sample_config.table_path)).collect_schema().names())
+    missing = [column for column in CRM_STRATIFIED_REQUIRED_MASK_COLUMNS if column not in available]
+    if missing:
+        msg = f"CRM-stratified sampling mask is missing required columns: {missing}"
+        raise ValueError(msg)
+
+
+def crm_stratified_missing_mask_count(full_grid: Any, mask: Any) -> int:
+    """Count full-grid rows whose target cell is absent from the mask table."""
+    missing = (
+        full_grid.join(mask.select(MASK_KEY_COLUMN), on=MASK_KEY_COLUMN, how="anti")
+        .select(pl.len().alias("row_count"))
+        .collect()
+    )
+    return int(missing["row_count"][0])
+
+
+def select_crm_stratified_sample_metadata(
+    population: pd.DataFrame,
+    sample_config: CrmStratifiedSampleConfig,
+) -> CrmStratifiedSelection:
+    """Select all observed rows and quota-ranked assumed-background rows."""
+    observed = population.loc[population["label_source"] == KELPWATCH_STATION].copy()
+    background = population.loc[population["label_source"] == ASSUMED_BACKGROUND].copy()
+    selected_parts = [observed]
+    if not background.empty:
+        selected_parts.extend(select_background_stratum_rows(background, sample_config).values())
+    selected = pd.concat(selected_parts, ignore_index=False).sort_index()
+    summary_rows = crm_stratified_summary_rows(population, selected, sample_config)
+    return CrmStratifiedSelection(
+        selected_metadata=selected,
+        summary_rows=summary_rows,
+        population_row_count=int(len(population)),
+        sampled_row_count=int(len(selected)),
+        retained_counts=crm_stratified_counts(selected),
+        population_counts=crm_stratified_counts(population),
+        dropped_counts=crm_stratified_dropped_counts(population, selected),
+    )
+
+
+def select_background_stratum_rows(
+    background: pd.DataFrame,
+    sample_config: CrmStratifiedSampleConfig,
+) -> dict[tuple[int, str, str], pd.DataFrame]:
+    """Select deterministic background rows for each year/reason/depth stratum."""
+    selected: dict[tuple[int, str, str], pd.DataFrame] = {}
+    group_columns = ["year", "domain_mask_reason", "depth_bin"]
+    for keys, group in background.groupby(group_columns, sort=True, dropna=False):
+        year, reason, depth_bin = cast(tuple[int, str, str], keys)
+        quota = quota_for_stratum(str(reason), str(depth_bin), sample_config)
+        row_quota = row_quota_for_population(len(group), quota)
+        if row_quota <= 0:
+            continue
+        scores = deterministic_sample_scores(
+            group[MASK_KEY_COLUMN].to_numpy(dtype=np.int64),
+            int(year),
+            sample_config.random_seed,
+        )
+        cell_ids = group[MASK_KEY_COLUMN].to_numpy(dtype=np.int64)
+        order = np.lexsort((cell_ids, scores))
+        selected[(int(year), str(reason), str(depth_bin))] = group.iloc[order[:row_quota]].copy()
+    return selected
+
+
+def row_quota_for_population(population_count: int, quota: CrmStratifiedQuota) -> int:
+    """Return a capped row quota for one stratum population."""
+    if population_count <= 0:
+        return 0
+    fraction_count = int(math.ceil(population_count * quota.fraction))
+    requested = max(fraction_count, quota.min_rows_per_year)
+    if quota.max_rows_per_year is not None:
+        requested = min(requested, quota.max_rows_per_year)
+    return min(population_count, requested)
+
+
+def quota_for_stratum(
+    domain_mask_reason: str,
+    depth_bin: str,
+    sample_config: CrmStratifiedSampleConfig,
+) -> CrmStratifiedQuota:
+    """Return the first matching quota rule for a CRM stratum."""
+    for quota in sample_config.quotas:
+        reason_match = quota.domain_mask_reason in {None, domain_mask_reason}
+        depth_match = quota.depth_bin in {None, depth_bin}
+        if reason_match and depth_match:
+            return quota
+    return CrmStratifiedQuota(
+        domain_mask_reason=domain_mask_reason,
+        depth_bin=depth_bin,
+        fraction=sample_config.default_fraction,
+        min_rows_per_year=sample_config.default_min_rows_per_year,
+        max_rows_per_year=None,
+    )
+
+
+def deterministic_sample_scores(cell_id_values: np.ndarray, year: int, seed: int) -> np.ndarray:
+    """Return stable pseudo-random scores from cell ids and year."""
+    modulus = np.uint64(2**32)
+    hashed = (
+        cell_id_values.astype(np.uint64) * np.uint64(1_103_515_245)
+        + np.uint64(seed)
+        + np.uint64(year) * np.uint64(2_654_435_761)
+    ) % modulus
+    return cast(np.ndarray, hashed.astype(np.float64) / float(modulus))
+
+
+def crm_stratified_sample_frame(
+    *,
+    full_grid_path: Path,
+    sample_config: CrmStratifiedSampleConfig,
+    selected_metadata: pd.DataFrame,
+    sample_weight_column: str,
+) -> pd.DataFrame:
+    """Read selected full-grid rows, join mask metadata, and attach weights."""
+    selected_keys = selected_metadata[["year", MASK_KEY_COLUMN]].drop_duplicates()
+    full_grid = pl.scan_parquet(str(full_grid_path))
+    selected = pl.LazyFrame(selected_keys)
+    mask = pl.scan_parquet(str(sample_config.table_path)).select(list(MASK_DETAIL_COLUMNS))
+    sample = (
+        full_grid.join(selected, on=["year", MASK_KEY_COLUMN], how="inner")
+        .join(mask, on=MASK_KEY_COLUMN, how="left")
+        .collect()
+        .to_pandas()
+    )
+    if sample[MASK_RETAIN_COLUMN].isna().any():
+        missing_count = int(sample[MASK_RETAIN_COLUMN].isna().sum())
+        msg = f"domain mask is missing rows for {missing_count} selected sample cells"
+        raise ValueError(msg)
+    sample["domain_mask_reason"] = sample["domain_mask_reason"].map(normalize_stratum_value)
+    sample["depth_bin"] = sample["depth_bin"].map(normalize_stratum_value)
+    return assign_crm_stratified_sample_weights(
+        sample,
+        selected_metadata,
+        sample_weight_column,
+    )
+
+
+def assign_crm_stratified_sample_weights(
+    sample: pd.DataFrame,
+    selected_metadata: pd.DataFrame,
+    sample_weight_column: str,
+) -> pd.DataFrame:
+    """Assign expansion weights by retained CRM stratum."""
+    weighted = sample.copy()
+    weighted[sample_weight_column] = 1.0
+    background = selected_metadata.loc[selected_metadata["label_source"] == ASSUMED_BACKGROUND]
+    if background.empty:
+        return weighted
+    for keys, group in background.groupby(
+        ["year", "domain_mask_reason", "depth_bin"], sort=False, dropna=False
+    ):
+        year, reason, depth_bin = cast(tuple[int, str, str], keys)
+        population_count = int(group["stratum_population_count"].iloc[0])
+        sample_count = len(group)
+        sample_mask = (
+            (weighted["year"].astype(int) == int(year))
+            & (weighted["label_source"] == ASSUMED_BACKGROUND)
+            & (weighted["domain_mask_reason"] == str(reason))
+            & (weighted["depth_bin"] == str(depth_bin))
+        )
+        weighted.loc[sample_mask, sample_weight_column] = float(population_count / sample_count)
+    return weighted
+
+
+def crm_stratified_summary_rows(
+    population: pd.DataFrame,
+    selected: pd.DataFrame,
+    sample_config: CrmStratifiedSampleConfig,
+) -> list[dict[str, object]]:
+    """Build CRM-stratified population, sample, and weight summary rows."""
+    selected_counts = crm_stratified_group_sizes(selected)
+    rows: list[dict[str, object]] = []
+    group_columns = [
+        "year",
+        "label_source",
+        MASK_RETAIN_COLUMN,
+        "domain_mask_reason",
+        "depth_bin",
+    ]
+    for keys, group in population.groupby(group_columns, sort=True, dropna=False):
+        year, label_source, retained, reason, depth_bin = cast(
+            tuple[int, str, bool, str, str], keys
+        )
+        key = (int(year), str(label_source), bool(retained), str(reason), str(depth_bin))
+        sampled_count = selected_counts.get(key, 0)
+        quota = quota_for_stratum(str(reason), str(depth_bin), sample_config)
+        sample_weight = (
+            1.0
+            if label_source == KELPWATCH_STATION or sampled_count == 0
+            else len(group) / sampled_count
+        )
+        rows.append(
+            {
+                "year": int(year),
+                "label_source": str(label_source),
+                "is_plausible_kelp_domain": bool(retained),
+                "domain_mask_reason": str(reason),
+                "depth_bin": str(depth_bin),
+                "population_row_count": int(len(group)),
+                "sampled_row_count": int(sampled_count),
+                "dropped_row_count": int(len(group) - sampled_count),
+                "configured_fraction": 1.0 if label_source == KELPWATCH_STATION else quota.fraction,
+                "configured_min_rows_per_year": 0
+                if label_source == KELPWATCH_STATION
+                else quota.min_rows_per_year,
+                "configured_max_rows_per_year": ""
+                if label_source == KELPWATCH_STATION or quota.max_rows_per_year is None
+                else quota.max_rows_per_year,
+                "effective_sample_fraction": len(group) and sampled_count / len(group),
+                "kelpwatch_observed_row_count": observed_row_count(group),
+                "kelpwatch_positive_row_count": positive_observed_row_count(group),
+                "sample_weight_min": sample_weight if sampled_count else math.nan,
+                "sample_weight_max": sample_weight if sampled_count else math.nan,
+            }
+        )
+    attach_stratum_population_counts(selected, population)
+    return rows
+
+
+def crm_stratified_group_sizes(
+    dataframe: pd.DataFrame,
+) -> dict[tuple[int, str, bool, str, str], int]:
+    """Count CRM-stratified rows by year, source, retain flag, reason, and depth."""
+    counts: dict[tuple[int, str, bool, str, str], int] = {}
+    if dataframe.empty:
+        return counts
+    group_columns = [
+        "year",
+        "label_source",
+        MASK_RETAIN_COLUMN,
+        "domain_mask_reason",
+        "depth_bin",
+    ]
+    for keys, group in dataframe.groupby(group_columns, sort=True, dropna=False):
+        year, label_source, retained, reason, depth_bin = cast(
+            tuple[int, str, bool, str, str], keys
+        )
+        counts[(int(year), str(label_source), bool(retained), str(reason), str(depth_bin))] = int(
+            len(group)
+        )
+    return counts
+
+
+def attach_stratum_population_counts(selected: pd.DataFrame, population: pd.DataFrame) -> None:
+    """Attach background stratum population counts to selected metadata in place."""
+    if selected.empty:
+        selected["stratum_population_count"] = pd.Series(dtype="int64")
+        return
+    counts = (
+        population.loc[population["label_source"] == ASSUMED_BACKGROUND]
+        .groupby(["year", "domain_mask_reason", "depth_bin"], sort=False)
+        .size()
+        .rename("stratum_population_count")
+        .reset_index()
+    )
+    if counts.empty:
+        selected["stratum_population_count"] = 0
+        return
+    merged = selected.merge(
+        counts,
+        on=["year", "domain_mask_reason", "depth_bin"],
+        how="left",
+        validate="many_to_one",
+    )
+    selected["stratum_population_count"] = (
+        merged["stratum_population_count"].fillna(0).to_numpy(dtype=np.int64)
+    )
+
+
+def crm_stratified_counts(dataframe: pd.DataFrame) -> dict[str, int]:
+    """Count rows by stable CRM-stratified manifest key."""
+    counts: dict[str, int] = {}
+    if dataframe.empty:
+        return counts
+    for keys, group in dataframe.groupby(
+        ["year", "label_source", "domain_mask_reason", "depth_bin"],
+        sort=True,
+        dropna=False,
+    ):
+        year, label_source, reason, depth_bin = cast(tuple[int, str, str, str], keys)
+        key = f"{int(year)}:{label_source}:{reason}:{depth_bin}"
+        counts[key] = int(len(group))
+    return counts
+
+
+def crm_stratified_dropped_counts(
+    population: pd.DataFrame, selected: pd.DataFrame
+) -> dict[str, int]:
+    """Count population rows not selected by stable CRM-stratified manifest key."""
+    population_counts = crm_stratified_counts(population)
+    selected_counts = crm_stratified_counts(selected)
+    return {
+        key: count - selected_counts.get(key, 0)
+        for key, count in population_counts.items()
+        if count - selected_counts.get(key, 0) > 0
+    }
+
+
+def normalize_stratum_value(value: object) -> str:
+    """Normalize missing or dynamic stratum values to stable strings."""
+    if pd.isna(value):
+        return ""
+    return str(value)
+
+
 def count_rows_by_year_label(dataframe: pd.DataFrame) -> dict[str, int]:
     """Count rows by stable year and label-source manifest keys."""
     counts: dict[str, int] = {}
@@ -1116,6 +1757,7 @@ def write_full_grid_manifest(
     assets: dict[int, AefYearAsset],
     grid_config: FullGridAlignmentConfig,
     masked_sample_result: MaskedSampleResult | None,
+    crm_stratified_sample_result: CrmStratifiedSampleResult | None,
 ) -> None:
     """Write manifests for full-grid and sampled training artifacts."""
     full_payload = {
@@ -1153,6 +1795,16 @@ def write_full_grid_manifest(
         full_payload["masked_sample_output"] = str(grid_config.sample_domain_mask.output_path)
         full_payload["masked_sample_counts"] = masked_sample_result.retained_counts
         full_payload["masked_population_counts"] = masked_sample_result.population_counts
+    if crm_stratified_sample_result is not None and grid_config.crm_stratified_sample is not None:
+        full_payload["crm_stratified_sample_output"] = str(
+            grid_config.crm_stratified_sample.output_path
+        )
+        full_payload["crm_stratified_sample_counts"] = (
+            crm_stratified_sample_result.selection.retained_counts
+        )
+        full_payload["crm_stratified_population_counts"] = (
+            crm_stratified_sample_result.selection.population_counts
+        )
     sample_payload = {
         "command": "align-full-grid",
         "artifact": "background_sample",
@@ -1166,6 +1818,58 @@ def write_full_grid_manifest(
     }
     write_json(grid_config.full_grid_manifest_path, full_payload)
     write_json(grid_config.sample_manifest_path, sample_payload)
+
+
+def write_crm_stratified_sample_manifest(
+    *,
+    result: CrmStratifiedSampleResult,
+    grid_config: FullGridAlignmentConfig,
+    sample_config: CrmStratifiedSampleConfig,
+) -> None:
+    """Write a JSON manifest for the CRM-stratified sample sidecar."""
+    payload = {
+        "command": "align-full-grid",
+        "artifact": "background_sample_crm_stratified_domain_mask",
+        "config_path": str(grid_config.config_path),
+        "fast": grid_config.fast,
+        "domain_policy": sample_config.policy,
+        "mask_table": str(sample_config.table_path),
+        "mask_manifest": str(sample_config.manifest_path) if sample_config.manifest_path else None,
+        "source_full_grid_output": str(grid_config.full_grid_output_path),
+        "crm_stratified_sample_output": str(sample_config.output_path),
+        "crm_stratified_sample_summary": str(sample_config.summary_path),
+        "population_row_count": result.selection.population_row_count,
+        "sample_row_count": result.selection.sampled_row_count,
+        "retained_counts": result.selection.retained_counts,
+        "population_counts": result.selection.population_counts,
+        "dropped_counts": result.selection.dropped_counts,
+        "sample_weight_column": grid_config.sample_weight_column,
+        "sampling_policy": {
+            "quota_type": "per_year_crm_stratum_fraction_with_min_max_caps",
+            "strata": [
+                {
+                    "domain_mask_reason": quota.domain_mask_reason,
+                    "depth_bin": quota.depth_bin,
+                    "fraction": quota.fraction,
+                    "min_rows_per_year": quota.min_rows_per_year,
+                    "max_rows_per_year": quota.max_rows_per_year,
+                }
+                for quota in sample_config.quotas
+            ],
+            "default_fraction": sample_config.default_fraction,
+            "default_min_rows_per_year": sample_config.default_min_rows_per_year,
+            "deterministic_key": ["aef_grid_cell_id", "year", "random_seed"],
+            "random_seed": sample_config.random_seed,
+            "all_retained_kelpwatch_rows_kept": True,
+            "sample_weight_policy": (
+                "assumed-background weights are retained stratum population divided "
+                "by sampled stratum rows; kelpwatch rows keep weight 1.0"
+            ),
+        },
+        "summary_row_count": len(result.selection.summary_rows),
+        "schema": list(result.sample.columns),
+    }
+    write_json(sample_config.manifest_output_path, payload)
 
 
 def write_masked_sample_manifest(

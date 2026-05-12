@@ -75,6 +75,32 @@ alignment:
       output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked_manifest.json
       summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked_summary.csv
       fail_on_dropped_positive: true
+    crm_stratified:
+      enabled: true
+      policy: plausible_kelp_domain
+      output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
+      output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked_manifest.json
+      summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.crm_stratified.masked_summary.csv
+      random_seed: 31
+      default_fraction: 0.0
+      default_min_rows_per_year: 0
+      strata:
+        - domain_mask_reason: retained_ambiguous_coast
+          depth_bin: ambiguous_coast
+          fraction: 0.12
+          min_rows_per_year: 5000
+        - domain_mask_reason: retained_depth_0_100m
+          depth_bin: 0_40m
+          fraction: 0.04
+          min_rows_per_year: 8000
+        - domain_mask_reason: retained_depth_0_100m
+          depth_bin: 40_50m
+          fraction: 0.01
+          min_rows_per_year: 500
+        - domain_mask_reason: retained_depth_0_100m
+          depth_bin: 50_100m
+          fraction: 0.003
+          min_rows_per_year: 500
     random_seed: 13
     background_rows_per_year: 250000
     include_all_kelpwatch_observed: true
@@ -337,6 +363,23 @@ models:
       manifest: /Volumes/x10pro/kelp_aef/interim/binary_presence_calibration_manifest.json
       include_prevalence_match: true
       reliability_bin_count: 10
+    sidecars:
+      crm_stratified:
+        enabled: true
+        sample_policy: crm_stratified_background_sample
+        allow_missing_split_manifest_rows: true
+        input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
+        model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct.crm_stratified.joblib
+        sample_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_sample_predictions.crm_stratified.parquet
+        full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.crm_stratified.parquet
+        metrics: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_metrics.crm_stratified.csv
+        threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_threshold_selection.crm_stratified.csv
+        full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_full_grid_area_summary.crm_stratified.csv
+        thresholded_model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_thresholded_model_comparison.crm_stratified.csv
+        prediction_manifest: /Volumes/x10pro/kelp_aef/interim/binary_presence_prediction_manifest.crm_stratified.json
+        precision_recall_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_precision_recall.crm_stratified.png
+        map_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_2022_map.crm_stratified.png
+        comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_crm_stratified_comparison.csv
   conditional_canopy:
     input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
     target: kelp_fraction_y

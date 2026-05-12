@@ -222,6 +222,18 @@ objectives, model classes, sample weights, or label inputs.
 | Background rate summary | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_background_rate_summary.csv` | Compact assumed-background rate summary by data scope, split, year, mask status, and evaluation scope. | Not tracked |
 | Class balance figure | `/Volumes/x10pro/kelp_aef/reports/figures/model_analysis_class_balance.png` | Compact report figure comparing zero, positive, high-canopy, and saturated rates for primary analysis scopes. | Not tracked |
 
+## Phase 1 CRM-Stratified Background Sampling
+
+These sidecar outputs test a CRM-stratified assumed-background sample without
+replacing the current masked binary model inputs.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| CRM-stratified masked sample | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet` | Sidecar model-input sample that keeps all retained Kelpwatch rows and samples assumed-background rows by `domain_mask_reason` and `depth_bin`. | Not tracked |
+| CRM-stratified sample manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked_manifest.json` | Deterministic quota policy, row counts, selected counts, dropped counts, and sample-weight policy for the sidecar sample. | Not tracked |
+| CRM-stratified sample summary | `/Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.crm_stratified.masked_summary.csv` | Population counts, sampled counts, effective fractions, and weights by year, label source, mask reason, and depth bin. | Not tracked |
+| CRM-stratified binary comparison | `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_crm_stratified_comparison.csv` | Compact comparison of current masked-sample binary outputs versus the CRM-stratified sidecar, including assumed-background prediction rates by CRM stratum. | Not tracked |
+
 ## Phase 1 Balanced Binary Presence Model
 
 These outputs train and report the first imbalance-aware binary model for the

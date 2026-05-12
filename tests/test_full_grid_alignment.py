@@ -8,6 +8,13 @@ import rasterio
 from rasterio.transform import from_origin
 
 from kelp_aef import main
+from kelp_aef.alignment.full_grid import (
+    ASSUMED_BACKGROUND,
+    KELPWATCH_STATION,
+    CrmStratifiedQuota,
+    CrmStratifiedSampleConfig,
+    select_crm_stratified_sample_metadata,
+)
 
 
 def test_align_full_grid_fast_writes_background_and_observed_rows(tmp_path: Path) -> None:
@@ -64,8 +71,85 @@ def test_align_full_grid_fast_writes_masked_background_sample(tmp_path: Path) ->
     assert manifest["population_counts"]["2018"]["assumed_background"] == 1
 
 
+def test_crm_stratified_selection_keeps_observed_and_applies_quotas(tmp_path: Path) -> None:
+    """Verify CRM-stratified quota selection and observed-row retention."""
+    population = crm_stratified_population_fixture()
+    config = CrmStratifiedSampleConfig(
+        table_path=tmp_path / "mask.parquet",
+        manifest_path=None,
+        policy="plausible_kelp_domain",
+        output_path=tmp_path / "sample.parquet",
+        manifest_output_path=tmp_path / "manifest.json",
+        summary_path=tmp_path / "summary.csv",
+        quotas=(
+            CrmStratifiedQuota("retained_ambiguous_coast", "ambiguous_coast", 0.5, 0, None),
+            CrmStratifiedQuota("retained_depth_0_100m", "50_100m", 0.1, 0, None),
+        ),
+        default_fraction=0.0,
+        default_min_rows_per_year=0,
+        random_seed=7,
+    )
+
+    selection = select_crm_stratified_sample_metadata(population, config)
+    repeated = select_crm_stratified_sample_metadata(population, config)
+
+    selected = selection.selected_metadata
+    assert (
+        selected[MASK_SOURCE_COLUMN].tolist()
+        == repeated.selected_metadata[MASK_SOURCE_COLUMN].tolist()
+    )
+    assert int((selected["label_source"] == KELPWATCH_STATION).sum()) == 3
+    assert (
+        len(
+            selected.query(
+                "label_source == @ASSUMED_BACKGROUND "
+                "and domain_mask_reason == 'retained_ambiguous_coast'"
+            )
+        )
+        == 5
+    )
+    assert (
+        len(
+            selected.query(
+                "label_source == @ASSUMED_BACKGROUND "
+                "and domain_mask_reason == 'retained_depth_0_100m'"
+            )
+        )
+        == 1
+    )
+    assert (
+        selection.population_counts[
+            "2018:assumed_background:retained_ambiguous_coast:ambiguous_coast"
+        ]
+        == 10
+    )
+    assert selection.retained_counts["2018:assumed_background:retained_depth_0_100m:50_100m"] == 1
+
+
+def test_align_full_grid_fast_writes_crm_stratified_sample(tmp_path: Path) -> None:
+    """Verify full-grid alignment writes the CRM-stratified sidecar sample."""
+    fixture = write_full_grid_fixture(
+        tmp_path,
+        include_domain_mask=True,
+        include_crm_stratified=True,
+    )
+
+    assert main(["align-full-grid", "--config", str(fixture["config_path"]), "--fast"]) == 0
+
+    sidecar = pd.read_parquet(fixture["fast_crm_stratified_sample"])
+    summary = pd.read_csv(fixture["fast_crm_stratified_summary"])
+    manifest = json.loads(fixture["fast_crm_stratified_manifest"].read_text())
+
+    assert set(sidecar["aef_grid_cell_id"]) == {0, 1}
+    assert set(sidecar["domain_mask_reason"]) == {"retained"}
+    assert set(sidecar["depth_bin"]) == {"0_40m"}
+    assert int((sidecar["label_source"] == KELPWATCH_STATION).sum()) == 1
+    assert int(summary["sampled_row_count"].sum()) == 2
+    assert manifest["sampling_policy"]["all_retained_kelpwatch_rows_kept"]
+
+
 def write_full_grid_fixture(
-    tmp_path: Path, *, include_domain_mask: bool = False
+    tmp_path: Path, *, include_domain_mask: bool = False, include_crm_stratified: bool = False
 ) -> dict[str, Path]:
     """Write a tiny full-grid config, annual labels, manifest, and AEF raster."""
     labels_path = tmp_path / "interim/labels_annual.parquet"
@@ -81,6 +165,14 @@ def write_full_grid_fixture(
     fast_masked_sample = tmp_path / "interim/sample.masked.fast.parquet"
     fast_masked_manifest = tmp_path / "interim/sample.masked.fast_manifest.json"
     fast_masked_summary = tmp_path / "tables/sample.masked.fast_summary.csv"
+    crm_stratified_sample = tmp_path / "interim/sample.crm_stratified.masked.parquet"
+    crm_stratified_manifest = tmp_path / "interim/sample.crm_stratified.masked_manifest.json"
+    crm_stratified_summary = tmp_path / "tables/sample.crm_stratified.masked_summary.csv"
+    fast_crm_stratified_sample = tmp_path / "interim/sample.crm_stratified.masked.fast.parquet"
+    fast_crm_stratified_manifest = (
+        tmp_path / "interim/sample.crm_stratified.masked.fast_manifest.json"
+    )
+    fast_crm_stratified_summary = tmp_path / "tables/sample.crm_stratified.masked.fast_summary.csv"
     domain_mask = tmp_path / "interim/plausible_kelp_domain_mask.parquet"
     domain_manifest = tmp_path / "interim/plausible_kelp_domain_mask_manifest.json"
     config_path = tmp_path / "config.yaml"
@@ -119,6 +211,26 @@ reports:
         if include_domain_mask
         else ""
     )
+    crm_stratified_config = (
+        f"""
+    crm_stratified:
+      output_table: {crm_stratified_sample}
+      output_manifest: {crm_stratified_manifest}
+      summary_table: {crm_stratified_summary}
+      random_seed: 7
+      default_fraction: 0.0
+      strata:
+        - domain_mask_reason: retained
+          depth_bin: 0_40m
+          fraction: 1.0
+      fast:
+        output_table: {fast_crm_stratified_sample}
+        output_manifest: {fast_crm_stratified_manifest}
+        summary_table: {fast_crm_stratified_summary}
+"""
+        if include_crm_stratified
+        else ""
+    )
     config_path.write_text(
         f"""
 years:
@@ -155,6 +267,7 @@ alignment:
     include_all_kelpwatch_observed: true
     sample_weight_column: sample_weight
 {sample_domain_mask_config}
+{crm_stratified_config}
 {domain_mask_config}
 """.lstrip()
     )
@@ -166,7 +279,58 @@ alignment:
         "fast_masked_sample": fast_masked_sample,
         "fast_masked_manifest": fast_masked_manifest,
         "fast_masked_summary": fast_masked_summary,
+        "fast_crm_stratified_sample": fast_crm_stratified_sample,
+        "fast_crm_stratified_manifest": fast_crm_stratified_manifest,
+        "fast_crm_stratified_summary": fast_crm_stratified_summary,
     }
+
+
+MASK_SOURCE_COLUMN = "aef_grid_cell_id"
+
+
+def crm_stratified_population_fixture() -> pd.DataFrame:
+    """Return retained population rows for direct CRM-stratified selection tests."""
+    rows: list[dict[str, object]] = []
+    for cell_id in range(3):
+        rows.append(
+            {
+                "year": 2018,
+                MASK_SOURCE_COLUMN: cell_id,
+                "label_source": KELPWATCH_STATION,
+                "kelp_max_y": 90.0 if cell_id == 0 else 0.0,
+                "is_kelpwatch_observed": True,
+                "is_plausible_kelp_domain": True,
+                "domain_mask_reason": "retained_ambiguous_coast",
+                "depth_bin": "ambiguous_coast",
+            }
+        )
+    for offset in range(10):
+        rows.append(
+            {
+                "year": 2018,
+                MASK_SOURCE_COLUMN: 100 + offset,
+                "label_source": ASSUMED_BACKGROUND,
+                "kelp_max_y": 0.0,
+                "is_kelpwatch_observed": False,
+                "is_plausible_kelp_domain": True,
+                "domain_mask_reason": "retained_ambiguous_coast",
+                "depth_bin": "ambiguous_coast",
+            }
+        )
+    for offset in range(10):
+        rows.append(
+            {
+                "year": 2018,
+                MASK_SOURCE_COLUMN: 200 + offset,
+                "label_source": ASSUMED_BACKGROUND,
+                "kelp_max_y": 0.0,
+                "is_kelpwatch_observed": False,
+                "is_plausible_kelp_domain": True,
+                "domain_mask_reason": "retained_depth_0_100m",
+                "depth_bin": "50_100m",
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def write_label_table(path: Path) -> None:
@@ -264,6 +428,10 @@ def write_full_grid_domain_mask(mask_path: Path, manifest_path: Path) -> None:
             ],
             "domain_mask_detail": ["fixture"] * 4,
             "domain_mask_version": ["test_mask_v1"] * 4,
+            "crm_elevation_m": [-2.0, -3.0, -120.0, -120.0],
+            "crm_depth_m": [2.0, 3.0, 120.0, 120.0],
+            "depth_bin": ["0_40m", "0_40m", "100m_plus", "100m_plus"],
+            "elevation_bin": ["subtidal_ocean"] * 4,
         }
     ).to_parquet(mask_path, index=False)
     manifest_path.write_text(json.dumps({"mask_version": "test_mask_v1"}))

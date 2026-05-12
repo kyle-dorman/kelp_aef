@@ -372,7 +372,7 @@ masking change should end with an updated model-analysis report.
     `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_thresholded_model_comparison.csv`,
     `/Volumes/x10pro/kelp_aef/reports/figures/binary_presence_2022_map.png`,
     and `make check`.
-- [ ] P1-18a: Add CRM-stratified background sampling for binary model inputs.
+- [x] P1-18a: Add CRM-stratified background sampling for binary model inputs.
   - Goal: Improve the masked binary model-input sample using CRM domain
     context before further binary calibration or hurdle iteration.
   - Plan: `tasks/30_crm_stratified_background_sampling.md`.
@@ -384,6 +384,26 @@ masking change should end with an updated model-analysis report.
     assumed-background strata such as `retained_ambiguous_coast`, downsample
     easy retained strata such as `50_100m`, and do not use CRM depth/elevation
     as model predictors.
+  - Completed: the sidecar sample is
+    `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet`
+    with 314,280 rows, compared with 313,954 rows in the current masked sample.
+    It keeps all retained Kelpwatch rows and samples assumed-background rows by
+    `domain_mask_reason` and `depth_bin`.
+  - Comparison:
+    `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_crm_stratified_comparison.csv`.
+    The sidecar reduces 2022 retained full-grid assumed-background predicted
+    positives from 1,999 to 577, including ambiguous-coast assumed-background
+    positives from 1,920 to 531. The tradeoff is lower Kelpwatch-station recall
+    at the selected threshold: 2021 validation recall drops from 0.870 to 0.850,
+    and 2022 test recall drops from 0.834 to 0.785.
+  - Validation passed:
+    `uv run pytest tests/test_full_grid_alignment.py tests/test_binary_presence.py tests/test_model_analysis.py`,
+    `uv run ruff check src/kelp_aef/alignment/full_grid.py src/kelp_aef/evaluation/binary_presence.py tests/test_full_grid_alignment.py tests/test_binary_presence.py`,
+    `uv run mypy src/kelp_aef/alignment/full_grid.py src/kelp_aef/evaluation/binary_presence.py`,
+    `uv run kelp-aef align-full-grid --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef train-binary-presence --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
+    and `make check`.
 - [x] P1-19: Calibrate binary probabilities and thresholds on validation.
   - Goal: Separate ranking skill from area calibration.
   - Plan: `tasks/27_calibrate_binary_probabilities_thresholds.md`.

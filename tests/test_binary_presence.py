@@ -83,6 +83,26 @@ def test_calibrate_binary_presence_writes_artifacts(tmp_path: Path) -> None:
     assert "river mouth" in manifest["qa_notes"][0]
 
 
+def test_train_binary_presence_writes_crm_stratified_sidecar(tmp_path: Path) -> None:
+    """Verify optional CRM-stratified binary sidecar outputs and comparison."""
+    fixture = write_binary_presence_fixture(tmp_path, include_sidecar=True)
+
+    assert main(["train-binary-presence", "--config", str(fixture["config_path"])]) == 0
+
+    sidecar_predictions = pd.read_parquet(fixture["sidecar_sample_predictions"])
+    comparison = pd.read_csv(fixture["sidecar_comparison"])
+    manifest = json.loads(fixture["sidecar_prediction_manifest"].read_text())
+
+    assert fixture["sidecar_model"].is_file()
+    assert sidecar_predictions["pred_binary_probability"].between(0, 1).all()
+    assert set(comparison["sampling_policy"]) == {
+        "current_masked_sample",
+        "crm_stratified",
+    }
+    assert "full_grid_assumed_background_stratum" in set(comparison["comparison_scope"])
+    assert manifest["sample_policy"] == "crm_stratified"
+
+
 def test_binary_target_uses_10pct_annual_max_rule() -> None:
     """Verify target construction uses `>= 10%` rather than positive canopy."""
     target = build_binary_target(pd.Series([0.0, 0.099, 0.10, 0.5]), 0.10)
@@ -115,9 +135,14 @@ def test_validation_threshold_handles_no_positive_rows(tmp_path: Path) -> None:
     assert not any(row["selected_threshold"] for row in selection.rows)
 
 
-def write_binary_presence_fixture(tmp_path: Path) -> dict[str, Path]:
+def write_binary_presence_fixture(
+    tmp_path: Path, *, include_sidecar: bool = False
+) -> dict[str, Path]:
     """Write synthetic binary-presence inputs and config."""
     sample = tmp_path / "interim/aligned_background_sample_training_table.masked.parquet"
+    sidecar_sample = (
+        tmp_path / "interim/aligned_background_sample_training_table.crm_stratified.masked.parquet"
+    )
     full_grid = tmp_path / "interim/aligned_full_grid_training_table.parquet"
     baseline_predictions = tmp_path / "processed/baseline_sample_predictions.parquet"
     split_manifest = tmp_path / "interim/split_manifest.parquet"
@@ -153,9 +178,42 @@ def write_binary_presence_fixture(tmp_path: Path) -> dict[str, Path]:
         tmp_path / "reports/figures/binary_presence_calibrated_thresholds.png"
     )
     calibration_manifest = tmp_path / "interim/binary_presence_calibration_manifest.json"
+    sidecar_model = (
+        tmp_path / "models/binary_presence/logistic_annual_max_ge_10pct.crm_stratified.joblib"
+    )
+    sidecar_sample_predictions = (
+        tmp_path / "processed/binary_presence_sample_predictions.crm_stratified.parquet"
+    )
+    sidecar_full_grid_predictions = (
+        tmp_path / "processed/binary_presence_full_grid_predictions.crm_stratified.parquet"
+    )
+    sidecar_metrics = tmp_path / "reports/tables/binary_presence_metrics.crm_stratified.csv"
+    sidecar_threshold_selection = (
+        tmp_path / "reports/tables/binary_presence_threshold_selection.crm_stratified.csv"
+    )
+    sidecar_full_grid_area_summary = (
+        tmp_path / "reports/tables/binary_presence_full_grid_area_summary.crm_stratified.csv"
+    )
+    sidecar_thresholded_model_comparison = (
+        tmp_path / "reports/tables/binary_presence_thresholded_model_comparison.crm_stratified.csv"
+    )
+    sidecar_prediction_manifest = (
+        tmp_path / "interim/binary_presence_prediction_manifest.crm_stratified.json"
+    )
+    sidecar_precision_recall_figure = (
+        tmp_path / "reports/figures/binary_presence_precision_recall.crm_stratified.png"
+    )
+    sidecar_map_figure = tmp_path / "reports/figures/binary_presence_2022_map.crm_stratified.png"
+    sidecar_comparison = tmp_path / "reports/tables/binary_presence_crm_stratified_comparison.csv"
     config_path = tmp_path / "config.yaml"
 
     write_binary_rows(sample, years=(2018, 2019, 2020, 2021, 2022), include_mask=True)
+    if include_sidecar:
+        write_binary_rows(
+            sidecar_sample,
+            years=(2018, 2019, 2020, 2021, 2022),
+            include_mask=True,
+        )
     write_binary_rows(full_grid, years=(2018, 2019, 2020, 2021, 2022), include_mask=False)
     write_thresholded_baseline_predictions(
         baseline_predictions,
@@ -163,6 +221,26 @@ def write_binary_presence_fixture(tmp_path: Path) -> dict[str, Path]:
     )
     write_binary_split_manifest(split_manifest)
     write_binary_domain_mask(domain_mask, domain_manifest)
+    sidecar_config = (
+        f"""
+    sidecars:
+      crm_stratified:
+        input_table: {sidecar_sample}
+        model: {sidecar_model}
+        sample_predictions: {sidecar_sample_predictions}
+        full_grid_predictions: {sidecar_full_grid_predictions}
+        metrics: {sidecar_metrics}
+        threshold_selection: {sidecar_threshold_selection}
+        full_grid_area_summary: {sidecar_full_grid_area_summary}
+        thresholded_model_comparison: {sidecar_thresholded_model_comparison}
+        prediction_manifest: {sidecar_prediction_manifest}
+        precision_recall_figure: {sidecar_precision_recall_figure}
+        map_figure: {sidecar_map_figure}
+        comparison_table: {sidecar_comparison}
+"""
+        if include_sidecar
+        else ""
+    )
     config_path.write_text(
         f"""
 features:
@@ -216,6 +294,7 @@ models:
       manifest: {calibration_manifest}
       include_prevalence_match: true
       reliability_bin_count: 5
+{sidecar_config}
 reports:
   domain_mask:
     primary_full_grid_domain: plausible_kelp_domain
@@ -245,6 +324,17 @@ reports:
         "calibration_curve_figure": calibration_curve_figure,
         "calibrated_threshold_figure": calibrated_threshold_figure,
         "calibration_manifest": calibration_manifest,
+        "sidecar_model": sidecar_model,
+        "sidecar_sample_predictions": sidecar_sample_predictions,
+        "sidecar_full_grid_predictions": sidecar_full_grid_predictions,
+        "sidecar_metrics": sidecar_metrics,
+        "sidecar_threshold_selection": sidecar_threshold_selection,
+        "sidecar_full_grid_area_summary": sidecar_full_grid_area_summary,
+        "sidecar_thresholded_model_comparison": sidecar_thresholded_model_comparison,
+        "sidecar_prediction_manifest": sidecar_prediction_manifest,
+        "sidecar_precision_recall_figure": sidecar_precision_recall_figure,
+        "sidecar_map_figure": sidecar_map_figure,
+        "sidecar_comparison": sidecar_comparison,
     }
 
 
@@ -369,6 +459,7 @@ def binary_presence_config(tmp_path: Path) -> BinaryPresenceConfig:
     path = tmp_path / "placeholder"
     return BinaryPresenceConfig(
         config_path=path / "config.yaml",
+        sample_policy="current_masked_sample",
         input_table_path=path / "sample.parquet",
         split_manifest_path=path / "split.parquet",
         inference_table_path=path / "full.parquet",
@@ -395,5 +486,6 @@ def binary_presence_config(tmp_path: Path) -> BinaryPresenceConfig:
         c_grid=(1.0,),
         max_iter=500,
         drop_missing_features=True,
+        allow_missing_split_manifest_rows=False,
         reporting_domain_mask=None,
     )

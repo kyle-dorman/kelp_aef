@@ -6,7 +6,7 @@ import csv
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, SupportsIndex, cast
 
@@ -54,6 +54,8 @@ LOGGER = logging.getLogger(__name__)
 BINARY_MODEL_NAME = "logistic_annual_max_ge_10pct"
 BINARY_SELECTION_SPLIT = "validation"
 BINARY_TEST_SPLIT = "test"
+ASSUMED_BACKGROUND = "assumed_background"
+KELPWATCH_STATION = "kelpwatch_station"
 BINARY_THRESHOLD_POLICY = "validation_max_f1_then_precision_then_lower_predicted_positive_rate"
 BINARY_CLASSIFICATION_POLICY = "pred_binary_probability_ge_validation_selected_threshold"
 DEFAULT_TARGET_LABEL = "annual_max_ge_10pct"
@@ -241,6 +243,29 @@ BINARY_MODEL_COMPARISON_FIELDS = (
     "assumed_background_false_positive_count",
     "assumed_background_false_positive_rate",
 )
+BINARY_SIDECAR_COMPARISON_FIELDS = (
+    "comparison_name",
+    "sampling_policy",
+    "comparison_scope",
+    "split",
+    "year",
+    "label_source",
+    "domain_mask_reason",
+    "depth_bin",
+    "row_count",
+    "positive_count",
+    "predicted_positive_count",
+    "predicted_positive_rate",
+    "auprc",
+    "precision",
+    "recall",
+    "f1",
+    "assumed_background_count",
+    "assumed_background_false_positive_count",
+    "assumed_background_false_positive_rate",
+    "predicted_positive_area_m2",
+    "source_path",
+)
 CALIBRATION_METHOD_PLATT = "platt"
 RAW_LOGISTIC_PROBABILITY_SOURCE = "raw_logistic"
 PLATT_PROBABILITY_SOURCE = "platt_calibrated"
@@ -412,6 +437,7 @@ class BinaryPresenceConfig:
     """Resolved config values for binary presence model training."""
 
     config_path: Path
+    sample_policy: str
     input_table_path: Path
     split_manifest_path: Path
     inference_table_path: Path
@@ -438,7 +464,17 @@ class BinaryPresenceConfig:
     c_grid: tuple[float, ...]
     max_iter: int
     drop_missing_features: bool
+    allow_missing_split_manifest_rows: bool
     reporting_domain_mask: ReportingDomainMask | None
+
+
+@dataclass(frozen=True)
+class BinaryPresenceSidecarConfig:
+    """Resolved config for an optional binary-presence sidecar run."""
+
+    name: str
+    binary_config: BinaryPresenceConfig
+    comparison_path: Path | None
 
 
 @dataclass(frozen=True)
@@ -518,6 +554,20 @@ class CalibrationThresholds:
 def train_binary_presence(config_path: Path) -> int:
     """Train the balanced binary annual-max model and write configured artifacts."""
     binary_config = load_binary_presence_config(config_path)
+    train_binary_presence_config(binary_config)
+    for sidecar in load_binary_presence_sidecar_configs(config_path, binary_config):
+        LOGGER.info("Training binary-presence sidecar: %s", sidecar.name)
+        train_binary_presence_config(sidecar.binary_config)
+        if sidecar.comparison_path is not None:
+            write_binary_sidecar_comparison(
+                base_config=binary_config,
+                sidecar=sidecar,
+            )
+    return 0
+
+
+def train_binary_presence_config(binary_config: BinaryPresenceConfig) -> None:
+    """Train one binary annual-max model from a resolved config."""
     LOGGER.info("Loading binary-presence model input: %s", binary_config.input_table_path)
     sample = pd.read_parquet(binary_config.input_table_path)
     split_manifest = pd.read_parquet(binary_config.split_manifest_path)
@@ -586,7 +636,6 @@ def train_binary_presence(config_path: Path) -> int:
     LOGGER.info("Wrote binary sample predictions: %s", binary_config.sample_predictions_path)
     LOGGER.info("Wrote binary full-grid predictions: %s", binary_config.full_grid_predictions_path)
     LOGGER.info("Wrote binary metrics: %s", binary_config.metrics_path)
-    return 0
 
 
 def calibrate_binary_presence(config_path: Path) -> int:
@@ -671,6 +720,7 @@ def load_binary_presence_config(config_path: Path) -> BinaryPresenceConfig:
     reporting_domain_mask = load_reporting_domain_mask(config)
     return BinaryPresenceConfig(
         config_path=config_path,
+        sample_policy=str(binary.get("sample_policy", "current_masked_sample")),
         input_table_path=Path(
             require_string(
                 binary.get("input_table") or alignment.get("output_table"),
@@ -765,7 +815,100 @@ def load_binary_presence_config(config_path: Path) -> BinaryPresenceConfig:
             "models.binary_presence.drop_missing_features",
             default=True,
         ),
+        allow_missing_split_manifest_rows=read_bool(
+            binary.get("allow_missing_split_manifest_rows"),
+            "models.binary_presence.allow_missing_split_manifest_rows",
+            default=False,
+        ),
         reporting_domain_mask=reporting_domain_mask,
+    )
+
+
+def load_binary_presence_sidecar_configs(
+    config_path: Path,
+    base_config: BinaryPresenceConfig,
+) -> tuple[BinaryPresenceSidecarConfig, ...]:
+    """Load optional sidecar binary-presence runs from config."""
+    config = load_yaml_config(config_path)
+    models = require_mapping(config.get("models"), "models")
+    binary = require_mapping(models.get("binary_presence"), "models.binary_presence")
+    sidecars = optional_mapping(binary.get("sidecars"), "models.binary_presence.sidecars")
+    output: list[BinaryPresenceSidecarConfig] = []
+    for name, value in sidecars.items():
+        sidecar_name = str(name)
+        sidecar = require_mapping(value, f"models.binary_presence.sidecars.{sidecar_name}")
+        if not read_bool(
+            sidecar.get("enabled"),
+            f"models.binary_presence.sidecars.{sidecar_name}.enabled",
+            default=True,
+        ):
+            continue
+        output.append(
+            BinaryPresenceSidecarConfig(
+                name=sidecar_name,
+                binary_config=replace(
+                    base_config,
+                    sample_policy=str(sidecar.get("sample_policy", sidecar_name)),
+                    input_table_path=sidecar_required_path(sidecar, sidecar_name, "input_table"),
+                    model_output_path=sidecar_required_path(sidecar, sidecar_name, "model"),
+                    sample_predictions_path=sidecar_required_path(
+                        sidecar, sidecar_name, "sample_predictions"
+                    ),
+                    full_grid_predictions_path=sidecar_required_path(
+                        sidecar, sidecar_name, "full_grid_predictions"
+                    ),
+                    metrics_path=sidecar_required_path(sidecar, sidecar_name, "metrics"),
+                    threshold_selection_path=sidecar_required_path(
+                        sidecar, sidecar_name, "threshold_selection"
+                    ),
+                    full_grid_area_summary_path=sidecar_required_path(
+                        sidecar, sidecar_name, "full_grid_area_summary"
+                    ),
+                    thresholded_model_comparison_path=sidecar_required_path(
+                        sidecar, sidecar_name, "thresholded_model_comparison"
+                    ),
+                    prediction_manifest_path=sidecar_required_path(
+                        sidecar, sidecar_name, "prediction_manifest"
+                    ),
+                    precision_recall_figure_path=sidecar_required_path(
+                        sidecar, sidecar_name, "precision_recall_figure"
+                    ),
+                    map_figure_path=sidecar_required_path(sidecar, sidecar_name, "map_figure"),
+                    allow_missing_split_manifest_rows=read_bool(
+                        sidecar.get("allow_missing_split_manifest_rows"),
+                        (
+                            "models.binary_presence.sidecars."
+                            f"{sidecar_name}.allow_missing_split_manifest_rows"
+                        ),
+                        default=True,
+                    ),
+                ),
+                comparison_path=sidecar_optional_path(sidecar, sidecar_name, "comparison_table"),
+            )
+        )
+    return tuple(output)
+
+
+def sidecar_required_path(config: dict[str, Any], sidecar_name: str, key: str) -> Path:
+    """Read a required binary sidecar output path."""
+    return Path(
+        require_string(
+            config.get(key),
+            f"models.binary_presence.sidecars.{sidecar_name}.{key}",
+        )
+    )
+
+
+def sidecar_optional_path(config: dict[str, Any], sidecar_name: str, key: str) -> Path | None:
+    """Read an optional binary sidecar output path."""
+    value = config.get(key)
+    if value is None:
+        return None
+    return Path(
+        require_string(
+            value,
+            f"models.binary_presence.sidecars.{sidecar_name}.{key}",
+        )
     )
 
 
@@ -1474,8 +1617,23 @@ def attach_split_membership(
     frame = dataframe.merge(manifest, on=key_columns, how="left", validate="many_to_one")
     if frame["split"].isna().any():
         missing_count = int(frame["split"].isna().sum())
-        msg = f"split manifest is missing {missing_count} binary model rows"
-        raise ValueError(msg)
+        if not binary_config.allow_missing_split_manifest_rows:
+            msg = f"split manifest is missing {missing_count} binary model rows"
+            raise ValueError(msg)
+        missing = frame["split"].isna()
+        frame.loc[missing, "split"] = assign_splits_by_year(
+            frame.loc[missing, "year"],
+            binary_config,
+        )
+        if "used_for_training_eval" in frame.columns:
+            frame.loc[missing, "used_for_training_eval"] = True
+        if "drop_reason" in frame.columns:
+            frame.loc[missing, "drop_reason"] = "year_split_fallback"
+        LOGGER.info(
+            "Assigned %s binary rows to splits by year because they were absent from %s",
+            missing_count,
+            binary_config.split_manifest_path,
+        )
     return frame
 
 
@@ -2334,6 +2492,221 @@ def thresholded_comparison_row(
     }
 
 
+def write_binary_sidecar_comparison(
+    *,
+    base_config: BinaryPresenceConfig,
+    sidecar: BinaryPresenceSidecarConfig,
+) -> None:
+    """Write compact current-vs-sidecar binary comparison rows."""
+    if sidecar.comparison_path is None:
+        return
+    rows: list[dict[str, object]] = []
+    rows.extend(binary_metric_comparison_rows(base_config, "current_masked_sample"))
+    rows.extend(binary_metric_comparison_rows(sidecar.binary_config, sidecar.name))
+    rows.extend(binary_full_grid_area_comparison_rows(base_config, "current_masked_sample"))
+    rows.extend(binary_full_grid_area_comparison_rows(sidecar.binary_config, sidecar.name))
+    rows.extend(binary_full_grid_stratum_comparison_rows(base_config, "current_masked_sample"))
+    rows.extend(binary_full_grid_stratum_comparison_rows(sidecar.binary_config, sidecar.name))
+    write_csv_rows(rows, sidecar.comparison_path, BINARY_SIDECAR_COMPARISON_FIELDS)
+    LOGGER.info("Wrote binary sidecar comparison: %s", sidecar.comparison_path)
+
+
+def binary_metric_comparison_rows(
+    binary_config: BinaryPresenceConfig,
+    sampling_policy: str,
+) -> list[dict[str, object]]:
+    """Return validation/test sample metric rows for a sampling policy."""
+    if not binary_config.metrics_path.exists():
+        return []
+    metrics = pd.read_csv(binary_config.metrics_path)
+    rows = []
+    for row in metrics.to_dict("records"):
+        if str(row.get("split")) not in {BINARY_SELECTION_SPLIT, BINARY_TEST_SPLIT}:
+            continue
+        if str(row.get("label_source")) not in {"all", ASSUMED_BACKGROUND, KELPWATCH_STATION}:
+            continue
+        rows.append(
+            binary_sidecar_comparison_row(
+                comparison_name="crm_stratified_background_sampling",
+                sampling_policy=sampling_policy,
+                comparison_scope="sample_metric",
+                split=row.get("split", ""),
+                year=row.get("year", ""),
+                label_source=row.get("label_source", ""),
+                row_count=row.get("row_count", 0),
+                positive_count=row.get("positive_count", 0),
+                predicted_positive_count=row.get("predicted_positive_count", 0),
+                predicted_positive_rate=row.get("predicted_positive_rate", math.nan),
+                auprc=row.get("auprc", math.nan),
+                precision=row.get("precision", math.nan),
+                recall=row.get("recall", math.nan),
+                f1=row.get("f1", math.nan),
+                assumed_background_count=row.get("assumed_background_count", 0),
+                assumed_background_false_positive_count=row.get(
+                    "assumed_background_false_positive_count", 0
+                ),
+                assumed_background_false_positive_rate=row.get(
+                    "assumed_background_false_positive_rate", math.nan
+                ),
+                source_path=binary_config.metrics_path,
+            )
+        )
+    return rows
+
+
+def binary_full_grid_area_comparison_rows(
+    binary_config: BinaryPresenceConfig,
+    sampling_policy: str,
+) -> list[dict[str, object]]:
+    """Return full-grid area/leakage summary rows for a sampling policy."""
+    if not binary_config.full_grid_area_summary_path.exists():
+        return []
+    summary = pd.read_csv(binary_config.full_grid_area_summary_path)
+    rows = []
+    for row in summary.to_dict("records"):
+        if str(row.get("split")) not in {BINARY_SELECTION_SPLIT, BINARY_TEST_SPLIT}:
+            continue
+        if str(row.get("label_source")) not in {"all", ASSUMED_BACKGROUND, KELPWATCH_STATION}:
+            continue
+        rows.append(
+            binary_sidecar_comparison_row(
+                comparison_name="crm_stratified_background_sampling",
+                sampling_policy=sampling_policy,
+                comparison_scope="full_grid_area_summary",
+                split=row.get("split", ""),
+                year=row.get("year", ""),
+                label_source=row.get("label_source", ""),
+                row_count=row.get("row_count", 0),
+                positive_count=row.get("observed_positive_count", 0),
+                predicted_positive_count=row.get("predicted_positive_count", 0),
+                predicted_positive_rate=row.get("predicted_positive_rate", math.nan),
+                assumed_background_count=row.get("assumed_background_count", 0),
+                assumed_background_false_positive_count=row.get(
+                    "assumed_background_predicted_positive_count", 0
+                ),
+                assumed_background_false_positive_rate=row.get(
+                    "assumed_background_predicted_positive_rate", math.nan
+                ),
+                predicted_positive_area_m2=row.get("predicted_positive_area_m2", math.nan),
+                source_path=binary_config.full_grid_area_summary_path,
+            )
+        )
+    return rows
+
+
+def binary_full_grid_stratum_comparison_rows(
+    binary_config: BinaryPresenceConfig,
+    sampling_policy: str,
+) -> list[dict[str, object]]:
+    """Summarize assumed-background full-grid predictions by CRM stratum."""
+    if not binary_config.full_grid_predictions_path.exists():
+        return []
+    required = [
+        "split",
+        "year",
+        "label_source",
+        "domain_mask_reason",
+        "depth_bin",
+        "pred_binary_class",
+    ]
+    dataset = ds.dataset(binary_config.full_grid_predictions_path, format="parquet")  # type: ignore[no-untyped-call]
+    columns = [column for column in required if column in set(dataset.schema.names)]
+    if len(columns) != len(required):
+        return []
+    totals: dict[tuple[str, int, str, str], dict[str, int]] = {}
+    for batch in dataset.to_batches(columns=columns, batch_size=FULL_GRID_PREDICTION_BATCH_SIZE):
+        frame = batch.to_pandas()
+        frame = frame.loc[
+            (frame["label_source"] == ASSUMED_BACKGROUND)
+            & frame["split"].isin({BINARY_SELECTION_SPLIT, BINARY_TEST_SPLIT})
+        ]
+        if frame.empty:
+            continue
+        for keys, group in frame.groupby(["split", "year", "domain_mask_reason", "depth_bin"]):
+            split, year, reason, depth_bin = cast(tuple[str, int, str, str], keys)
+            key = (str(split), int(year), str(reason), str(depth_bin))
+            current = totals.setdefault(key, {"row_count": 0, "predicted_positive_count": 0})
+            current["row_count"] += int(len(group))
+            current["predicted_positive_count"] += int(
+                group["pred_binary_class"].fillna(False).sum()
+            )
+    rows = []
+    for (split, year, reason, depth_bin), values in sorted(totals.items()):
+        row_count = values["row_count"]
+        predicted_count = values["predicted_positive_count"]
+        rows.append(
+            binary_sidecar_comparison_row(
+                comparison_name="crm_stratified_background_sampling",
+                sampling_policy=sampling_policy,
+                comparison_scope="full_grid_assumed_background_stratum",
+                split=split,
+                year=year,
+                label_source=ASSUMED_BACKGROUND,
+                domain_mask_reason=reason,
+                depth_bin=depth_bin,
+                row_count=row_count,
+                predicted_positive_count=predicted_count,
+                predicted_positive_rate=safe_ratio(predicted_count, row_count),
+                assumed_background_count=row_count,
+                assumed_background_false_positive_count=predicted_count,
+                assumed_background_false_positive_rate=safe_ratio(predicted_count, row_count),
+                predicted_positive_area_m2=predicted_count * KELPWATCH_PIXEL_AREA_M2,
+                source_path=binary_config.full_grid_predictions_path,
+            )
+        )
+    return rows
+
+
+def binary_sidecar_comparison_row(
+    *,
+    comparison_name: str,
+    sampling_policy: str,
+    comparison_scope: str,
+    split: object,
+    year: object,
+    label_source: object,
+    domain_mask_reason: object = "",
+    depth_bin: object = "",
+    row_count: object = 0,
+    positive_count: object = math.nan,
+    predicted_positive_count: object = math.nan,
+    predicted_positive_rate: object = math.nan,
+    auprc: object = math.nan,
+    precision: object = math.nan,
+    recall: object = math.nan,
+    f1: object = math.nan,
+    assumed_background_count: object = math.nan,
+    assumed_background_false_positive_count: object = math.nan,
+    assumed_background_false_positive_rate: object = math.nan,
+    predicted_positive_area_m2: object = math.nan,
+    source_path: object = "",
+) -> dict[str, object]:
+    """Build one row in the current-vs-sidecar comparison table."""
+    return {
+        "comparison_name": comparison_name,
+        "sampling_policy": sampling_policy,
+        "comparison_scope": comparison_scope,
+        "split": split,
+        "year": year,
+        "label_source": label_source,
+        "domain_mask_reason": domain_mask_reason,
+        "depth_bin": depth_bin,
+        "row_count": row_count,
+        "positive_count": positive_count,
+        "predicted_positive_count": predicted_positive_count,
+        "predicted_positive_rate": predicted_positive_rate,
+        "auprc": auprc,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "assumed_background_count": assumed_background_count,
+        "assumed_background_false_positive_count": assumed_background_false_positive_count,
+        "assumed_background_false_positive_rate": assumed_background_false_positive_rate,
+        "predicted_positive_area_m2": predicted_positive_area_m2,
+        "source_path": str(source_path),
+    }
+
+
 def build_calibration_metric_rows(
     sample_predictions: pd.DataFrame,
     threshold_selection: CalibrationThresholds,
@@ -3024,6 +3397,7 @@ def write_binary_model(
     payload = {
         "model": selection.model,
         "model_name": BINARY_MODEL_NAME,
+        "sample_policy": binary_config.sample_policy,
         "target_label": binary_config.target_label,
         "target_column": binary_config.target_column,
         "target_threshold_fraction": binary_config.target_threshold_fraction,
@@ -3086,6 +3460,7 @@ def write_prediction_manifest(
         "command": "train-binary-presence",
         "config": str(binary_config.config_path),
         "model_name": BINARY_MODEL_NAME,
+        "sample_policy": binary_config.sample_policy,
         "target_label": binary_config.target_label,
         "target_column": binary_config.target_column,
         "target_threshold_fraction": binary_config.target_threshold_fraction,
@@ -3101,6 +3476,7 @@ def write_prediction_manifest(
         "selection_year": primary_selection_year(binary_config),
         "selection_policy": BINARY_THRESHOLD_POLICY,
         "split_source": prepared.split_source,
+        "allow_missing_split_manifest_rows": binary_config.allow_missing_split_manifest_rows,
         "dropped_counts_by_split": prepared.dropped_counts_by_split,
         "sample_prediction_row_count": int(len(sample_predictions)),
         "sample_label_source_counts": label_source_series(sample_predictions)

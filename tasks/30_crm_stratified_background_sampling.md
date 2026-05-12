@@ -108,6 +108,31 @@ implementation plan that confirms:
 
 ## Implementation Plan
 
+- Resolved source: derive the CRM-stratified sidecar from the full-grid table
+  plus the plausible-kelp domain mask, not from the existing masked sample. The
+  current masked sample remains the comparison baseline.
+- Resolved strata: use `domain_mask_reason` and `depth_bin` as sampling strata.
+  All retained `kelpwatch_station` rows are kept; only
+  `assumed_background` rows are sampled by stratum.
+- Resolved quota policy: use configured per-stratum sample fractions with
+  conservative defaults that emphasize `retained_ambiguous_coast` /
+  `ambiguous_coast`, keep normal `0_40m` nearshore support, and reduce
+  `50_100m` pressure. Missing per-stratum settings fall back to a configured
+  default fraction.
+- Resolved deterministic key: sample decisions are a pure function of
+  `aef_grid_cell_id`, `year`, and the configured random seed, so reruns are
+  stable without storing row order.
+- Resolved weights: recompute `sample_weight` for assumed-background rows as
+  retained stratum population divided by sampled stratum rows. Kelpwatch rows
+  keep weight `1.0`. The current binary model uses class weighting and does
+  not consume `sample_weight`; the column is retained for audit compatibility.
+- Resolved binary paths: write CRM-stratified binary outputs to sidecar paths
+  under the existing `models.binary_presence.sidecars.crm_stratified` block and
+  do not overwrite the current P1-18 binary artifacts.
+- Resolved comparison: write a compact comparison table covering validation and
+  test sample metrics, 2022 full-grid area/leakage rows, and
+  assumed-background predicted-positive behavior by CRM stratum.
+
 - Read the current mask and full-grid domain metadata needed for
   stratification.
 - Verify the current sample and current binary false-positive distribution by
