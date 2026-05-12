@@ -246,9 +246,11 @@ masking change should end with an updated model-analysis report.
 - [ ] P1-14: Apply the domain mask to training and sampling.
   - Goal: Train only on physically plausible cells unless explicitly comparing
     against the unmasked run.
+  - Plan: `tasks/22_apply_domain_mask_to_training_sampling.md`.
   - Output: masked model-input sample and manifest.
   - Validation: rerun baselines and report the effect on station skill and
-    full-grid calibration.
+    masked-domain full-grid calibration. Here, full-grid calibration means all
+    retained plausible-kelp mask cells, not the unmasked AEF tile.
 - [ ] P1-15: Add mask-aware residual diagnostics.
   - Goal: Explain false positives and underprediction by domain-mask reason,
     depth/elevation bin, label source, and observed canopy bin.
