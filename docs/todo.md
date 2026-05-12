@@ -222,9 +222,14 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef build-domain-mask --config configs/monterey_smoke.yaml`,
     and `make check`.
 - [ ] P1-13: Apply the domain mask to full-grid inference/reporting first.
-  - Goal: Measure how much area leakage is off-domain before retraining.
-  - Output: masked full-grid area-bias rows and residual maps.
-  - Validation: unmasked and masked area calibration appear side by side.
+  - Goal: Make the P1-12 plausible-kelp mask the default full-grid reporting
+    domain before retraining.
+  - Plan: `tasks/21_apply_domain_mask_to_reporting.md`.
+  - Output: masked full-grid area-bias rows, masked residual maps, and updated
+    report tables where the largest recurring area is the masked domain.
+  - Validation: masked-domain area calibration is the primary report scope;
+    any unmasked/off-domain numbers are isolated as migration/audit diagnostics
+    instead of recurring `all` headline rows.
 - [ ] P1-14: Apply the domain mask to training and sampling.
   - Goal: Train only on physically plausible cells unless explicitly comparing
     against the unmasked run.

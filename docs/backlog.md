@@ -30,8 +30,10 @@ start.
   - Choose and manifest Monterey bathymetry and DEM inputs.
   - Align bathymetry/DEM to the 30 m target grid.
   - Build a plausible-kelp domain mask and report retained/dropped cells.
-  - Compare unmasked and masked full-grid predictions before and after
-    retraining.
+  - Apply the domain mask to full-grid reporting before retraining, making the
+    masked plausible-kelp domain the default largest reporting area.
+  - Keep unmasked/off-domain prediction leakage as an audit diagnostic rather
+    than a recurring headline scope.
 - [ ] Harden imbalance-aware modeling.
   - Add class and target-balance diagnostics.
   - Evaluate binary annual-max thresholds using validation-year data.
