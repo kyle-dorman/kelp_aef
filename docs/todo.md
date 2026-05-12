@@ -300,6 +300,7 @@ masking change should end with an updated model-analysis report.
 
 - [ ] P1-16: Add class and target-balance diagnostics for annual max.
   - Goal: Make imbalance visible before changing objectives.
+  - Plan: `tasks/24_class_target_balance_diagnostics.md`.
   - Output: positive-rate, high-canopy-rate, and background-rate summaries by
     split, label source, and mask status.
   - Validation: report reproduces Phase 0 class imbalance.
