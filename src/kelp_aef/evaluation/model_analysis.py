@@ -550,6 +550,12 @@ class ModelAnalysisConfig:
     binary_presence_calibration_curve_figure: Path | None
     binary_presence_calibration_threshold_figure: Path | None
     binary_presence_calibration_manifest_path: Path | None
+    conditional_canopy_metrics_path: Path | None
+    conditional_canopy_positive_residuals_path: Path | None
+    conditional_canopy_model_comparison_path: Path | None
+    conditional_canopy_full_grid_likely_positive_summary_path: Path | None
+    conditional_canopy_residual_figure: Path | None
+    conditional_canopy_manifest_path: Path | None
     spatial_readiness_path: Path
     feature_separability_path: Path
     phase1_decision_path: Path
@@ -679,6 +685,10 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
     binary_calibration = optional_mapping(
         binary_presence.get("calibration"),
         "models.binary_presence.calibration",
+    )
+    conditional_canopy = optional_mapping(
+        models.get("conditional_canopy"),
+        "models.conditional_canopy",
     )
     reports = require_mapping(config.get("reports"), "reports")
     outputs = require_mapping(reports.get("outputs"), "reports.outputs")
@@ -864,6 +874,24 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             "manifest",
             "models.binary_presence.calibration",
         ),
+        conditional_canopy_metrics_path=optional_output_path(conditional_canopy, "metrics"),
+        conditional_canopy_positive_residuals_path=optional_output_path(
+            conditional_canopy,
+            "positive_residuals",
+        ),
+        conditional_canopy_model_comparison_path=optional_output_path(
+            conditional_canopy,
+            "model_comparison",
+        ),
+        conditional_canopy_full_grid_likely_positive_summary_path=optional_output_path(
+            conditional_canopy,
+            "full_grid_likely_positive_summary",
+        ),
+        conditional_canopy_residual_figure=optional_output_path(
+            conditional_canopy,
+            "residual_figure",
+        ),
+        conditional_canopy_manifest_path=optional_output_path(conditional_canopy, "manifest"),
         spatial_readiness_path=output_path(
             outputs,
             "model_analysis_spatial_holdout_readiness",
@@ -4199,6 +4227,12 @@ def write_report(
         "",
         binary_presence_calibration_figure_markdown(analysis_config, output_path),
         "",
+        "## Conditional Canopy Amount Model",
+        "",
+        conditional_canopy_markdown(analysis_config),
+        "",
+        conditional_canopy_figure_markdown(analysis_config, output_path),
+        "",
         "## Binary Threshold Sensitivity",
         "",
         threshold_sensitivity_markdown(tables.threshold_sensitivity, analysis_config),
@@ -4231,6 +4265,7 @@ def write_report(
         f"- Binary threshold recommendation table: `{analysis_config.binary_threshold_recommendation_path}`",
         binary_presence_appendix_markdown(analysis_config),
         binary_presence_calibration_appendix_markdown(analysis_config),
+        conditional_canopy_appendix_markdown(analysis_config),
         f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
         f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
@@ -5622,6 +5657,215 @@ def binary_presence_calibration_appendix_markdown(
     return "\n".join(lines)
 
 
+def conditional_canopy_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Build Markdown for the conditional positive-cell canopy amount model."""
+    metrics = read_optional_csv_rows(analysis_config.conditional_canopy_metrics_path)
+    residuals = read_optional_csv_rows(analysis_config.conditional_canopy_positive_residuals_path)
+    comparison = read_optional_csv_rows(analysis_config.conditional_canopy_model_comparison_path)
+    full_grid_summary = read_optional_csv_rows(
+        analysis_config.conditional_canopy_full_grid_likely_positive_summary_path
+    )
+    if not metrics or not residuals or not comparison:
+        return (
+            "Conditional canopy outputs were not available yet. Run "
+            "`uv run kelp-aef train-conditional-canopy --config configs/monterey_smoke.yaml` "
+            "before interpreting this section."
+        )
+    validation_conditional = conditional_comparison_lookup(
+        comparison,
+        model_name="ridge_positive_annual_max",
+        split="validation",
+        label_source="all",
+    )
+    validation_ridge = conditional_comparison_lookup(
+        comparison,
+        model_name="ridge_regression",
+        split="validation",
+        label_source="all",
+    )
+    test_conditional = conditional_comparison_lookup(
+        comparison,
+        model_name="ridge_positive_annual_max",
+        split=analysis_config.analysis_split,
+        label_source="all",
+    )
+    test_ridge = conditional_comparison_lookup(
+        comparison,
+        model_name="ridge_regression",
+        split=analysis_config.analysis_split,
+        label_source="all",
+    )
+    test_50pct = conditional_residual_lookup(
+        residuals,
+        split=analysis_config.analysis_split,
+        label_source="all",
+        observed_bin="annual_max_ge_50pct",
+    )
+    test_saturated = conditional_residual_lookup(
+        residuals,
+        split=analysis_config.analysis_split,
+        label_source="all",
+        observed_bin="near_saturated_ge_810m2",
+    )
+    likely_positive = conditional_likely_positive_lookup(
+        full_grid_summary,
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+        label_source="all",
+    )
+    lines = [
+        (
+            "The conditional canopy model fits a positive-only ridge regression on training "
+            "rows where the Kelpwatch-style annual max is `>=10%` of a 30 m cell. It predicts "
+            "`kelp_fraction_y`, clips conditional amounts to `[0, 1]`, and leaves binary "
+            "presence and full-grid hurdle composition to later tasks."
+        ),
+        (
+            "Model selection uses validation rows only. The 2022 test split is included here "
+            "only as a held-out audit of positive-cell canopy amount, not for threshold or "
+            "hyperparameter selection."
+        ),
+        "",
+        "| Split | Model | Rows | MAE area | RMSE area | Mean residual area | Predicted area | Area bias |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
+        conditional_comparison_markdown_row(validation_conditional),
+        conditional_comparison_markdown_row(validation_ridge),
+        conditional_comparison_markdown_row(test_conditional),
+        conditional_comparison_markdown_row(test_ridge),
+        "",
+        (
+            f"On held-out `{analysis_config.analysis_split}` observed-positive rows, the "
+            f"conditional model RMSE area is "
+            f"`{format_decimal(row_float(test_conditional, 'rmse_area'), 1)} m2` versus "
+            f"`{format_decimal(row_float(test_ridge, 'rmse_area'), 1)} m2` for ridge on the "
+            "same rows. Positive residual means observed canopy exceeds predicted canopy, so "
+            "large positive values still indicate high-canopy underprediction."
+        ),
+        (
+            f"For held-out rows with annual max `>=50%`, mean residual area is "
+            f"`{format_decimal(row_float(test_50pct, 'mean_residual_area'), 1)} m2`; for "
+            f"near-saturated rows (`>=810 m2`), it is "
+            f"`{format_decimal(row_float(test_saturated, 'mean_residual_area'), 1)} m2`."
+        ),
+        conditional_likely_positive_markdown(likely_positive),
+        (
+            "These conditional amount diagnostics remain Kelpwatch-style weak-label results. "
+            "They do not prove field biomass and should not be interpreted as final full-grid "
+            "canopy area until the hurdle composition task combines them with calibrated "
+            "presence probabilities."
+        ),
+    ]
+    return "\n".join(line for line in lines if line is not None)
+
+
+def conditional_canopy_figure_markdown(
+    analysis_config: ModelAnalysisConfig,
+    report_path: Path,
+) -> str:
+    """Return the conditional-canopy figure link when available."""
+    figure = analysis_config.conditional_canopy_residual_figure
+    if figure is not None and figure.exists():
+        return image_markdown("Conditional canopy positive residuals", figure, report_path)
+    return ""
+
+
+def conditional_canopy_appendix_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Return appendix links for conditional-canopy artifacts."""
+    paths = [
+        ("Conditional canopy metrics table", analysis_config.conditional_canopy_metrics_path),
+        (
+            "Conditional canopy positive residuals table",
+            analysis_config.conditional_canopy_positive_residuals_path,
+        ),
+        (
+            "Conditional canopy model comparison table",
+            analysis_config.conditional_canopy_model_comparison_path,
+        ),
+        (
+            "Conditional canopy full-grid likely-positive summary",
+            analysis_config.conditional_canopy_full_grid_likely_positive_summary_path,
+        ),
+        ("Conditional canopy residual figure", analysis_config.conditional_canopy_residual_figure),
+        ("Conditional canopy manifest", analysis_config.conditional_canopy_manifest_path),
+    ]
+    lines = [f"- {label}: `{path}`" for label, path in paths if path is not None]
+    return "\n".join(lines)
+
+
+def conditional_comparison_lookup(
+    rows: list[dict[str, object]], *, model_name: str, split: str, label_source: str
+) -> dict[str, object]:
+    """Return the first conditional comparison row matching model, split, and source."""
+    for row in rows:
+        if (
+            row.get("model_name") == model_name
+            and row.get("split") == split
+            and row.get("label_source") == label_source
+        ):
+            return row
+    return {}
+
+
+def conditional_residual_lookup(
+    rows: list[dict[str, object]], *, split: str, label_source: str, observed_bin: str
+) -> dict[str, object]:
+    """Return the first conditional residual row matching split, source, and bin."""
+    for row in rows:
+        if (
+            row.get("split") == split
+            and row.get("label_source") == label_source
+            and row.get("observed_bin") == observed_bin
+        ):
+            return row
+    return {}
+
+
+def conditional_likely_positive_lookup(
+    rows: list[dict[str, object]], *, split: str, year: int, label_source: str
+) -> dict[str, object]:
+    """Return the compact likely-positive summary for a split/year/source."""
+    for row in rows:
+        if (
+            row.get("split") == split
+            and str(row.get("year")) == str(year)
+            and row.get("label_source") == label_source
+        ):
+            return row
+    return {}
+
+
+def conditional_comparison_markdown_row(row: dict[str, object]) -> str:
+    """Format one conditional comparison row for the report table."""
+    if not row:
+        return "| missing | missing |  | nan | nan | nan | nan | nan |"
+    return (
+        f"| {row.get('split', '')} | "
+        f"{row.get('model_name', '')} | "
+        f"{row.get('row_count', '')} | "
+        f"{format_decimal(row_float(row, 'mae_area'), 1)} | "
+        f"{format_decimal(row_float(row, 'rmse_area'), 1)} | "
+        f"{format_decimal(row_float(row, 'mean_residual_area'), 1)} | "
+        f"{format_decimal(row_float(row, 'predicted_canopy_area'), 1)} | "
+        f"{format_decimal(row_float(row, 'area_bias'), 1)} |"
+    )
+
+
+def conditional_likely_positive_markdown(row: dict[str, object]) -> str:
+    """Format the compact likely-positive full-grid diagnostic sentence."""
+    if not row:
+        return (
+            "The compact likely-positive full-grid diagnostic summary is not available yet; "
+            "no full-grid conditional or hurdle prediction is inferred here."
+        )
+    return (
+        f"Under the current calibrated binary gate, "
+        f"`{format_decimal(row_float(row, 'likely_positive_count'), 0)}` retained-domain rows "
+        f"would receive a conditional amount in a future hurdle composition "
+        f"(`{format_percent(row_float(row, 'likely_positive_rate'), 2)}` of the scope). "
+        "This is a count-only diagnostic, not a final full-grid canopy estimate."
+    )
+
+
 def read_optional_csv_rows(path: Path | None) -> list[dict[str, object]]:
     """Read optional CSV rows for report integration."""
     if path is None or not path.exists():
@@ -6036,6 +6280,35 @@ def write_manifest(
                 analysis_config.binary_presence_calibration_full_grid_area_summary_path
             )
             if (analysis_config.binary_presence_calibration_full_grid_area_summary_path is not None)
+            else None,
+            "conditional_canopy_metrics": str(analysis_config.conditional_canopy_metrics_path)
+            if analysis_config.conditional_canopy_metrics_path is not None
+            else None,
+            "conditional_canopy_positive_residuals": str(
+                analysis_config.conditional_canopy_positive_residuals_path
+            )
+            if analysis_config.conditional_canopy_positive_residuals_path is not None
+            else None,
+            "conditional_canopy_model_comparison": str(
+                analysis_config.conditional_canopy_model_comparison_path
+            )
+            if analysis_config.conditional_canopy_model_comparison_path is not None
+            else None,
+            "conditional_canopy_full_grid_likely_positive_summary": str(
+                analysis_config.conditional_canopy_full_grid_likely_positive_summary_path
+            )
+            if (
+                analysis_config.conditional_canopy_full_grid_likely_positive_summary_path
+                is not None
+            )
+            else None,
+            "conditional_canopy_residual_figure": str(
+                analysis_config.conditional_canopy_residual_figure
+            )
+            if analysis_config.conditional_canopy_residual_figure is not None
+            else None,
+            "conditional_canopy_manifest": str(analysis_config.conditional_canopy_manifest_path)
+            if analysis_config.conditional_canopy_manifest_path is not None
             else None,
             "residual_domain_context": str(analysis_config.residual_domain_context_path),
             "residual_by_mask_reason": str(analysis_config.residual_by_mask_reason_path),

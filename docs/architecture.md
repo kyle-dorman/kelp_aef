@@ -67,6 +67,7 @@ kelp-aef align --config configs/monterey_smoke.yaml
 kelp-aef align-full-grid --config configs/monterey_smoke.yaml
 kelp-aef train-baselines --config configs/monterey_smoke.yaml
 kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
+kelp-aef train-conditional-canopy --config configs/monterey_smoke.yaml
 kelp-aef map-residuals --config configs/monterey_smoke.yaml
 kelp-aef analyze-model --config configs/monterey_smoke.yaml
 kelp-aef query-noaa-cudem --config configs/monterey_smoke.yaml

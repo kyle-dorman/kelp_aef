@@ -240,6 +240,23 @@ annual-max weak-label artifacts, not independent ecological presence truth.
 | Binary presence precision-recall figure | `/Volumes/x10pro/kelp_aef/reports/figures/binary_presence_precision_recall.png` | Compact validation precision, recall, and F1 diagnostic by probability threshold. | Not tracked |
 | Binary presence map figure | `/Volumes/x10pro/kelp_aef/reports/figures/binary_presence_2022_map.png` | Four-panel 2022 retained-domain map of observed binary target, predicted probability, selected class, and classification outcome. | Not tracked |
 
+## Phase 1 Conditional Canopy Amount Model
+
+These outputs train and report the first positive-only annual-max canopy amount
+model. They evaluate Kelpwatch-style positive-cell canopy amount separately from
+binary presence and do not compose a final full-grid hurdle prediction.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| Conditional canopy model | `/Volumes/x10pro/kelp_aef/models/conditional_canopy/ridge_positive_annual_max.joblib` | Serialized positive-only ridge model payload, selected validation alpha, feature list, and support-policy metadata. | Not tracked |
+| Conditional canopy sample predictions | `/Volumes/x10pro/kelp_aef/processed/conditional_canopy_sample_predictions.parquet` | Row-level conditional amount predictions for observed-positive sample rows plus calibrated likely-positive diagnostics. | Not tracked |
+| Conditional canopy metrics | `/Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_metrics.csv` | Positive-cell canopy amount metrics by split, year, label source, support policy, and mask status. | Not tracked |
+| Conditional canopy positive residuals | `/Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_positive_residuals.csv` | Residual summaries for observed-positive, high-canopy, and near-saturated annual-max bins. | Not tracked |
+| Conditional canopy model comparison | `/Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_model_comparison.csv` | Apples-to-apples comparison between positive-only conditional ridge and the current ridge baseline on the same observed-positive rows. | Not tracked |
+| Conditional canopy full-grid likely-positive summary | `/Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_full_grid_likely_positive_summary.csv` | Compact count-only diagnostic of retained full-grid rows that would receive a conditional amount under the current calibrated binary gate. | Not tracked |
+| Conditional canopy residual figure | `/Volumes/x10pro/kelp_aef/reports/figures/conditional_canopy_positive_residuals.png` | Compact figure showing mean residual area across conditional positive-cell bins. | Not tracked |
+| Conditional canopy manifest | `/Volumes/x10pro/kelp_aef/interim/conditional_canopy_manifest.json` | Inputs, outputs, selected alpha, support row counts, and non-composition QA notes for the conditional stage. | Not tracked |
+
 ## Phase 1 Masked Training Outputs
 
 These outputs apply the P1-12 plausible-kelp domain mask to the model-input

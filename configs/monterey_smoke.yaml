@@ -337,6 +337,30 @@ models:
       manifest: /Volumes/x10pro/kelp_aef/interim/binary_presence_calibration_manifest.json
       include_prevalence_match: true
       reliability_bin_count: 10
+  conditional_canopy:
+    input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
+    target: kelp_fraction_y
+    target_area_column: kelp_max_y
+    positive_target_label: annual_max_ge_10pct
+    positive_target_threshold_fraction: 0.10
+    positive_target_threshold_area: 90.0
+    positive_support_policy: observed_positive_train_validation_test
+    likely_positive_policy: calibrated_probability_ge_validation_max_f1
+    likely_positive_threshold_policy: validation_max_f1_calibrated
+    features: A00-A63
+    alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
+    drop_missing_features: true
+    baseline_sample_predictions: /Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet
+    calibrated_binary_sample_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_calibrated_sample_predictions.parquet
+    calibrated_binary_full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_calibrated_full_grid_area_summary.csv
+    model: /Volumes/x10pro/kelp_aef/models/conditional_canopy/ridge_positive_annual_max.joblib
+    sample_predictions: /Volumes/x10pro/kelp_aef/processed/conditional_canopy_sample_predictions.parquet
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_metrics.csv
+    positive_residuals: /Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_positive_residuals.csv
+    model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_model_comparison.csv
+    full_grid_likely_positive_summary: /Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_full_grid_likely_positive_summary.csv
+    residual_figure: /Volumes/x10pro/kelp_aef/reports/figures/conditional_canopy_positive_residuals.png
+    manifest: /Volumes/x10pro/kelp_aef/interim/conditional_canopy_manifest.json
 
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures

@@ -17,6 +17,7 @@ from kelp_aef.domain.noaa_cusp import download_noaa_cusp, query_noaa_cusp
 from kelp_aef.domain.usgs_3dep import download_usgs_3dep, query_usgs_3dep
 from kelp_aef.evaluation.baselines import predict_full_grid, train_baselines
 from kelp_aef.evaluation.binary_presence import calibrate_binary_presence, train_binary_presence
+from kelp_aef.evaluation.conditional_canopy import train_conditional_canopy
 from kelp_aef.evaluation.model_analysis import analyze_model
 from kelp_aef.features.aef_catalog import query_aef_catalog
 from kelp_aef.features.aef_download import download_aef
@@ -58,6 +59,7 @@ COMMANDS: dict[str, str] = {
     "predict-full-grid": "Stream baseline predictions over the full-grid feature table.",
     "train-binary-presence": "Train the balanced binary annual-max presence model.",
     "calibrate-binary-presence": "Calibrate binary annual-max probabilities and thresholds.",
+    "train-conditional-canopy": "Train the positive-only conditional canopy amount model.",
     "map-residuals": "Map baseline predictions, residuals, and area bias.",
     "analyze-model": "Analyze model behavior and write the Phase 1 report.",
 }
@@ -783,6 +785,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_code = train_binary_presence(config_path)
         elif command == "calibrate-binary-presence":
             exit_code = calibrate_binary_presence(config_path)
+        elif command == "train-conditional-canopy":
+            exit_code = train_conditional_canopy(config_path)
         elif command == "map-residuals":
             exit_code = map_residuals(config_path)
         elif command == "analyze-model":

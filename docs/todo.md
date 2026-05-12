@@ -378,13 +378,35 @@ masking change should end with an updated model-analysis report.
   - Output: calibrated probabilities or selected thresholds plus calibration
     tables.
   - Validation: calibration is fit on 2021 and evaluated on 2022.
-- [ ] P1-20: Train a conditional canopy model for positive or likely-positive
+- [x] P1-20: Train a conditional canopy model for positive or likely-positive
   cells.
   - Goal: Address high-canopy shrinkage separately from presence detection.
   - Plan: `tasks/28_train_conditional_canopy_model.md`.
   - Output: conditional continuous model and positive-cell residual table.
   - Validation: report shows high-canopy residual bins against the ridge
     baseline.
+  - Completed: added `kelp-aef train-conditional-canopy`, configured
+    `models.conditional_canopy`, trained a positive-only ridge model on
+    observed `annual_max_ge_10pct` training rows, wrote conditional sample
+    predictions, residual bins, comparison rows, compact likely-positive
+    diagnostics, and a Phase 1 report section.
+  - Result: validation selected `alpha = 100.0`. On held-out 2022
+    observed-positive rows, the conditional model reduced area RMSE from
+    `248.2 m2` for ridge to `191.8 m2` on the same rows, while still
+    underpredicting high-canopy and near-saturated rows.
+  - Outcome: even with the strong prior that evaluation rows are already
+    observed `annual_max_ge_10pct` positives, simple AEF ridge features still
+    predict Kelpwatch-style canopy amount poorly. This improves the ridge
+    baseline but does not solve high-canopy magnitude recovery; P1-21 may reduce
+    full-grid leakage, but it should not be expected to fix conditional
+    high-canopy underprediction by itself.
+  - Validation passed:
+    `uv run pytest tests/test_conditional_canopy.py tests/test_binary_presence.py tests/test_model_analysis.py tests/test_package.py`,
+    `uv run mypy src/kelp_aef/evaluation/conditional_canopy.py src/kelp_aef/evaluation/model_analysis.py src/kelp_aef/cli.py`,
+    `uv run kelp-aef train-conditional-canopy --config configs/monterey_smoke.yaml`,
+    and
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`;
+    full repo validation passed with `make check`.
 - [ ] P1-21: Compose a first hurdle model.
   - Goal: Combine presence probability and conditional canopy amount into a
     full-grid annual-max prediction.

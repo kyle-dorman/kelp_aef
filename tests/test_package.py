@@ -34,6 +34,7 @@ def test_cli_imports() -> None:
         "predict-full-grid",
         "train-binary-presence",
         "calibrate-binary-presence",
+        "train-conditional-canopy",
         "map-residuals",
         "analyze-model",
     }
