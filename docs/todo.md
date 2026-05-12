@@ -372,6 +372,18 @@ masking change should end with an updated model-analysis report.
     `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_thresholded_model_comparison.csv`,
     `/Volumes/x10pro/kelp_aef/reports/figures/binary_presence_2022_map.png`,
     and `make check`.
+- [ ] P1-18a: Add CRM-stratified background sampling for binary model inputs.
+  - Goal: Improve the masked binary model-input sample using CRM domain
+    context before further binary calibration or hurdle iteration.
+  - Plan: `tasks/30_crm_stratified_background_sampling.md`.
+  - Output: sidecar CRM-stratified masked sample, manifest, summary table, and
+    binary model comparison against the current P1-18 sample.
+  - Validation: compare validation/test sample metrics and masked full-grid
+    assumed-background false positives by `depth_bin` and `domain_mask_reason`.
+  - Constraint: keep all Kelpwatch-observed rows, oversample hard coastal
+    assumed-background strata such as `retained_ambiguous_coast`, downsample
+    easy retained strata such as `50_100m`, and do not use CRM depth/elevation
+    as model predictors.
 - [ ] P1-19: Calibrate binary probabilities and thresholds on validation.
   - Goal: Separate ranking skill from area calibration.
   - Plan: `tasks/27_calibrate_binary_probabilities_thresholds.md`.
