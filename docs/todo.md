@@ -665,6 +665,17 @@ masking change should end with an updated model-analysis report.
     full-grid area bias was `+105.5%`. The expected-value hurdle remains the
     stronger Phase 1 AEF candidate.
   - Write-up: `docs/phase1_stratified_background_sweep_results.md`.
+- [ ] P1-22c: Remove failed direct-continuous experiment code paths.
+  - Plan: `tasks/38_remove_failed_p1_22_continuous_paths.md`.
+  - Goal: Back out the active code/config/report paths for the failed P1-22a
+    capped-weight and P1-22b stratified-background direct-continuous
+    experiments while preserving the recorded negative results.
+  - Output: no active `train-continuous-objective` command, no active
+    `models.continuous_objective` config block, no active continuous-objective
+    report rows, and updated tests/docs that treat P1-22 as historical.
+  - Validation: `uv run pytest tests/test_package.py tests/test_model_analysis.py`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`, and
+    `make check`.
 - [ ] P1-23: Select the best Phase 1 model policy or document failure.
   - Goal: Close Phase 1 with a defensible model/mask/calibration decision.
   - Output: Phase 1 closeout section in the report and updated decision note.
