@@ -521,7 +521,7 @@ masking change should end with an updated model-analysis report.
   - Constraint: CRM depth/elevation context remains a sampling input only, not
     a model feature, and current default artifacts remain available until a
     later policy-selection decision.
-- [ ] P1-21b: Document the CRM-stratified sampling policy decision.
+- [x] P1-21b: Document the CRM-stratified sampling policy decision.
   - Goal: Promote the Task 31 CRM-stratified sample-policy result from sidecar
     experiment to an explicit Phase 1 design decision before changing default
     pipeline behavior.
@@ -532,6 +532,11 @@ masking change should end with an updated model-analysis report.
     `background_rows_per_year`.
   - Validation: docs diff inspection plus metric spot checks against
     `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_crm_stratified_all_models_comparison.csv`.
+  - Completed: accepted
+    `docs/phase1_crm_stratified_sampling_policy_decision.md` as the durable
+    decision note. CRM-stratified, mask-first retained-domain sampling should
+    become the default in P1-21c; executable config behavior was not changed in
+    this docs-only task.
 - [ ] P1-21c: Promote CRM-stratified, mask-first sampling to the default
   masked model-input policy.
   - Goal: Replace the sidecar sampling path with a default retained-domain

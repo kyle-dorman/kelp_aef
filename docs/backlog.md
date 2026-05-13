@@ -108,6 +108,11 @@ start.
     overprediction.
   - Phase 1 should compare binary, hurdle, capped-weight, and
     stratified-background policies against reference baselines.
+  - P1-21b accepted
+    `docs/phase1_crm_stratified_sampling_policy_decision.md` as the
+    CRM-stratified sampling-policy decision. Remaining implementation is tracked
+    in P1-21c, and alternative capped-weight or stratified-background model
+    experiments remain separate follow-up work.
   - Refactor background sampling to be mask-first: filter to the retained
     plausible-kelp domain before applying row budgets or bathymetry/depth
     strata, then sample from that retained population.
