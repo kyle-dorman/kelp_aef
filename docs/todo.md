@@ -521,6 +521,40 @@ masking change should end with an updated model-analysis report.
   - Constraint: CRM depth/elevation context remains a sampling input only, not
     a model feature, and current default artifacts remain available until a
     later policy-selection decision.
+- [ ] P1-21b: Document the CRM-stratified sampling policy decision.
+  - Goal: Promote the Task 31 CRM-stratified sample-policy result from sidecar
+    experiment to an explicit Phase 1 design decision before changing default
+    pipeline behavior.
+  - Plan: `tasks/32_crm_sampling_policy_decision.md`.
+  - Output: decision note documenting metric improvements, exact successful
+    sidecar quota values, the move to mask-first sampling, the planned 60 m
+    maximum-depth mask, and the replacement or reinterpretation of
+    `background_rows_per_year`.
+  - Validation: docs diff inspection plus metric spot checks against
+    `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_crm_stratified_all_models_comparison.csv`.
+- [ ] P1-21c: Promote CRM-stratified, mask-first sampling to the default
+  masked model-input policy.
+  - Goal: Replace the sidecar sampling path with a default retained-domain
+    sampler that filters to the plausible-kelp mask before applying background
+    quotas.
+  - Plan: `tasks/33_promote_crm_stratified_sampling_default.md`.
+  - Output: regenerated 60 m plausible-kelp mask, default masked sample,
+    model artifacts, manifests, and report outputs using CRM-stratified
+    retained-background quotas by default.
+  - Validation: rerun the mask, alignment, baseline, binary, calibration,
+    conditional, hurdle, and report commands, then run `make check`.
+  - Constraint: remove the retained `50_100m` sampling stratum, replace the
+    final retained depth bin with `40_60m`, and keep CRM depth/elevation out of
+    the feature matrix.
+- [ ] P1-21d: Retire sidecar sampling-policy reporting after promotion.
+  - Goal: Remove the temporary current-vs-CRM report section once the design
+    decision is documented and the CRM-stratified policy is the default.
+  - Plan: `tasks/34_remove_sampling_policy_sidecar_reporting.md`.
+  - Output: updated model-analysis report and tests that describe the active
+    default sampling policy without recurring side-by-side sidecar tables.
+  - Validation: `uv run pytest tests/test_model_analysis.py`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`, and
+    `make check`.
 - [ ] P1-22: Test one capped-weight or stratified-background continuous model.
   - Goal: Check whether a simpler continuous objective can compete with the
     hurdle model without collapsing or leaking positives.
