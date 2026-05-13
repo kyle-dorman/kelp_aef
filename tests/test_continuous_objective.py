@@ -51,6 +51,102 @@ def test_train_continuous_objective_writes_capped_weight_artifacts(tmp_path: Pat
     assert manifest["selected_alpha"] in {0.01, 1.0}
 
 
+def test_train_continuous_objective_writes_stratified_background_artifacts(
+    tmp_path: Path,
+) -> None:
+    """Verify stratified background weights balance background strata by year."""
+    fixture = write_continuous_objective_fixture(tmp_path)
+
+    assert (
+        main(
+            [
+                "train-continuous-objective",
+                "--config",
+                str(fixture["config_path"]),
+                "--experiment",
+                "stratified-background",
+            ]
+        )
+        == 0
+    )
+
+    sample_predictions = pd.read_parquet(fixture["stratified_sample_predictions"])
+    full_grid_predictions = pd.read_parquet(fixture["stratified_full_grid_predictions"])
+    area = pd.read_csv(fixture["stratified_area_calibration"])
+    leakage = pd.read_csv(fixture["stratified_assumed_background_leakage"])
+    manifest = json.loads(fixture["stratified_manifest"].read_text())
+
+    observed = sample_predictions.loc[sample_predictions["is_kelpwatch_observed"]]
+    background = sample_predictions.loc[sample_predictions["label_source"] == "assumed_background"]
+    stratum_weight = background.groupby(
+        ["year", "label_source", "domain_mask_reason", "depth_bin"],
+        dropna=False,
+    )["fit_weight"].sum()
+    for _, weights in stratum_weight.groupby(level=0):
+        assert np.allclose(weights.to_numpy(dtype=float), weights.iloc[0])
+    assert set(observed["fit_weight"]) == {1.0}
+    assert "year,label_source,domain_mask_reason,depth_bin" in set(
+        sample_predictions["stratum_columns"]
+    )
+    assert set(full_grid_predictions["model_name"]) == {"ridge_stratified_background"}
+    assert {"all", "assumed_background"} <= set(area["label_source"])
+    assert set(leakage["label_source"]) == {"assumed_background"}
+    assert manifest["fit_weight_policy"] == "stratified_assumed_background_sample_weight"
+    assert manifest["fit_weight_cap"] is None
+    assert manifest["stratum_balance_gamma"] == 1.0
+    assert manifest["background_weight_budget_multiplier"] is None
+    assert manifest["stratum_columns"] == [
+        "year",
+        "label_source",
+        "domain_mask_reason",
+        "depth_bin",
+    ]
+    assert manifest["uses_global_background_cap"] is False
+    assert manifest["test_rows_used_for_training_or_model_selection"] is False
+
+
+def test_train_continuous_objective_applies_stratified_gamma_and_budget(
+    tmp_path: Path,
+) -> None:
+    """Verify stratified background weights can be shrunk and budget capped."""
+    fixture = write_continuous_objective_fixture(tmp_path)
+
+    assert (
+        main(
+            [
+                "train-continuous-objective",
+                "--config",
+                str(fixture["config_path"]),
+                "--experiment",
+                "stratified-background-gamma-budget",
+            ]
+        )
+        == 0
+    )
+
+    sample_predictions = pd.read_parquet(fixture["budget_sample_predictions"])
+    manifest = json.loads(fixture["budget_manifest"].read_text())
+    background = sample_predictions.loc[sample_predictions["label_source"] == "assumed_background"]
+    background_total = background.groupby("year", dropna=False)["fit_weight"].sum()
+    supported_total = (
+        sample_predictions.loc[sample_predictions["is_kelpwatch_observed"]]
+        .groupby("year", dropna=False)["fit_weight"]
+        .sum()
+    )
+    merged = pd.concat(
+        [background_total.rename("background"), supported_total.rename("supported")],
+        axis=1,
+    )
+
+    assert np.allclose(merged["background"], merged["supported"] * 2.0)
+    assert set(
+        sample_predictions.loc[sample_predictions["is_kelpwatch_observed"], "fit_weight"]
+    ) == {1.0}
+    assert manifest["stratum_balance_gamma"] == 0.5
+    assert manifest["background_weight_budget_multiplier"] == 2.0
+    assert manifest["uses_global_background_cap"] is False
+
+
 def write_continuous_objective_fixture(tmp_path: Path) -> dict[str, Path]:
     """Write synthetic inputs and config for a continuous-objective command run."""
     input_table = tmp_path / "interim/aligned_background_sample_training_table.masked.parquet"
@@ -71,6 +167,57 @@ def write_continuous_objective_fixture(tmp_path: Path) -> dict[str, Path]:
         / "reports/tables/continuous_objective_capped_weight_assumed_background_leakage.csv"
     )
     manifest = tmp_path / "interim/continuous_objective_capped_weight_manifest.json"
+    stratified_model = tmp_path / "models/continuous_objective/ridge_stratified_background.joblib"
+    stratified_sample_predictions = (
+        tmp_path / "processed/continuous_objective_stratified_background_sample_predictions.parquet"
+    )
+    stratified_full_grid_predictions = (
+        tmp_path
+        / "processed/continuous_objective_stratified_background_full_grid_predictions.parquet"
+    )
+    stratified_metrics = (
+        tmp_path / "reports/tables/continuous_objective_stratified_background_metrics.csv"
+    )
+    stratified_area_calibration = (
+        tmp_path / "reports/tables/continuous_objective_stratified_background_area_calibration.csv"
+    )
+    stratified_leakage = (
+        tmp_path
+        / "reports/tables/continuous_objective_stratified_background_assumed_background_leakage.csv"
+    )
+    stratified_manifest = (
+        tmp_path / "interim/continuous_objective_stratified_background_manifest.json"
+    )
+    budget_model = (
+        tmp_path / "models/continuous_objective/ridge_stratified_background_gamma_budget.joblib"
+    )
+    budget_sample_predictions = (
+        tmp_path
+        / "processed"
+        / "continuous_objective_stratified_background_gamma_budget_sample_predictions.parquet"
+    )
+    budget_full_grid_predictions = (
+        tmp_path
+        / "processed"
+        / "continuous_objective_stratified_background_gamma_budget_full_grid_predictions.parquet"
+    )
+    budget_metrics = (
+        tmp_path
+        / "reports/tables/continuous_objective_stratified_background_gamma_budget_metrics.csv"
+    )
+    budget_area_calibration = (
+        tmp_path
+        / "reports/tables"
+        / "continuous_objective_stratified_background_gamma_budget_area_calibration.csv"
+    )
+    budget_leakage = (
+        tmp_path
+        / "reports/tables"
+        / "continuous_objective_stratified_background_gamma_budget_assumed_background_leakage.csv"
+    )
+    budget_manifest = (
+        tmp_path / "interim/continuous_objective_stratified_background_gamma_budget_manifest.json"
+    )
     config_path = tmp_path / "config.yaml"
     write_objective_table(input_table)
     write_objective_table(full_grid_table)
@@ -113,6 +260,32 @@ models:
         area_calibration: {area_calibration}
         assumed_background_leakage: {leakage}
         manifest: {manifest}
+      stratified-background:
+        model_name: ridge_stratified_background
+        objective_policy: stratified_background_weighted_ridge
+        fit_weight_policy: stratified_assumed_background_sample_weight
+        stratum_columns: [year, label_source, domain_mask_reason, depth_bin]
+        model: {stratified_model}
+        sample_predictions: {stratified_sample_predictions}
+        full_grid_predictions: {stratified_full_grid_predictions}
+        metrics: {stratified_metrics}
+        area_calibration: {stratified_area_calibration}
+        assumed_background_leakage: {stratified_leakage}
+        manifest: {stratified_manifest}
+      stratified-background-gamma-budget:
+        model_name: ridge_stratified_background_gamma_budget
+        objective_policy: stratified_background_weighted_ridge
+        fit_weight_policy: stratified_assumed_background_sample_weight
+        stratum_balance_gamma: 0.5
+        background_weight_budget_multiplier: 2.0
+        stratum_columns: [year, label_source, domain_mask_reason, depth_bin]
+        model: {budget_model}
+        sample_predictions: {budget_sample_predictions}
+        full_grid_predictions: {budget_full_grid_predictions}
+        metrics: {budget_metrics}
+        area_calibration: {budget_area_calibration}
+        assumed_background_leakage: {budget_leakage}
+        manifest: {budget_manifest}
 """.lstrip()
     )
     return {
@@ -124,6 +297,20 @@ models:
         "area_calibration": area_calibration,
         "assumed_background_leakage": leakage,
         "manifest": manifest,
+        "stratified_model": stratified_model,
+        "stratified_sample_predictions": stratified_sample_predictions,
+        "stratified_full_grid_predictions": stratified_full_grid_predictions,
+        "stratified_metrics": stratified_metrics,
+        "stratified_area_calibration": stratified_area_calibration,
+        "stratified_assumed_background_leakage": stratified_leakage,
+        "stratified_manifest": stratified_manifest,
+        "budget_model": budget_model,
+        "budget_sample_predictions": budget_sample_predictions,
+        "budget_full_grid_predictions": budget_full_grid_predictions,
+        "budget_metrics": budget_metrics,
+        "budget_area_calibration": budget_area_calibration,
+        "budget_assumed_background_leakage": budget_leakage,
+        "budget_manifest": budget_manifest,
     }
 
 
@@ -167,4 +354,8 @@ def objective_row(
         "is_kelpwatch_observed": observed,
         "kelpwatch_station_count": 1 if observed else 0,
         "sample_weight": sample_weight,
+        "domain_mask_reason": "retained_ambiguous_coast"
+        if cell_id in {0, 2}
+        else "retained_depth_0_60m",
+        "depth_bin": "ambiguous_coast" if cell_id in {0, 2} else "0_40m",
     }

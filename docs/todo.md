@@ -631,7 +631,7 @@ masking change should end with an updated model-analysis report.
     --experiment capped-weight`, and `uv run kelp-aef analyze-model --config
     configs/monterey_smoke.yaml`; final full validation passed with
     `make check`.
-- [ ] P1-22b: Test a stratified-background continuous model.
+- [x] P1-22b: Test a stratified-background continuous model.
   - Plan: `tasks/37_test_stratified_background_continuous_model.md`.
   - Goal: Check whether retained-domain stratum-balanced background weighting
     lets a simple continuous model compete with the hurdle model without
@@ -639,6 +639,31 @@ masking change should end with an updated model-analysis report.
   - Output: stratified-background continuous model comparison row.
   - Validation: report shows station skill, background leakage, and full-grid
     area calibration.
+  - Completed: added the `stratified-background` experiment to
+    `kelp-aef train-continuous-objective`, wrote the stratified ridge
+    model/prediction/metric artifacts, refreshed the Phase 1 report, and added
+    the stratified-background row to the retained-domain scoreboard.
+  - Result: the stratified-background ridge reduced retained assumed-background
+    leakage to `3.80 M m2` and reduced full-grid area bias to `+40.4%`, compared
+    with ridge `+102.1%` and capped-weight ridge `+107.5%`. It did not beat the
+    direct continuous baselines on RMSE: 2022 retained-domain RMSE was `0.0542`,
+    versus ridge `0.0452`, capped-weight ridge `0.0493`, and expected-value
+    hurdle `0.0322`. Station RMSE worsened to `0.2360`, so this does not
+    compete with the expected-value hurdle for P1-23.
+  - Validation passed:
+    `uv run pytest tests/test_continuous_objective.py tests/test_model_analysis.py`,
+    `uv run kelp-aef train-continuous-objective --config
+    configs/monterey_smoke.yaml --experiment stratified-background`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`, and
+    `make check`.
+  - Sweep addendum: tested gamma-shrunk and background-budgeted
+    stratified-background variants. No variant fixed the one-stage continuous
+    tradeoff. Gamma-only variants reduced leakage but retained poor RMSE and
+    station skill; budgeted variants recovered station skill but restored
+    full-grid overprediction. The best budgeted test station row was
+    `ridge_stratified_gamma_050_bg2` (`station RMSE 0.1641`), but its retained
+    full-grid area bias was `+105.5%`. The expected-value hurdle remains the
+    stronger Phase 1 AEF candidate.
 - [ ] P1-23: Select the best Phase 1 model policy or document failure.
   - Goal: Close Phase 1 with a defensible model/mask/calibration decision.
   - Output: Phase 1 closeout section in the report and updated decision note.

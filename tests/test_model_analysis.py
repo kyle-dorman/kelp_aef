@@ -368,12 +368,14 @@ def test_continuous_objective_artifacts_feed_model_analysis(tmp_path: Path) -> N
     section = continuous_objective_report_section(tables, config)
 
     assert any(row["model_name"] == "ridge_capped_weight" for row in comparison_rows)
+    assert any(row["model_name"] == "ridge_stratified_background" for row in comparison_rows)
     assert {
         "continuous_objective_sample_metric",
         "continuous_objective_area_calibration",
         "continuous_objective_assumed_background_leakage",
     } <= {row["artifact_kind"] for row in sampling_rows}
     assert "Capped-Weight Continuous Objective" in "\n".join(section)
+    assert "Stratified-Background Continuous Objective" in "\n".join(section)
     assert "beats ridge" in "\n".join(section)
 
 
@@ -446,6 +448,19 @@ def write_continuous_objective_analysis_fixture(tmp_path: Path) -> Path:
         tmp_path
         / "reports/tables/continuous_objective_capped_weight_assumed_background_leakage.csv"
     )
+    stratified_metrics = (
+        tmp_path / "reports/tables/continuous_objective_stratified_background_metrics.csv"
+    )
+    stratified_area = (
+        tmp_path / "reports/tables/continuous_objective_stratified_background_area_calibration.csv"
+    )
+    stratified_leakage = (
+        tmp_path
+        / "reports/tables/continuous_objective_stratified_background_assumed_background_leakage.csv"
+    )
+    stratified_manifest = (
+        tmp_path / "interim/continuous_objective_stratified_background_manifest.json"
+    )
     manifest = tmp_path / "interim/continuous_objective_capped_weight_manifest.json"
     config_path = tmp_path / "config.yaml"
     metrics.parent.mkdir(parents=True, exist_ok=True)
@@ -472,6 +487,28 @@ def write_continuous_objective_analysis_fixture(tmp_path: Path) -> Path:
             }
         ]
     ).to_csv(metrics, index=False)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "ridge_stratified_background",
+                "model_family": "continuous_objective",
+                "split": "test",
+                "year": 2022,
+                "label_source": "kelpwatch_station",
+                "mask_status": "unmasked",
+                "evaluation_scope": "kelpwatch_station_sample",
+                "row_count": 12,
+                "mae": 0.018,
+                "rmse": 0.035,
+                "r2": 0.72,
+                "spearman": 0.82,
+                "f1_ge_10pct": 0.91,
+                "observed_canopy_area": 900.0,
+                "predicted_canopy_area": 870.0,
+                "area_pct_bias": -0.0333,
+            }
+        ]
+    ).to_csv(stratified_metrics, index=False)
     pd.DataFrame(
         [
             {
@@ -515,6 +552,46 @@ def write_continuous_objective_analysis_fixture(tmp_path: Path) -> Path:
     pd.DataFrame(
         [
             {
+                "model_name": "ridge_stratified_background",
+                "model_family": "continuous_objective",
+                "split": "test",
+                "year": 2022,
+                "label_source": "all",
+                "mask_status": "unmasked",
+                "evaluation_scope": "full_grid_prediction",
+                "row_count": 100,
+                "mae": 0.027,
+                "rmse": 0.055,
+                "r2": 0.55,
+                "f1_ge_10pct": 0.78,
+                "observed_canopy_area": 1000.0,
+                "predicted_canopy_area": 1300.0,
+                "area_bias": 300.0,
+                "area_pct_bias": 0.3,
+            },
+            {
+                "model_name": "ridge_stratified_background",
+                "model_family": "continuous_objective",
+                "split": "test",
+                "year": 2022,
+                "label_source": "assumed_background",
+                "mask_status": "unmasked",
+                "evaluation_scope": "full_grid_prediction",
+                "row_count": 80,
+                "mae": 0.008,
+                "rmse": 0.018,
+                "r2": 0.0,
+                "f1_ge_10pct": 0.0,
+                "observed_canopy_area": 0.0,
+                "predicted_canopy_area": 220.0,
+                "area_bias": 220.0,
+                "area_pct_bias": float("nan"),
+            },
+        ]
+    ).to_csv(stratified_area, index=False)
+    pd.DataFrame(
+        [
+            {
                 "model_name": "ridge_capped_weight",
                 "model_family": "continuous_objective",
                 "split": "test",
@@ -528,7 +605,24 @@ def write_continuous_objective_analysis_fixture(tmp_path: Path) -> Path:
             }
         ]
     ).to_csv(leakage, index=False)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "ridge_stratified_background",
+                "model_family": "continuous_objective",
+                "split": "test",
+                "year": 2022,
+                "label_source": "assumed_background",
+                "mask_status": "unmasked",
+                "evaluation_scope": "full_grid_prediction",
+                "assumed_background_count": 80,
+                "assumed_background_predicted_area_m2": 220.0,
+                "assumed_background_predicted_positive_rate": 0.008,
+            }
+        ]
+    ).to_csv(stratified_leakage, index=False)
     manifest.write_text(json.dumps({"command": "train-continuous-objective"}))
+    stratified_manifest.write_text(json.dumps({"command": "train-continuous-objective"}))
     config_path.write_text(
         f"""
 models:
@@ -541,6 +635,12 @@ models:
         area_calibration: {area}
         assumed_background_leakage: {leakage}
         manifest: {manifest}
+      stratified-background:
+        model_name: ridge_stratified_background
+        metrics: {stratified_metrics}
+        area_calibration: {stratified_area}
+        assumed_background_leakage: {stratified_leakage}
+        manifest: {stratified_manifest}
 """.lstrip()
     )
     return config_path

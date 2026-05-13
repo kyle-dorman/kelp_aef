@@ -138,6 +138,35 @@ each retained background stratum contributes the same total training weight per 
   - Does it approach or beat the expected-value hurdle on RMSE, F1, and area
     calibration?
 
+## Resolved Implementation Plan
+
+- Extend the dedicated `train-continuous-objective` command from Task 36 with a
+  new `stratified-background` experiment rather than changing
+  `models.baselines`.
+- Use configured stratum columns:
+  `year`, `label_source`, `domain_mask_reason`, and `depth_bin`.
+- Keep Kelpwatch-supported rows and any positive annual-max rows at baseline
+  fit weight `1.0`.
+- Balance only assumed-background rows. Within each year, each retained
+  background stratum contributes the same total training weight:
+
+```text
+raw_weight = max(sample_weight, 1.0)
+target_stratum_total_year = sum(raw_weight for background rows in year) / number_of_background_strata_in_year
+fit_weight = raw_weight * target_stratum_total_year / sum(raw_weight in row stratum)
+```
+
+- Do not combine stratum balancing with a global background cap in this task.
+  The capped-weight objective remains the Task 36 comparison row.
+- Keep fit weights out of unweighted station metrics and full-grid area
+  calibration. Full-grid area calibration remains computed from row-level
+  retained-domain predictions clipped to `[0, 1]`.
+- Treat `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_phase1_model_comparison.csv`
+  as the authoritative P1-22b comparison table.
+- Use only the 2021 validation split for ridge-alpha selection. Do not choose
+  stratum columns, fit weights, thresholds, or report choices from 2022 test
+  rows.
+
 ## Validation Command
 
 Focused validation:
@@ -206,3 +235,105 @@ uv run python -c "import pandas as pd; p='/Volumes/x10pro/kelp_aef/reports/table
 - Do not claim independent ecological truth; this remains Kelpwatch-style
   weak-label modeling.
 - Do not start full West Coast scale-up.
+
+## Completion Notes
+
+Completed on 2026-05-13.
+
+Implemented as the `stratified-background` experiment on the existing
+`kelp-aef train-continuous-objective` command. The fitted model is a direct ridge
+regression on `A00-A63` and `kelp_fraction_y`; CRM-derived `domain_mask_reason`
+and `depth_bin` are used only to construct fit weights.
+
+The final configured stratum columns are:
+
+```text
+year, label_source, domain_mask_reason, depth_bin
+```
+
+Kelpwatch-supported and positive annual-max rows keep `fit_weight = 1.0`.
+Assumed-background rows are balanced so each retained background stratum
+contributes the same total fit weight within each year. The resulting real
+sample check showed each background stratum-year total at `199999.0`, with no
+global background cap. Ridge alpha was selected on the 2021 validation split
+only; the selected alpha was `0.01`.
+
+Generated artifacts:
+
+- `/Volumes/x10pro/kelp_aef/models/continuous_objective/ridge_stratified_background.joblib`
+- `/Volumes/x10pro/kelp_aef/processed/continuous_objective_stratified_background_sample_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/processed/continuous_objective_stratified_background_full_grid_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_stratified_background_metrics.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_stratified_background_area_calibration.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_stratified_background_assumed_background_leakage.csv`
+- `/Volumes/x10pro/kelp_aef/interim/continuous_objective_stratified_background_manifest.json`
+
+Primary 2022 retained-domain result:
+
+| Model | RMSE | R2 | F1 >=10% | Predicted area | Area bias |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| AEF ridge regression | 0.0452 | 0.587 | 0.476 | 8.42 M m2 | +102.1% |
+| Capped-weight ridge | 0.0493 | 0.507 | 0.590 | 8.64 M m2 | +107.5% |
+| Stratified-background ridge | 0.0542 | 0.405 | 0.694 | 5.85 M m2 | +40.4% |
+| Expected-value hurdle | 0.0322 | 0.790 | 0.812 | 3.50 M m2 | -16.0% |
+
+Interpretation: stratified-background weighting reduces retained assumed
+background leakage to `3.80 M m2` and improves the 10% annual-max F1 relative to
+ridge and capped-weight ridge, but it worsens full-grid RMSE and station RMSE
+(`0.2360`). It fails to beat ridge or capped-weight ridge on the combined RMSE
+and area-bias check and does not compete with the expected-value hurdle.
+
+Validation passed:
+
+```bash
+uv run pytest tests/test_continuous_objective.py tests/test_model_analysis.py
+uv run kelp-aef train-continuous-objective --config configs/monterey_smoke.yaml --experiment stratified-background
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
+make check
+```
+
+## Sweep Addendum
+
+Completed on 2026-05-13 after the first stratified-background result showed a
+large station-skill penalty.
+
+Added sweep controls to the stratified-background objective:
+
+- `stratum_balance_gamma`: shrinks weights partway from raw sample weights
+  toward equal background-stratum totals.
+- `background_weight_budget_multiplier`: optionally caps total background fit
+  weight per year as a multiple of Kelpwatch-supported rows.
+
+Ran these sidecar experiments:
+
+- `stratified-gamma-025`
+- `stratified-gamma-050`
+- `stratified-gamma-075`
+- `stratified-gamma-025-bg5`
+- `stratified-gamma-050-bg5`
+- `stratified-gamma-050-bg2`
+
+All sweep variants selected `alpha=0.01` on 2021 validation rows.
+
+Primary 2022 retained-domain result:
+
+| Model | RMSE | R2 | F1 >=10% | Predicted area | Area bias |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| AEF ridge regression | 0.0452 | 0.587 | 0.476 | 8.42 M m2 | +102.1% |
+| Stratified gamma 0.25 + bg5 | 0.0472 | 0.549 | 0.503 | 8.23 M m2 | +97.8% |
+| Stratified gamma 0.50 + bg5 | 0.0472 | 0.548 | 0.511 | 8.20 M m2 | +96.9% |
+| Stratified gamma 0.50 + bg2 | 0.0466 | 0.560 | 0.449 | 8.55 M m2 | +105.5% |
+| Stratified gamma 0.25 | 0.0532 | 0.426 | 0.674 | 5.93 M m2 | +42.5% |
+| Stratified gamma 0.50 | 0.0535 | 0.419 | 0.680 | 5.91 M m2 | +41.9% |
+| Stratified gamma 0.75 | 0.0538 | 0.412 | 0.686 | 5.88 M m2 | +41.2% |
+| Full stratified background | 0.0542 | 0.405 | 0.694 | 5.85 M m2 | +40.4% |
+| Expected-value hurdle | 0.0322 | 0.790 | 0.812 | 3.50 M m2 | -16.0% |
+
+Interpretation: the sweep did not find a direct continuous stratified-background
+variant that beats ridge or competes with the expected-value hurdle. Gamma-only
+variants preserve the leakage improvement but keep the station/RMSE penalty.
+Budgeted variants recover station skill, especially `gamma=0.50, bg2` with test
+station RMSE `0.1641`, but they also restore the full-grid overprediction
+failure (`+105.5%` area bias). The tradeoff appears structural for this
+one-stage direct continuous objective under the current features and label
+framing.

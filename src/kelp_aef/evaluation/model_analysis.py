@@ -93,6 +93,7 @@ PHASE1_MODEL_DISPLAY_ORDER = (
     "geographic_ridge_lon_lat_year",
     "ridge_regression",
     "ridge_capped_weight",
+    "ridge_stratified_background",
     "calibrated_probability_x_conditional_canopy",
     "calibrated_hard_gate_conditional_canopy",
 )
@@ -103,6 +104,7 @@ PHASE1_MODEL_DISPLAY_LABELS = {
     "geographic_ridge_lon_lat_year": "Geographic ridge",
     "ridge_regression": "AEF ridge",
     "ridge_capped_weight": "Capped-weight ridge",
+    "ridge_stratified_background": "Stratified-background ridge",
     "calibrated_probability_x_conditional_canopy": "Hurdle expected",
     "calibrated_hard_gate_conditional_canopy": "Hurdle hard gate",
 }
@@ -111,6 +113,7 @@ PRIMARY_SCOREBOARD_MODELS = (
     "grid_cell_climatology",
     "ridge_regression",
     "ridge_capped_weight",
+    "ridge_stratified_background",
     "calibrated_probability_x_conditional_canopy",
     "calibrated_hard_gate_conditional_canopy",
 )
@@ -119,6 +122,7 @@ PRIMARY_SCOREBOARD_LABELS = {
     "grid_cell_climatology": "Grid-cell climatology",
     "ridge_regression": "AEF ridge regression",
     "ridge_capped_weight": "Capped-weight ridge",
+    "ridge_stratified_background": "Stratified-background ridge",
     "calibrated_probability_x_conditional_canopy": "Expected-value hurdle",
     "calibrated_hard_gate_conditional_canopy": "Hard-gated hurdle",
 }
@@ -127,6 +131,7 @@ PRIMARY_SCOREBOARD_KIND = {
     "grid_cell_climatology": "Reference site memory",
     "ridge_regression": "AEF continuous baseline",
     "ridge_capped_weight": "AEF direct continuous experiment",
+    "ridge_stratified_background": "AEF direct continuous experiment",
     "calibrated_probability_x_conditional_canopy": "AEF hurdle candidate",
     "calibrated_hard_gate_conditional_canopy": "AEF hurdle diagnostic",
 }
@@ -6793,7 +6798,7 @@ def continuous_objective_report_section(
     tables: AnalysisTables,
     analysis_config: ModelAnalysisConfig,
 ) -> list[str]:
-    """Return the capped-weight continuous objective report section when available."""
+    """Return direct continuous objective report sections when available."""
     capped = comparison_lookup(
         tables.phase1_model_comparison,
         analysis_config,
@@ -6801,14 +6806,30 @@ def continuous_objective_report_section(
         evaluation_scope_value=evaluation_scope(analysis_config.domain_mask),
         label_source="all",
     )
-    if not capped:
+    stratified = comparison_lookup(
+        tables.phase1_model_comparison,
+        analysis_config,
+        model_name="ridge_stratified_background",
+        evaluation_scope_value=evaluation_scope(analysis_config.domain_mask),
+        label_source="all",
+    )
+    if not capped and not stratified:
         return []
-    return [
-        "## Capped-Weight Continuous Objective",
-        "",
-        continuous_objective_markdown(tables, analysis_config, capped),
+    lines = [
+        "## Direct Continuous Objectives"
+        if stratified
+        else "## Capped-Weight Continuous Objective",
         "",
     ]
+    if capped:
+        if stratified:
+            lines.extend(["### Capped-Weight Continuous Objective", ""])
+        lines.extend([continuous_objective_markdown(tables, analysis_config, capped), ""])
+    if stratified:
+        lines.extend(
+            [stratified_background_objective_markdown(tables, analysis_config, stratified), ""]
+        )
+    return lines
 
 
 def continuous_objective_markdown(
@@ -6880,6 +6901,113 @@ def continuous_objective_markdown(
     return "\n".join(lines)
 
 
+def stratified_background_objective_markdown(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+    stratified: dict[str, object],
+) -> str:
+    """Build the report narrative for the stratified-background continuous model."""
+    ridge = comparison_lookup(
+        tables.phase1_model_comparison,
+        analysis_config,
+        model_name="ridge_regression",
+        evaluation_scope_value=evaluation_scope(analysis_config.domain_mask),
+        label_source="all",
+    )
+    capped = comparison_lookup(
+        tables.phase1_model_comparison,
+        analysis_config,
+        model_name="ridge_capped_weight",
+        evaluation_scope_value=evaluation_scope(analysis_config.domain_mask),
+        label_source="all",
+    )
+    expected = comparison_lookup(
+        tables.phase1_model_comparison,
+        analysis_config,
+        model_name="calibrated_probability_x_conditional_canopy",
+        evaluation_scope_value=evaluation_scope(analysis_config.domain_mask),
+        label_source="all",
+    )
+    station = comparison_lookup(
+        tables.phase1_model_comparison,
+        analysis_config,
+        model_name="ridge_stratified_background",
+        evaluation_scope_value="kelpwatch_station_sample",
+        label_source="kelpwatch_station",
+    )
+    leakage = sampling_policy_row(
+        tables.all_model_sampling_policy_comparison,
+        analysis_config,
+        sample_policy=analysis_config.sample_policy,
+        model_family="continuous_objective",
+        model_name="ridge_stratified_background",
+        artifact_kind="continuous_objective_assumed_background_leakage",
+        label_source="assumed_background",
+    )
+    lines = [
+        "### Stratified-Background Continuous Objective",
+        "",
+        stratified_background_result_sentence(stratified, ridge, capped, expected),
+        "",
+        "| Diagnostic | Stratified-background ridge | Capped-weight ridge | AEF ridge | Expected-value hurdle |",
+        "|---|---:|---:|---:|---:|",
+        four_way_metric_row(
+            "RMSE",
+            "rmse",
+            stratified,
+            capped,
+            ridge,
+            expected,
+            decimal_places=4,
+        ),
+        four_way_metric_row(
+            "F1 >=10%",
+            "f1_ge_10pct",
+            stratified,
+            capped,
+            ridge,
+            expected,
+            decimal_places=3,
+        ),
+        four_way_percent_row("Area bias", "area_pct_bias", stratified, capped, ridge, expected),
+        four_way_area_row(
+            "Predicted area (M m2)",
+            "predicted_canopy_area",
+            stratified,
+            capped,
+            ridge,
+            expected,
+        ),
+        four_way_metric_row(
+            "Station RMSE",
+            "rmse",
+            station,
+            {},
+            {},
+            {},
+            decimal_places=4,
+        ),
+    ]
+    if leakage is not None:
+        lines.extend(
+            [
+                "",
+                (
+                    "Assumed-background leakage for the stratified-background model is "
+                    f"`{format_area_millions(row_float(leakage, 'assumed_background_predicted_area_m2'))} M m2` "
+                    "inside the retained full-grid domain."
+                ),
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "The stratum policy and alpha selection are validation-only; the 2022 row is held out for reporting.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def comparison_lookup(
     rows: list[dict[str, object]],
     analysis_config: ModelAnalysisConfig,
@@ -6925,6 +7053,43 @@ def continuous_objective_result_sentence(
         result = "fails to beat ridge on the combined RMSE and area-bias check"
     return (
         "The capped-weight direct continuous model "
+        f"{result}. It remains a Kelpwatch-style annual-max weak-label experiment, "
+        "not independent biomass validation."
+    )
+
+
+def stratified_background_result_sentence(
+    stratified: dict[str, object],
+    ridge: dict[str, object],
+    capped: dict[str, object],
+    expected: dict[str, object],
+) -> str:
+    """State whether stratified background weighting beats key comparison rows."""
+    beats_ridge = row_float(stratified, "rmse", math.inf) < row_float(
+        ridge, "rmse", math.inf
+    ) and abs(row_float(stratified, "area_pct_bias", math.inf)) < abs(
+        row_float(ridge, "area_pct_bias", math.inf)
+    )
+    beats_capped = row_float(stratified, "rmse", math.inf) < row_float(
+        capped, "rmse", math.inf
+    ) and abs(row_float(stratified, "area_pct_bias", math.inf)) < abs(
+        row_float(capped, "area_pct_bias", math.inf)
+    )
+    competes_with_hurdle = (
+        row_float(stratified, "rmse", math.inf) <= row_float(expected, "rmse", math.inf) * 1.05
+        and abs(row_float(stratified, "area_pct_bias", math.inf))
+        <= abs(row_float(expected, "area_pct_bias", math.inf)) * 1.25
+    )
+    if competes_with_hurdle:
+        result = "competes with the expected-value hurdle"
+    elif beats_capped:
+        result = "beats the capped-weight direct continuous row but does not match the hurdle"
+    elif beats_ridge:
+        result = "beats ridge but does not improve on the capped-weight direct continuous row"
+    else:
+        result = "fails to beat ridge or the capped-weight direct continuous row"
+    return (
+        "The stratified-background direct continuous model "
         f"{result}. It remains a Kelpwatch-style annual-max weak-label experiment, "
         "not independent biomass validation."
     )
@@ -6977,6 +7142,62 @@ def comparison_area_row(
         f"{format_area_millions(row_float(capped, field))} | "
         f"{format_area_millions(row_float(ridge, field))} | "
         f"{format_area_millions(row_float(expected, field))} |"
+    )
+
+
+def four_way_metric_row(
+    label: str,
+    field: str,
+    first: dict[str, object],
+    second: dict[str, object],
+    third: dict[str, object],
+    fourth: dict[str, object],
+    *,
+    decimal_places: int,
+) -> str:
+    """Format one scalar row for a four-model direct-continuous comparison."""
+    return (
+        f"| {label} | "
+        f"{format_decimal(row_float(first, field), decimal_places)} | "
+        f"{format_decimal(row_float(second, field), decimal_places)} | "
+        f"{format_decimal(row_float(third, field), decimal_places)} | "
+        f"{format_decimal(row_float(fourth, field), decimal_places)} |"
+    )
+
+
+def four_way_percent_row(
+    label: str,
+    field: str,
+    first: dict[str, object],
+    second: dict[str, object],
+    third: dict[str, object],
+    fourth: dict[str, object],
+) -> str:
+    """Format one percent row for a four-model direct-continuous comparison."""
+    return (
+        f"| {label} | "
+        f"{format_percent(row_float(first, field), 1)} | "
+        f"{format_percent(row_float(second, field), 1)} | "
+        f"{format_percent(row_float(third, field), 1)} | "
+        f"{format_percent(row_float(fourth, field), 1)} |"
+    )
+
+
+def four_way_area_row(
+    label: str,
+    field: str,
+    first: dict[str, object],
+    second: dict[str, object],
+    third: dict[str, object],
+    fourth: dict[str, object],
+) -> str:
+    """Format one area row for a four-model direct-continuous comparison."""
+    return (
+        f"| {label} | "
+        f"{format_area_millions(row_float(first, field))} | "
+        f"{format_area_millions(row_float(second, field))} | "
+        f"{format_area_millions(row_float(third, field))} | "
+        f"{format_area_millions(row_float(fourth, field))} |"
     )
 
 
@@ -7111,6 +7332,20 @@ def next_modeling_step_markdown(
     expected = scoreboard.get("calibrated_probability_x_conditional_canopy", {})
     previous = scoreboard.get("previous_year_annual_max", {})
     capped = scoreboard.get("ridge_capped_weight", {})
+    stratified = scoreboard.get("ridge_stratified_background", {})
+    if stratified:
+        return (
+            "Decision: keep `crm_stratified_mask_first_sample` as the default policy and keep the "
+            "expected-value hurdle as the current AEF full-grid candidate unless P1-23 selects a "
+            "direct continuous objective. The stratified-background ridge row now completes the "
+            f"second direct continuous alternative: its area bias is "
+            f"`{format_percent(row_float(stratified, 'area_pct_bias'), 1)}` versus capped-weight "
+            f"`{format_percent(row_float(capped, 'area_pct_bias'), 1)}`, expected-value hurdle "
+            f"`{format_percent(row_float(expected, 'area_pct_bias'), 1)}`, and previous-year "
+            f"persistence `{format_percent(row_float(previous, 'area_pct_bias'), 1)}`.\n\n"
+            "Next modeling task: close P1-23 by selecting the best Phase 1 model policy or "
+            "documenting why the direct continuous alternatives still fail."
+        )
     if capped:
         return (
             "Decision: keep `crm_stratified_mask_first_sample` as the default policy and keep the "

@@ -45,12 +45,24 @@ DEFAULT_EXPERIMENT = "capped-weight"
 DEFAULT_MODEL_NAME = "ridge_capped_weight"
 DEFAULT_OBJECTIVE_POLICY = "capped_weighted_ridge"
 DEFAULT_FIT_WEIGHT_POLICY = "capped_assumed_background_sample_weight"
+STRATIFIED_FIT_WEIGHT_POLICY = "stratified_assumed_background_sample_weight"
 DEFAULT_TARGET_COLUMN = "kelp_fraction_y"
 DEFAULT_TARGET_AREA_COLUMN = "kelp_max_y"
 DEFAULT_SAMPLE_WEIGHT_COLUMN = "sample_weight"
 DEFAULT_BATCH_SIZE = 100_000
 DEFAULT_FIT_WEIGHT_CAP = 5.0
 DEFAULT_THRESHOLD_FRACTION = 0.10
+DEFAULT_BACKGROUND_STRATUM_COLUMNS = (
+    "year",
+    "label_source",
+    "domain_mask_reason",
+    "depth_bin",
+)
+DEFAULT_STRATUM_BALANCE_GAMMA = 1.0
+SUPPORTED_FIT_WEIGHT_POLICIES = (
+    DEFAULT_FIT_WEIGHT_POLICY,
+    STRATIFIED_FIT_WEIGHT_POLICY,
+)
 SPLIT_ORDER = ("train", "validation", "test")
 REQUIRED_INPUT_COLUMNS = (
     "year",
@@ -92,6 +104,7 @@ PREDICTION_FIELDS = (
     "is_kelpwatch_observed",
     "kelpwatch_station_count",
     "sample_weight",
+    "fit_weight_stratum",
     "fit_weight",
     "is_plausible_kelp_domain",
     "domain_mask_reason",
@@ -109,6 +122,9 @@ PREDICTION_FIELDS = (
     "objective_policy",
     "fit_weight_policy",
     "fit_weight_cap",
+    "stratum_balance_gamma",
+    "background_weight_budget_multiplier",
+    "stratum_columns",
     "target",
     "target_area_column",
     "cell_area_m2",
@@ -126,6 +142,8 @@ METRIC_FIELDS = (
     "objective_policy",
     "fit_weight_policy",
     "fit_weight_cap",
+    "stratum_balance_gamma",
+    "background_weight_budget_multiplier",
     "split",
     "year",
     "label_source",
@@ -158,6 +176,8 @@ AREA_CALIBRATION_FIELDS = (
     "objective_policy",
     "fit_weight_policy",
     "fit_weight_cap",
+    "stratum_balance_gamma",
+    "background_weight_budget_multiplier",
     "split",
     "year",
     "mask_status",
@@ -179,6 +199,8 @@ LEAKAGE_FIELDS = (
     "objective_policy",
     "fit_weight_policy",
     "fit_weight_cap",
+    "stratum_balance_gamma",
+    "background_weight_budget_multiplier",
     "split",
     "year",
     "mask_status",
@@ -214,7 +236,10 @@ class ContinuousObjectiveConfig:
     model_name: str
     objective_policy: str
     fit_weight_policy: str
-    fit_weight_cap: float
+    fit_weight_cap: float | None
+    stratum_balance_gamma: float
+    background_weight_budget_multiplier: float | None
+    stratum_columns: tuple[str, ...]
     sample_weight_column: str
     target_column: str
     target_area_column: str
@@ -251,6 +276,7 @@ def train_continuous_objective_config(objective_config: ContinuousObjectiveConfi
     sample = cast(pd.DataFrame, pd.read_parquet(objective_config.input_table_path))
     validate_sample_table(sample, objective_config)
     retained, dropped_counts = prepare_sample_frame(sample, objective_config)
+    retained["fit_weight_stratum"] = fit_weight_strata(retained, objective_config)
     retained["fit_weight"] = fit_weights(retained, objective_config)
     train_rows = rows_for_split(retained, "train")
     validation_rows = rows_for_split(retained, "validation")
@@ -323,6 +349,22 @@ def load_continuous_objective_config(
         f"models.continuous_objective.experiments.{experiment}",
     )
     reporting_domain_mask = load_reporting_domain_mask(config)
+    fit_weight_policy = str(
+        experiment_block.get("fit_weight_policy")
+        or objective.get("fit_weight_policy")
+        or DEFAULT_FIT_WEIGHT_POLICY
+    )
+    validate_fit_weight_policy(fit_weight_policy)
+    fit_weight_cap_default = (
+        DEFAULT_FIT_WEIGHT_CAP if fit_weight_policy == DEFAULT_FIT_WEIGHT_POLICY else None
+    )
+    stratum_columns = read_stratum_columns(
+        experiment_block.get("stratum_columns") or objective.get("stratum_columns"),
+        f"models.continuous_objective.experiments.{experiment}.stratum_columns",
+        default=DEFAULT_BACKGROUND_STRATUM_COLUMNS
+        if fit_weight_policy == STRATIFIED_FIT_WEIGHT_POLICY
+        else (),
+    )
     return ContinuousObjectiveConfig(
         config_path=config_path,
         experiment=experiment,
@@ -373,16 +415,32 @@ def load_continuous_objective_config(
             or objective.get("objective_policy")
             or DEFAULT_OBJECTIVE_POLICY
         ),
-        fit_weight_policy=str(
-            experiment_block.get("fit_weight_policy")
-            or objective.get("fit_weight_policy")
-            or DEFAULT_FIT_WEIGHT_POLICY
-        ),
-        fit_weight_cap=positive_float(
+        fit_weight_policy=fit_weight_policy,
+        fit_weight_cap=optional_positive_float(
             experiment_block.get("fit_weight_cap", objective.get("fit_weight_cap")),
             f"models.continuous_objective.experiments.{experiment}.fit_weight_cap",
-            DEFAULT_FIT_WEIGHT_CAP,
+            fit_weight_cap_default,
         ),
+        stratum_balance_gamma=read_unit_interval_float(
+            experiment_block.get(
+                "stratum_balance_gamma",
+                objective.get("stratum_balance_gamma"),
+            ),
+            f"models.continuous_objective.experiments.{experiment}.stratum_balance_gamma",
+            DEFAULT_STRATUM_BALANCE_GAMMA,
+        ),
+        background_weight_budget_multiplier=optional_positive_float(
+            experiment_block.get(
+                "background_weight_budget_multiplier",
+                objective.get("background_weight_budget_multiplier"),
+            ),
+            (
+                "models.continuous_objective.experiments."
+                f"{experiment}.background_weight_budget_multiplier"
+            ),
+            None,
+        ),
+        stratum_columns=stratum_columns,
         sample_weight_column=str(
             experiment_block.get("sample_weight_column")
             or objective.get("sample_weight_column")
@@ -447,6 +505,38 @@ def optional_mapping(value: object, name: str) -> dict[str, Any]:
     return require_mapping(value, name)
 
 
+def validate_fit_weight_policy(policy: str) -> None:
+    """Validate that an experiment declares a supported fit-weight policy."""
+    if policy not in SUPPORTED_FIT_WEIGHT_POLICIES:
+        msg = (
+            "unsupported continuous-objective fit_weight_policy: "
+            f"{policy}; expected one of {SUPPORTED_FIT_WEIGHT_POLICIES}"
+        )
+        raise ValueError(msg)
+
+
+def read_stratum_columns(
+    value: object,
+    name: str,
+    *,
+    default: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Read optional background-stratum columns from config."""
+    if value is None:
+        return default
+    if not isinstance(value, list) or not value:
+        msg = f"config field must be a non-empty list of column names: {name}"
+        raise ValueError(msg)
+    columns = tuple(str(column) for column in value)
+    if any(not column for column in columns):
+        msg = f"stratum columns must be non-empty strings: {name}"
+        raise ValueError(msg)
+    if len(set(columns)) != len(columns):
+        msg = f"stratum columns contain duplicates: {name}"
+        raise ValueError(msg)
+    return columns
+
+
 def read_bool(value: object, name: str, *, default: bool) -> bool:
     """Read an optional boolean config field."""
     if value is None:
@@ -500,6 +590,22 @@ def positive_float(value: object, name: str, default: float | None) -> float:
     return parsed
 
 
+def optional_positive_float(value: object, name: str, default: float | None) -> float | None:
+    """Read an optional positive float, preserving None when no default is set."""
+    if value is None and default is None:
+        return None
+    return positive_float(value, name, default)
+
+
+def read_unit_interval_float(value: object, name: str, default: float) -> float:
+    """Read a positive float no larger than one."""
+    parsed = positive_float(value, name, default)
+    if parsed > 1.0:
+        msg = f"field must be <= 1.0: {name}"
+        raise ValueError(msg)
+    return parsed
+
+
 def positive_int(value: object, name: str, default: int) -> int:
     """Read an optional positive integer from config."""
     if value is None:
@@ -529,6 +635,8 @@ def validate_sample_table(
         objective_config.sample_weight_column,
         *objective_config.feature_columns,
     ]
+    if objective_config.fit_weight_policy == STRATIFIED_FIT_WEIGHT_POLICY:
+        required.extend(objective_config.stratum_columns)
     missing = [column for column in required if column not in dataframe.columns]
     if missing:
         msg = f"continuous-objective sample table is missing required columns: {missing}"
@@ -597,11 +705,134 @@ def fit_weights(
     dataframe: pd.DataFrame,
     objective_config: ContinuousObjectiveConfig,
 ) -> np.ndarray:
-    """Return capped training weights without upweighting observed Kelpwatch rows."""
+    """Return training weights for the configured continuous objective."""
+    if objective_config.fit_weight_policy == DEFAULT_FIT_WEIGHT_POLICY:
+        return capped_assumed_background_fit_weights(dataframe, objective_config)
+    if objective_config.fit_weight_policy == STRATIFIED_FIT_WEIGHT_POLICY:
+        return stratified_background_fit_weights(dataframe, objective_config)
+    validate_fit_weight_policy(objective_config.fit_weight_policy)
+    raise AssertionError("unreachable fit-weight policy validation branch")
+
+
+def capped_assumed_background_fit_weights(
+    dataframe: pd.DataFrame,
+    objective_config: ContinuousObjectiveConfig,
+) -> np.ndarray:
+    """Return capped weights without upweighting observed Kelpwatch rows."""
+    if objective_config.fit_weight_cap is None:
+        msg = "capped continuous objective requires fit_weight_cap"
+        raise ValueError(msg)
     sample_weights = dataframe[objective_config.sample_weight_column].to_numpy(dtype=float)
     weights = np.clip(sample_weights, 1.0, objective_config.fit_weight_cap)
     weights[kelpwatch_supported_mask(dataframe, objective_config)] = 1.0
     return cast(np.ndarray, weights)
+
+
+def stratified_background_fit_weights(
+    dataframe: pd.DataFrame,
+    objective_config: ContinuousObjectiveConfig,
+) -> np.ndarray:
+    """Balance assumed-background total fit weight across strata within each year."""
+    validate_stratum_columns(dataframe, objective_config)
+    sample_weights = dataframe[objective_config.sample_weight_column].to_numpy(dtype=float)
+    raw_weights = np.maximum(sample_weights, 1.0)
+    weights = np.ones(len(dataframe), dtype=float)
+    supported = kelpwatch_supported_mask(dataframe, objective_config)
+    background_mask = ~supported
+    if not np.any(background_mask):
+        return weights
+    background = dataframe.loc[background_mask, list(objective_config.stratum_columns)].copy()
+    background["_raw_weight"] = raw_weights[background_mask]
+    background["_source_index"] = np.flatnonzero(background_mask)
+    for _, year_group in background.groupby("year", sort=False, dropna=False):
+        stratum_totals = year_group.groupby(
+            list(objective_config.stratum_columns), sort=False, dropna=False
+        )["_raw_weight"].transform("sum")
+        stratum_count = int(
+            year_group.loc[:, list(objective_config.stratum_columns)].drop_duplicates().shape[0]
+        )
+        if stratum_count == 0:
+            continue
+        target_total = float(year_group["_raw_weight"].sum()) / stratum_count
+        equalized = (
+            year_group["_raw_weight"].to_numpy(dtype=float)
+            * target_total
+            / stratum_totals.to_numpy(dtype=float)
+        )
+        raw = year_group["_raw_weight"].to_numpy(dtype=float)
+        scaled = raw * np.power(equalized / raw, objective_config.stratum_balance_gamma)
+        scaled = apply_background_budget_for_year(
+            scaled,
+            supported,
+            dataframe,
+            objective_config,
+            int(year_group["year"].iloc[0]),
+        )
+        weights[year_group["_source_index"].to_numpy(dtype=int)] = scaled
+    return weights
+
+
+def apply_background_budget_for_year(
+    background_weights: np.ndarray,
+    supported: np.ndarray,
+    dataframe: pd.DataFrame,
+    objective_config: ContinuousObjectiveConfig,
+    year: int,
+) -> np.ndarray:
+    """Cap total background fit weight for one year when a budget is configured."""
+    multiplier = objective_config.background_weight_budget_multiplier
+    if multiplier is None:
+        return background_weights
+    year_values = dataframe["year"].to_numpy(dtype=int)
+    supported_total = float(np.count_nonzero(supported & (year_values == year)))
+    if supported_total <= 0.0:
+        return background_weights
+    budget = supported_total * multiplier
+    background_total = float(np.sum(background_weights))
+    if background_total <= budget:
+        return background_weights
+    return background_weights * (budget / background_total)
+
+
+def validate_stratum_columns(
+    dataframe: pd.DataFrame,
+    objective_config: ContinuousObjectiveConfig,
+) -> None:
+    """Validate configured stratum columns before computing weights."""
+    if not objective_config.stratum_columns:
+        msg = "stratified continuous objective requires stratum_columns"
+        raise ValueError(msg)
+    if "year" not in objective_config.stratum_columns:
+        msg = "stratified continuous objective must include year in stratum_columns"
+        raise ValueError(msg)
+    missing = [column for column in objective_config.stratum_columns if column not in dataframe]
+    if missing:
+        msg = f"stratified continuous objective is missing stratum columns: {missing}"
+        raise ValueError(msg)
+
+
+def fit_weight_strata(
+    dataframe: pd.DataFrame,
+    objective_config: ContinuousObjectiveConfig,
+) -> np.ndarray:
+    """Return a compact label describing each row's fit-weight stratum."""
+    if objective_config.fit_weight_policy != STRATIFIED_FIT_WEIGHT_POLICY:
+        return np.full(len(dataframe), "unstratified", dtype=object)
+    validate_stratum_columns(dataframe, objective_config)
+    labels = np.full(len(dataframe), "kelpwatch_supported", dtype=object)
+    background_mask = ~kelpwatch_supported_mask(dataframe, objective_config)
+    if not np.any(background_mask):
+        return labels
+    stratum_frame = dataframe.loc[background_mask, list(objective_config.stratum_columns)]
+    labels[background_mask] = stratum_frame.apply(format_stratum_label, axis=1).to_numpy(
+        dtype=object
+    )
+    return labels
+
+
+def format_stratum_label(row: pd.Series) -> str:
+    """Format one background stratum label from configured column values."""
+    return "|".join(f"{column}={row[column]}" for column in row.index)
 
 
 def kelpwatch_supported_mask(
@@ -695,6 +926,11 @@ def build_prediction_frame(
     frame["objective_policy"] = objective_config.objective_policy
     frame["fit_weight_policy"] = objective_config.fit_weight_policy
     frame["fit_weight_cap"] = objective_config.fit_weight_cap
+    frame["stratum_balance_gamma"] = objective_config.stratum_balance_gamma
+    frame["background_weight_budget_multiplier"] = (
+        objective_config.background_weight_budget_multiplier
+    )
+    frame["stratum_columns"] = ",".join(objective_config.stratum_columns)
     frame["target"] = objective_config.target_column
     frame["target_area_column"] = objective_config.target_area_column
     frame["cell_area_m2"] = objective_config.cell_area_m2
@@ -727,6 +963,8 @@ def prediction_identity_columns(
     for column in OPTIONAL_ID_COLUMNS:
         if column in dataframe.columns and column not in columns:
             columns.append(column)
+    if "fit_weight_stratum" in dataframe.columns and "fit_weight_stratum" not in columns:
+        columns.append("fit_weight_stratum")
     if "fit_weight" in dataframe.columns and "fit_weight" not in columns:
         columns.append("fit_weight")
     return columns
@@ -787,6 +1025,10 @@ def metric_row(
         "objective_policy": objective_config.objective_policy,
         "fit_weight_policy": objective_config.fit_weight_policy,
         "fit_weight_cap": objective_config.fit_weight_cap,
+        "stratum_balance_gamma": objective_config.stratum_balance_gamma,
+        "background_weight_budget_multiplier": (
+            objective_config.background_weight_budget_multiplier
+        ),
         "split": split,
         "year": year,
         "label_source": label_source,
@@ -1059,6 +1301,10 @@ def metric_row_from_state(
         "objective_policy": objective_config.objective_policy,
         "fit_weight_policy": objective_config.fit_weight_policy,
         "fit_weight_cap": objective_config.fit_weight_cap,
+        "stratum_balance_gamma": objective_config.stratum_balance_gamma,
+        "background_weight_budget_multiplier": (
+            objective_config.background_weight_budget_multiplier
+        ),
         "split": split,
         "year": year,
         "label_source": label_source,
@@ -1115,6 +1361,10 @@ def area_calibration_rows(
                 "objective_policy": objective_config.objective_policy,
                 "fit_weight_policy": objective_config.fit_weight_policy,
                 "fit_weight_cap": objective_config.fit_weight_cap,
+                "stratum_balance_gamma": objective_config.stratum_balance_gamma,
+                "background_weight_budget_multiplier": (
+                    objective_config.background_weight_budget_multiplier
+                ),
                 "split": row["split"],
                 "year": row["year"],
                 "mask_status": row["mask_status"],
@@ -1151,6 +1401,10 @@ def assumed_background_leakage_rows(
                 "objective_policy": objective_config.objective_policy,
                 "fit_weight_policy": objective_config.fit_weight_policy,
                 "fit_weight_cap": objective_config.fit_weight_cap,
+                "stratum_balance_gamma": objective_config.stratum_balance_gamma,
+                "background_weight_budget_multiplier": (
+                    objective_config.background_weight_budget_multiplier
+                ),
                 "split": row["split"],
                 "year": row["year"],
                 "mask_status": row["mask_status"],
@@ -1191,12 +1445,42 @@ def write_model(
         "objective_policy": objective_config.objective_policy,
         "fit_weight_policy": objective_config.fit_weight_policy,
         "fit_weight_cap": objective_config.fit_weight_cap,
+        "stratum_balance_gamma": objective_config.stratum_balance_gamma,
+        "background_weight_budget_multiplier": (
+            objective_config.background_weight_budget_multiplier
+        ),
+        "stratum_columns": list(objective_config.stratum_columns),
         "selected_alpha": selection.selected_alpha,
         "target_column": objective_config.target_column,
         "target_area_column": objective_config.target_area_column,
         "feature_columns": list(objective_config.feature_columns),
     }
     joblib.dump(payload, objective_config.model_path)
+
+
+def fit_weight_formula(objective_config: ContinuousObjectiveConfig) -> str:
+    """Return the manifest formula for the configured fit weights."""
+    if objective_config.fit_weight_policy == STRATIFIED_FIT_WEIGHT_POLICY:
+        return (
+            "fit_weight = 1.0 for Kelpwatch-supported or positive rows; otherwise "
+            "max(sample_weight, 1.0) is moved toward equal assumed-background "
+            "stratum totals within each year using stratum_balance_gamma; an "
+            "optional per-year background budget scales background weights after "
+            "stratum balancing"
+        )
+    return (
+        "fit_weight = 1.0 for Kelpwatch-supported or positive rows; "
+        "otherwise min(max(sample_weight, 1.0), fit_weight_cap)"
+    )
+
+
+def background_stratum_balance_policy(
+    objective_config: ContinuousObjectiveConfig,
+) -> str | None:
+    """Return the manifest policy for background stratum balancing."""
+    if objective_config.fit_weight_policy != STRATIFIED_FIT_WEIGHT_POLICY:
+        return None
+    return "equal_total_assumed_background_fit_weight_per_stratum_within_year"
 
 
 def write_manifest(
@@ -1223,11 +1507,20 @@ def write_manifest(
         "sample_policy": objective_config.sample_policy,
         "objective_policy": objective_config.objective_policy,
         "fit_weight_policy": objective_config.fit_weight_policy,
-        "fit_weight_formula": (
-            "fit_weight = 1.0 for Kelpwatch-supported or positive rows; "
-            "otherwise min(max(sample_weight, 1.0), fit_weight_cap)"
-        ),
+        "fit_weight_formula": fit_weight_formula(objective_config),
         "fit_weight_cap": objective_config.fit_weight_cap,
+        "stratum_balance_gamma": objective_config.stratum_balance_gamma,
+        "background_weight_budget_multiplier": (
+            objective_config.background_weight_budget_multiplier
+        ),
+        "stratum_columns": list(objective_config.stratum_columns),
+        "background_stratum_balance_policy": background_stratum_balance_policy(objective_config),
+        "kelpwatch_supported_weight_policy": (
+            "Kelpwatch-supported rows and positive annual-max rows keep fit_weight=1.0"
+        ),
+        "uses_global_background_cap": (
+            objective_config.fit_weight_policy == DEFAULT_FIT_WEIGHT_POLICY
+        ),
         "sample_weight_column": objective_config.sample_weight_column,
         "target_column": objective_config.target_column,
         "target_area_column": objective_config.target_area_column,
