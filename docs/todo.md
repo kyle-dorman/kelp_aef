@@ -664,6 +664,7 @@ masking change should end with an updated model-analysis report.
     `ridge_stratified_gamma_050_bg2` (`station RMSE 0.1641`), but its retained
     full-grid area bias was `+105.5%`. The expected-value hurdle remains the
     stronger Phase 1 AEF candidate.
+  - Write-up: `docs/phase1_stratified_background_sweep_results.md`.
 - [ ] P1-23: Select the best Phase 1 model policy or document failure.
   - Goal: Close Phase 1 with a defensible model/mask/calibration decision.
   - Output: Phase 1 closeout section in the report and updated decision note.

@@ -297,6 +297,9 @@ make check
 Completed on 2026-05-13 after the first stratified-background result showed a
 large station-skill penalty.
 
+Durable write-up:
+`docs/phase1_stratified_background_sweep_results.md`.
+
 Added sweep controls to the stratified-background objective:
 
 - `stratum_balance_gamma`: shrinks weights partway from raw sample weights
