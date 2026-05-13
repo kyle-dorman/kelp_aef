@@ -1,11 +1,11 @@
 # Phase 1 TODO
 
-Status: Phase 1 planning is active as of 2026-05-08.
+Status: Phase 1 is closed as of 2026-05-13.
 
 Phase 1 theme: harden the Monterey annual-max pipeline before scale-up. The
-goal is to make each model comparison answer whether AlphaEarth embeddings add
-value beyond persistence, site memory, and geography inside a physically
-plausible kelp domain.
+closeout selected the expected-value hurdle as the best current AEF model
+policy inside the physically plausible kelp domain, while preserving
+high-canopy underprediction as unresolved.
 
 Phase 1 plan:
 
@@ -19,12 +19,13 @@ Closed Phase 0 report snapshot:
 docs/report_snapshots/monterey_phase0_model_analysis.md
 ```
 
-Active Phase 1 report outputs:
+Final Phase 1 closeout report outputs:
 
 ```text
 /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md
 /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.html
 /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.pdf
+docs/report_snapshots/monterey_phase1_closeout_model_analysis.md
 ```
 
 Default validation loop for implemented Phase 1 tasks:
@@ -134,12 +135,15 @@ masking change should end with an updated model-analysis report.
   - Plan: `tasks/14_bathymetry_dem_source_plan.md`.
   - Completed: `docs/phase1_bathymetry_dem_source_decision.md`.
   - Validation: docs-only diff inspection; no pipeline behavior changes yet.
-- [ ] P1-10a: Add NOAA CUDEM / Coastal DEM query and download scripts.
+- [x] P1-10a: Add NOAA CUDEM / Coastal DEM query and download scripts.
   - Goal: Create package-backed query and downloader commands for the
     higher-resolution topo-bathy QA source where CUDEM coverage exists.
   - Plan: `tasks/15_download_noaa_cudem.md`.
   - Validation: `make check` and a dry-run command that writes a manifest to
     `/private/tmp`.
+  - Completed: added package-backed `query-noaa-cudem` and
+    `download-noaa-cudem` commands, config paths, and tests. Downstream CRM
+    alignment uses the CUDEM tile manifest as an optional QA source.
 - [x] P1-10b: Add NOAA CUSP shoreline query and download scripts.
   - Goal: Create package-backed query and downloader commands for
     shoreline-side classification.
@@ -685,7 +689,7 @@ masking change should end with an updated model-analysis report.
     `uv run pytest tests/test_package.py tests/test_model_analysis.py`,
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`, and
     `make check`.
-- [ ] P1-23: Select the best Phase 1 model policy or document failure.
+- [x] P1-23: Select the best Phase 1 model policy or document failure.
   - Plan: `tasks/39_close_phase1_model_policy_and_report.md`.
   - Goal: Close Phase 1 with a defensible model/mask/calibration decision.
   - Output: final Phase 1 closeout report section, tracked report snapshot,
@@ -694,6 +698,22 @@ masking change should end with an updated model-analysis report.
   - Validation: the selected policy beats meaningful reference baselines or the
     report clearly explains why it does not; the final report does not include
     post-Phase-1 next-step language.
+  - Completed: selected `calibrated_probability_x_conditional_canopy` as the
+    best current AEF Phase 1 model policy, retained
+    `calibrated_hard_gate_conditional_canopy` as a diagnostic support policy,
+    wrote `docs/phase1_closeout_model_policy_decision.md`, refreshed the final
+    generated report, copied the tracked closeout snapshot, and removed disabled
+    historical sidecar blocks from the active Monterey smoke config.
+  - Final evidence: on the `test` / `2022` / `full_grid_masked` /
+    `label_source = all` rows, the expected-value hurdle has RMSE `0.0322`,
+    R2 `0.790`, F1 at 10% annual max `0.812`, predicted area `3.50M m2`, and
+    area bias `-16.0%`. It improves over AEF ridge and slightly edges
+    previous-year annual max on retained-domain RMSE and F1, while still
+    underpredicting high-canopy rows.
+  - Validation passed:
+    `uv run pytest tests/test_model_analysis.py tests/test_package.py`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`, and
+    `make check`.
 
 ## Explicit Non-Goals
 

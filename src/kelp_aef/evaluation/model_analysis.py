@@ -5298,9 +5298,9 @@ def write_report(
             output_path,
         ),
         "",
-        "## Decision / Next Modeling Step",
+        "## Phase 1 Closeout Decision",
         "",
-        next_modeling_step_markdown(tables, analysis_config),
+        phase1_closeout_decision_markdown(tables, analysis_config),
         "",
         "## Appendix",
         "",
@@ -6462,7 +6462,7 @@ def executive_summary_markdown(
     )
     lines = [
         (
-            "This is the current-state decision report for the Monterey annual-max Phase 1 "
+            "This is the final closeout decision report for the Monterey annual-max Phase 1 "
             "workflow. It evaluates Kelpwatch-style weak labels, not independent field truth."
         ),
         (
@@ -6477,7 +6477,7 @@ def executive_summary_markdown(
             f"`{format_area_millions(row_float(ridge, 'predicted_canopy_area'))} M m2`."
         ),
         (
-            "The expected-value hurdle is the main AEF full-grid candidate right now: primary "
+            "The expected-value hurdle is the selected AEF full-grid policy: primary "
             f"RMSE is `{format_decimal(row_float(expected, 'rmse'), 4)}`, R2 is "
             f"`{format_decimal(row_float(expected, 'r2'), 3)}`, and area bias is "
             f"`{format_percent(row_float(expected, 'area_pct_bias'), 1)}`."
@@ -6653,7 +6653,7 @@ def improvement_since_ridge_markdown(
             "Persistence remains hard to beat: previous-year annual max has RMSE "
             f"`{format_decimal(row_float(previous, 'rmse'), 4)}` and area bias "
             f"`{format_percent(row_float(previous, 'area_pct_bias'), 1)}`. That benchmark "
-            "sets the bar for any next AEF model."
+            "sets the Phase 1 benchmark for AEF policy interpretation."
         ),
     ]
     return "\n\n".join(lines)
@@ -6707,33 +6707,55 @@ def remaining_failure_modes_markdown(
             f"`{format_decimal(row_float(near_saturated, 'mean_residual_area'), 1)} m2`."
         ),
         (
-            "These failures point to closing the Phase 1 policy decision with the current "
-            "hurdle and reference baselines, not to changing the annual-max label input, "
-            "the retained-domain mask, or the validation-selected binary threshold in "
-            "this reporting pass."
+            "These failures define the Phase 1 closeout boundary: keep the annual-max label "
+            "input, retained-domain mask, and validation-selected binary threshold fixed, and "
+            "treat high-canopy amount underprediction as unresolved."
         ),
     ]
     return "\n\n".join(lines)
 
 
-def next_modeling_step_markdown(
+def phase1_closeout_decision_markdown(
     tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> str:
-    """Build the report-level decision and next modeling step."""
+    """Build the report-level Phase 1 closeout decision."""
     scoreboard = primary_scoreboard_lookup(tables.phase1_model_comparison, analysis_config)
+    ridge = scoreboard.get("ridge_regression", {})
     expected = scoreboard.get("calibrated_probability_x_conditional_canopy", {})
+    hard_gate = scoreboard.get("calibrated_hard_gate_conditional_canopy", {})
     previous = scoreboard.get("previous_year_annual_max", {})
     return (
-        "Decision: keep `crm_stratified_mask_first_sample` as the default policy and treat the "
-        "expected-value hurdle as the current AEF full-grid candidate. The failed P1-22 direct "
-        "continuous alternatives are retained only in task history and are no longer active "
-        "reporting rows. Do not promote the hurdle as final yet: "
-        f"its area bias `{format_percent(row_float(expected, 'area_pct_bias'), 1)}` is close to "
-        f"previous-year persistence `{format_percent(row_float(previous, 'area_pct_bias'), 1)}`, "
-        "but the high-canopy residuals show that amount prediction is still weak.\n\n"
-        "Next modeling task: close P1-23 by selecting the best Phase 1 model policy or "
-        "documenting why the current candidates still fail. Keep the annual-max target, mask, "
-        "split, and validation-only threshold/calibration semantics fixed."
+        "Selected Phase 1 AEF policy: keep `crm_stratified_mask_first_sample` as the default "
+        "retained-domain sample policy and treat `calibrated_probability_x_conditional_canopy` "
+        "as the best current AEF annual-max full-grid policy. This is a Monterey Phase 1 "
+        "Kelpwatch-style weak-label policy, not independent biomass validation.\n\n"
+        "Decision evidence uses the primary retained-domain row "
+        f"(`split = {analysis_config.analysis_split}`, `year = {analysis_config.analysis_year}`, "
+        f"`evaluation_scope = {evaluation_scope(analysis_config.domain_mask)}`, "
+        "`label_source = all`). The selected expected-value hurdle has RMSE "
+        f"`{format_decimal(row_float(expected, 'rmse'), 4)}`, R2 "
+        f"`{format_decimal(row_float(expected, 'r2'), 3)}`, F1 at 10% annual max "
+        f"`{format_decimal(row_float(expected, 'f1_ge_10pct'), 3)}`, predicted canopy area "
+        f"`{format_area_millions(row_float(expected, 'predicted_canopy_area'))} M m2`, and "
+        f"area bias `{format_percent(row_float(expected, 'area_pct_bias'), 1)}`. It is stronger "
+        f"than AEF ridge on RMSE `{format_decimal(row_float(ridge, 'rmse'), 4)}`, F1 "
+        f"`{format_decimal(row_float(ridge, 'f1_ge_10pct'), 3)}`, and area bias "
+        f"`{format_percent(row_float(ridge, 'area_pct_bias'), 1)}`.\n\n"
+        "The previous-year persistence reference remains the meaningful non-AEF benchmark: its primary RMSE is "
+        f"`{format_decimal(row_float(previous, 'rmse'), 4)}`, F1 is "
+        f"`{format_decimal(row_float(previous, 'f1_ge_10pct'), 3)}`, and area bias is "
+        f"`{format_percent(row_float(previous, 'area_pct_bias'), 1)}`. The expected-value hurdle "
+        "edges that benchmark on retained-domain RMSE and threshold skill, while landing at a "
+        "similar total-area underprediction.\n\n"
+        "The hard-gated hurdle remains diagnostic, not the selected canopy-area policy. It has "
+        f"F1 `{format_decimal(row_float(hard_gate, 'f1_ge_10pct'), 3)}` and area bias "
+        f"`{format_percent(row_float(hard_gate, 'area_pct_bias'), 1)}`, but the hard gate is a "
+        "thresholded support decision rather than a continuous expected-area estimate. The "
+        "P1-22 direct-continuous capped-weight and stratified-background experiments remain "
+        "negative historical records and are not active maintained model policies.\n\n"
+        "Phase 1 is closed with unresolved limitations: the selected policy still underpredicts "
+        "high-canopy Kelpwatch-style annual-max rows, and all results are limited to the "
+        "Monterey 2018-2022 annual-max weak-label setting."
     )
 
 
@@ -6939,8 +6961,8 @@ def residual_diagnostic_interpretation(
         dominant_error = "mixed false positives and underprediction"
     return (
         f"The retained-domain residuals point first to `{dominant_error}` inside the plausible habitat "
-        f"rather than off-domain leakage. Concentration in `{reason}` and `{depth_bin}` should be treated "
-        "as triage evidence for the next imbalance/objective task, not as a reason to tune mask thresholds here."
+        f"rather than off-domain leakage. Concentration in `{reason}` and `{depth_bin}` is a "
+        "Phase 1 failure-mode finding, not a reason to tune mask thresholds in the closeout."
     )
 
 

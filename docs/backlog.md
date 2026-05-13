@@ -17,16 +17,19 @@ start.
   - Selected theme: model and domain hardening for the Monterey annual-max
     pipeline.
   - Plan: `docs/phase1_model_domain_hardening.md`.
-  - Active checklist: `docs/todo.md`.
+  - Closed on 2026-05-13.
+  - Decision: `docs/phase1_closeout_model_policy_decision.md`.
+  - Final report snapshot:
+    `docs/report_snapshots/monterey_phase1_closeout_model_analysis.md`.
 
-## Active Phase 1 Work
+## Closed Phase 1 Work
 
-- [ ] Harden reference baselines.
+- [x] Harden reference baselines.
   - Previous-year annual-max baseline.
   - Station or grid-cell climatology baseline.
   - Lat/lon/year-only geographic baseline.
   - Compare pixel skill and full-grid area calibration against ridge.
-- [ ] Harden domain filtering.
+- [x] Harden domain filtering.
   - Choose and manifest Monterey bathymetry and DEM inputs.
   - Align bathymetry/DEM to the 30 m target grid.
   - Build a plausible-kelp domain mask and report retained/dropped cells.
@@ -34,18 +37,20 @@ start.
     masked plausible-kelp domain the default largest reporting area.
   - Keep unmasked/off-domain prediction leakage as an audit diagnostic rather
     than a recurring headline scope.
-- [ ] Harden imbalance-aware modeling.
+- [x] Harden imbalance-aware modeling.
   - Add class and target-balance diagnostics.
   - Evaluate binary annual-max thresholds using validation-year data.
   - Train a balanced binary presence model.
   - Train a conditional canopy model or first hurdle model.
   - Compare against ridge and all reference baselines.
-- [ ] Harden evaluation and reporting.
+- [x] Harden evaluation and reporting.
   - Keep every task report-visible.
   - Separate Kelpwatch-station pixel skill, background leakage, and full-grid
     area calibration.
   - Add mask-aware residual taxonomy.
   - Preserve a rerunnable CLI path for each stage.
+  - Close with expected-value hurdle as the selected AEF policy and hard-gated
+    hurdle as a diagnostic support policy.
 
 ## Phase 1 Non-Goals
 
@@ -97,8 +102,8 @@ start.
 
 ## Research Questions
 
-- [ ] Resolve sampling/objective calibration for background-inclusive training.
-  - Moved into Phase 1.
+- [x] Resolve sampling/objective calibration for background-inclusive training.
+  - Closed in Phase 1.
   - Phase 0 showed that population-expanded background weights collapse the
     continuous ridge model toward near-zero predictions.
   - The final Phase 0 baseline therefore uses an unweighted
@@ -108,30 +113,27 @@ start.
     overprediction.
   - Phase 1 compared binary, hurdle, capped-weight, and stratified-background
     policies against reference baselines; the P1-22 direct-continuous paths were
-    recorded as failures and removed from the active pipeline.
+    recorded as failures and removed from the active pipeline. The final
+    selected AEF policy is the expected-value hurdle recorded in
+    `docs/phase1_closeout_model_policy_decision.md`.
   - P1-21b accepted
     `docs/phase1_crm_stratified_sampling_policy_decision.md` as the
-    CRM-stratified sampling-policy decision. Remaining implementation is tracked
-    in P1-21c. Alternative capped-weight and stratified-background model
-    experiments were completed as P1-22 negative tests.
-  - Refactor background sampling to be mask-first: filter to the retained
-    plausible-kelp domain before applying row budgets or bathymetry/depth
-    strata, then sample from that retained population.
-  - Replace or reinterpret `background_rows_per_year` for masked workflows
-    because the current value mostly limits a pre-mask file size and the domain
-    mask does most of the retained-training-set selection.
-  - Add an explicit retained-background budget/stratum quota to make default
-    and CRM-stratified samples comparable by construction, not as a side effect
-    of post-hoc mask filtering.
+    CRM-stratified sampling-policy decision, and the promoted mask-first policy
+    became the Phase 1 default. Alternative capped-weight and
+    stratified-background model experiments were completed as P1-22 negative
+    tests.
+  - The default masked workflow is now mask-first and stratified by retained
+    CRM-derived context. `legacy_background_rows_per_year` remains only as a
+    manifest/backward-compatibility field for the old broad pre-mask sample.
 - [ ] Evaluate alternative Kelpwatch temporal label aggregations after Phase 1.
   - Deferred explicitly.
   - Keep annual max as the Phase 1 label input because the current signal is
     present but the data domain and model objective are not hardened yet.
-- [ ] Evaluate binary Kelpwatch annual-max thresholds.
-  - Moved into Phase 1.
+- [x] Evaluate binary Kelpwatch annual-max thresholds.
+  - Closed in Phase 1.
   - Compare `kelp_max_y > 0` with fractional canopy thresholds such as 1%, 5%,
     and 10% of a 30 m Landsat pixel.
-  - Use validation-year behavior to choose candidate thresholds before
+  - Phase 1 selected `annual_max_ge_10pct` with validation-year behavior before
     evaluating the 2022 test split.
 - [ ] Evaluate higher-resolution label and prediction strategies after the
   Kelpwatch-native 30 m baseline.

@@ -1,11 +1,11 @@
 # Phase 1 Model And Domain Hardening
 
-Status: selected for planning as of 2026-05-08.
+Status: closed on 2026-05-13.
 
 ## Goal
 
 Harden the Monterey annual-max pipeline before any larger scale-up. Phase 1
-should answer four questions:
+answered four questions:
 
 - Do AlphaEarth embeddings beat persistence, site memory, and geography?
 - Does a physically plausible kelp-domain mask reduce full-grid false positives
@@ -28,9 +28,31 @@ should answer four questions:
 - Domain-filter support inputs: bathymetry and DEM data for Monterey, stored
   under `/Volumes/x10pro/kelp_aef`.
 
+## Closeout Outcome
+
+The final Phase 1 model-policy decision is tracked in
+`docs/phase1_closeout_model_policy_decision.md`.
+
+Closed policy:
+
+- Default data policy: `crm_stratified_mask_first_sample` inside
+  `plausible_kelp_domain`.
+- Selected AEF model policy: expected-value hurdle,
+  `calibrated_probability_x_conditional_canopy`.
+- Diagnostic support policy: hard-gated hurdle,
+  `calibrated_hard_gate_conditional_canopy`.
+- Final report snapshot:
+  `docs/report_snapshots/monterey_phase1_closeout_model_analysis.md`.
+
+Phase 1 established a reproducible AlphaEarth/Kelpwatch annual-max pipeline,
+reference baselines, a retained-domain mask, calibrated binary support,
+positive-only conditional canopy, hurdle composition, and a rerunnable report
+harness. It did not establish independent biomass truth or solve high-canopy
+amount underprediction.
+
 ## Outputs
 
-Phase 1 should keep the same artifact style as Phase 0:
+Phase 1 kept the same artifact style as Phase 0:
 
 - Explicit manifests for new domain-filter inputs and masks.
 - Model prediction artifacts for each reference baseline and embedding model.
@@ -41,8 +63,7 @@ Phase 1 should keep the same artifact style as Phase 0:
 - A model-analysis report that can be rerun after each task to show the effect
   of the latest change.
 
-Exact file paths should be added to `configs/monterey_smoke.yaml` only when the
-corresponding implementation task starts.
+Exact active file paths are declared in `configs/monterey_smoke.yaml`.
 
 ## In Scope
 
@@ -73,8 +94,8 @@ explicitly changes that scope.
 
 ## Validation Loop
 
-Every implemented task should preserve the ability to rerun the relevant
-pipeline stages from the CLI. The default full loop is:
+The closed Phase 1 pipeline preserves the ability to rerun the relevant stages
+from the CLI. The default full loop is:
 
 ```bash
 make check
@@ -89,7 +110,7 @@ or calibration changes should end with an updated model-analysis report.
 
 ## Acceptance Criteria
 
-Phase 1 is ready to close when:
+Phase 1 closed after satisfying:
 
 - Reference baselines are implemented and compared against AEF models.
 - The report clearly separates pixel skill from full-grid area calibration.
@@ -97,8 +118,9 @@ Phase 1 is ready to close when:
   before and after retraining.
 - At least one imbalance-aware model is evaluated against ridge, persistence,
   climatology, and geography.
-- The selected model policy either beats meaningful references or the report
-  explains why it does not.
+- The selected expected-value hurdle policy beats the one-stage AEF ridge
+  baseline and edges the previous-year reference on retained-domain RMSE and
+  10% annual-max F1, while preserving its limitations in the report.
 - The final Phase 1 run remains reproducible from config and CLI commands.
 
 ## Task Outline

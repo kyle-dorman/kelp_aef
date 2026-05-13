@@ -111,7 +111,10 @@ The smoke config defines:
 - Split policy.
 - Runtime limits for small agent-safe runs.
 - A full-grid alignment product and a background-inclusive sampled model input.
-- A simple ridge baseline trained without background expansion weights.
+- The closed Phase 1 default mask/sample/model policy: retained-domain
+  CRM-stratified mask-first sampling, AEF ridge/reference baselines, calibrated
+  binary presence, positive-only conditional canopy, and the selected
+  expected-value hurdle.
 
 ## Data Flow
 
@@ -139,10 +142,12 @@ Phase 0 now has three alignment-related artifacts with different meanings:
 - `aligned_background_sample_training_table.parquet`: sampled training input
   used by the Phase 0 ridge baseline.
 
-The current Phase 0 model is intentionally simple. It is trained on the sampled
-artifact without population expansion weights, then applied back to the full
-grid with streamed inference. This avoids the near-zero collapse caused by
-population-expanded background weights, but full-grid calibration is still poor.
+The Phase 0 model was intentionally simple. Phase 1 preserved the same
+artifact-producing shape while adding the retained-domain mask, mask-first
+CRM-stratified model sample, calibrated binary presence, positive-only
+conditional canopy, and hurdle composition. The selected Phase 1 AEF policy is
+the expected-value hurdle recorded in
+`docs/phase1_closeout_model_policy_decision.md`.
 
 ## Artifact Conventions
 
@@ -265,24 +270,24 @@ contracts are stable.
 
 ## Phase 1 Boundary
 
-Phase 1 has been selected as model and domain hardening for the Monterey
-annual-max pipeline. The planning note is:
+Phase 1 model and domain hardening for the Monterey annual-max pipeline closed
+on 2026-05-13. The planning note and closeout decision are:
 
 ```text
 docs/phase1_model_domain_hardening.md
+docs/phase1_closeout_model_policy_decision.md
 ```
 
-Architectural changes should stay narrow and report-visible. The expected shape
-is:
+The closed Phase 1 architecture:
 
-- Add reference baselines under the existing model/evaluation path.
-- Add bathymetry/DEM domain-filter artifacts and manifests under the external
+- Added reference baselines under the existing model/evaluation path.
+- Added bathymetry/DEM domain-filter artifacts and manifests under the external
   artifact root.
-- Keep bathymetry/DEM as filtering and diagnostic inputs unless explicitly
+- Keeps bathymetry/DEM as filtering and diagnostic inputs unless explicitly
   promoted to model predictors later.
-- Add imbalance-aware tabular models before any deep spatial model work.
-- Keep the same Monterey annual-max label input; alternative temporal labels
+- Added imbalance-aware tabular models before any deep spatial model work.
+- Keeps the same Monterey annual-max label input; alternative temporal labels
   are out of scope for Phase 1.
-- Rerun the model-analysis report after each implemented model or mask change.
+- Preserves a rerunnable model-analysis closeout report.
 
 Do not assume this phase includes full West Coast scale-up.

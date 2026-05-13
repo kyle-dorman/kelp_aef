@@ -155,7 +155,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "2022 Retained-Domain Model Scoreboard" in report
     assert "What Improved Since Ridge" in report
     assert "Remaining Failure Modes" in report
-    assert "Decision / Next Modeling Step" in report
+    assert "Phase 1 Closeout Decision" in report
     assert "Phase 1 Harness Status" not in report
     assert "Reference Baseline Ranking" not in report
     assert "Phase 1 Coverage Gaps" not in report
@@ -167,6 +167,9 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "Annual-max class balance" in report
     assert "Threshold, Calibration, And Amount Diagnostics" in report
     assert "Default sampling policy: `crm_stratified_mask_first_sample`" in report
+    assert "Selected Phase 1 AEF policy" in report
+    assert "Next modeling task" not in report
+    assert "next steps" not in report.lower()
     assert "docs/phase1_crm_stratified_sampling_policy_decision.md" in report
     assert "CRM-Stratified Sampling Policy Comparison" not in report
     assert "**Continuous canopy and area**" not in report
@@ -182,7 +185,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "Alternative Target-Framing Findings" not in report
     assert "<h1>Monterey Phase 1 Model Analysis</h1>" in html_report
     assert "<h2>2022 Retained-Domain Model Scoreboard</h2>" in html_report
-    assert "<h2>Decision / Next Modeling Step</h2>" in html_report
+    assert "<h2>Phase 1 Closeout Decision</h2>" in html_report
     assert 'src="data:image/png;base64,' in html_report
 
 

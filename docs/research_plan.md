@@ -211,23 +211,35 @@ Phase 0-specific model lesson:
 
 ## Phase 1: Model And Domain Hardening
 
-Status: selected for planning as of 2026-05-08.
+Status: closed on 2026-05-13.
 
 Phase 1 keeps the Monterey annual-max label input fixed and hardens the data
 domain, reference baselines, model objective, and report loop before scale-up.
-The plan is:
+The plan and closeout decision are:
 
 ```text
 docs/phase1_model_domain_hardening.md
+docs/phase1_closeout_model_policy_decision.md
 ```
 
-Selected work:
+Completed work:
 
 - Add previous-year, station-climatology, and lat/lon/year-only baselines.
 - Use bathymetry/DEM inputs to build a plausible-kelp domain mask.
 - Evaluate binary annual-max and hurdle-style imbalance-aware models.
 - Compare pixel skill, background leakage, and full-grid area calibration in
   every report rerun.
+
+Closeout result:
+
+- Default data policy: `crm_stratified_mask_first_sample` inside
+  `plausible_kelp_domain`.
+- Selected AEF model policy: expected-value hurdle,
+  `calibrated_probability_x_conditional_canopy`.
+- Diagnostic support policy: hard-gated hurdle,
+  `calibrated_hard_gate_conditional_canopy`.
+- Remaining limitation: high-canopy Kelpwatch-style annual-max rows are still
+  underpredicted.
 
 Explicitly deferred work:
 
@@ -353,14 +365,15 @@ Split: year holdout
 Output: predicted map, residual map, and area-bias summary
 ```
 
-Next active milestone:
+Most recent closed milestone:
 
 ```text
-Phase 1: harden Monterey annual-max baselines, domain filtering, imbalance-aware
-models, and report calibration before scale-up.
+Phase 1: Monterey annual-max baselines, domain filtering, imbalance-aware
+models, and report calibration.
 ```
 
-Do not assume the next step is full U.S. West Coast scale-up.
+No post-Phase-1 milestone is selected in this plan. Do not assume the project
+should immediately start full U.S. West Coast scale-up.
 
 ## Sources
 

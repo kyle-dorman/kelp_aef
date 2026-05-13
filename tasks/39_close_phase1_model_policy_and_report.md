@@ -207,3 +207,63 @@ or completed-task references.
   Kelpwatch-style weak labels.
 - Do not erase task history. Historical task files and report snapshots should
   remain available for audit.
+
+## Completion Notes
+
+Completed on 2026-05-13.
+
+Selected `calibrated_probability_x_conditional_canopy` as the best current AEF
+Phase 1 policy and retained `calibrated_hard_gate_conditional_canopy` as a
+diagnostic support policy. The decision is documented in
+`docs/phase1_closeout_model_policy_decision.md`.
+
+Primary decision evidence used the `test` / `2022` / `full_grid_masked` /
+`label_source = all` rows:
+
+- Expected-value hurdle: RMSE `0.0322`, R2 `0.790`, F1 at 10% annual max
+  `0.812`, predicted area `3.50M m2`, area bias `-16.0%`.
+- Previous-year annual max: RMSE `0.0341`, R2 `0.765`, F1 at 10% annual max
+  `0.797`, predicted area `3.50M m2`, area bias `-15.9%`.
+- AEF ridge regression: RMSE `0.0452`, R2 `0.587`, F1 at 10% annual max
+  `0.476`, predicted area `8.42M m2`, area bias `+102.1%`.
+
+Implemented closeout changes:
+
+- Rewrote the generated model-analysis report decision section as
+  `Phase 1 Closeout Decision` and removed live Phase 1 next-task language from
+  the generated report and tracked snapshot.
+- Regenerated Markdown, HTML, and PDF report outputs with
+  `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`.
+- Copied the final Markdown report to
+  `docs/report_snapshots/monterey_phase1_closeout_model_analysis.md`.
+- Updated `docs/product.md`, `docs/research_plan.md`, `docs/architecture.md`,
+  `docs/data_artifacts.md`, `docs/backlog.md`,
+  `docs/phase1_model_domain_hardening.md`, and `docs/todo.md` so Phase 1 is
+  closed rather than active planning.
+- Marked the implemented NOAA CUDEM P1-10a checklist item complete; it had
+  already been present in source, tests, config, and CLI wiring.
+- Removed disabled historical CRM-stratified sidecar blocks from the active
+  Monterey smoke config. The optional sidecar code and tests remain available
+  for explicit future comparisons, but they are not part of the selected
+  closeout config.
+
+Manual checks:
+
+```bash
+rg -n "next step|next task|future work|post-Phase|scale-up|next .*task|right now|current-state" /Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md docs/report_snapshots/monterey_phase1_closeout_model_analysis.md
+rg -n "Phase 1 is active|active planning|P1-23" docs
+rg -n "crm_stratified_background_sample|sidecars:|enabled: false|continuous_objective|train-continuous-objective|models.continuous_objective" configs/monterey_smoke.yaml src tests docs/phase1_closeout_model_policy_decision.md
+```
+
+The first check returned no matches. The second check returned only intentional
+completed P1-23 references. The third check returned no active config hits; the
+remaining `crm_stratified_background_sample` and `sidecars:` hits are optional
+test/code support.
+
+Validation passed:
+
+```bash
+uv run pytest tests/test_model_analysis.py tests/test_package.py
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
+make check
+```

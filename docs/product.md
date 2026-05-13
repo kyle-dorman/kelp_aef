@@ -47,27 +47,34 @@ Phase 0 closed with a useful but imperfect smoke result:
 
 ## Phase 1 Status
 
-Phase 1 is active planning as of 2026-05-08. The selected theme is:
+Phase 1, Monterey annual-max model and domain hardening, is closed as of
+2026-05-13. The selected theme was:
 
 ```text
 Harden the Monterey annual-max pipeline before scale-up.
 ```
 
-Phase 1 keeps the Phase 0 label input fixed as Kelpwatch annual max canopy. The
-main work is to add meaningful reference baselines, filter the prediction domain
-with bathymetry/DEM data, and evaluate imbalance-aware models that are less
-likely to leak small positives across large background areas.
+Phase 1 kept the Phase 0 label input fixed as Kelpwatch annual max canopy. It
+added meaningful reference baselines, a CRM-derived plausible-kelp retained
+domain, CRM-stratified mask-first sampling, binary calibration, positive-only
+conditional canopy modeling, and hurdle composition.
 
-Primary Phase 1 questions:
+Final Phase 1 policy:
 
-- Does AlphaEarth beat previous-year, station-climatology, and lat/lon/year-only
-  baselines?
-- Does a physically plausible kelp-domain mask improve full-grid area
-  calibration without discarding real Kelpwatch-supported canopy?
-- Can a binary or hurdle-style annual-max model handle imbalance better than the
-  Phase 0 ridge baseline?
-- Can each pipeline rerun update the report in a way that makes the latest
-  improvement or regression visible?
+- Default data policy: `crm_stratified_mask_first_sample` inside
+  `plausible_kelp_domain`.
+- Selected AEF policy: expected-value hurdle,
+  `calibrated_probability_x_conditional_canopy`.
+- Diagnostic support policy: hard-gated hurdle,
+  `calibrated_hard_gate_conditional_canopy`.
+- Decision note: `docs/phase1_closeout_model_policy_decision.md`.
+- Final report snapshot:
+  `docs/report_snapshots/monterey_phase1_closeout_model_analysis.md`.
+
+Phase 1 proved that the AlphaEarth/Kelpwatch annual-max pipeline can be run end
+to end with a physically filtered reporting domain and a model policy that beats
+the one-stage AEF ridge baseline. It did not prove independent ecological
+biomass truth, and it did not solve high-canopy amount underprediction.
 
 Phase 1 non-goals:
 
@@ -159,6 +166,6 @@ Useful metrics:
 - Ecological products: annual max area error, fall persistence agreement,
   two-year fall change error, and collapse/recovery classification.
 
-Phase 1 evaluation priorities are reference-baseline comparison, domain-mask
-effects, imbalance-aware model behavior, and area calibration. Alternative
-temporal target framing remains deferred.
+The closed Phase 1 evaluation emphasized reference-baseline comparison,
+domain-mask effects, imbalance-aware model behavior, and area calibration.
+Alternative temporal target framing remains deferred.

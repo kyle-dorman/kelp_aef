@@ -92,12 +92,6 @@ alignment:
           fraction: 0.01
           min_rows_per_year: 500
       fail_on_dropped_positive: true
-    # Historical P1-21a sidecar paths retained for audit only after default promotion.
-    crm_stratified:
-      enabled: false
-      output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
-      output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked_manifest.json
-      summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.crm_stratified.masked_summary.csv
     random_seed: 13
     legacy_background_rows_per_year: 250000
     include_all_kelpwatch_observed: true
@@ -321,22 +315,6 @@ models:
     prediction_manifest: /Volumes/x10pro/kelp_aef/interim/baseline_full_grid_prediction_manifest.json
     metrics: /Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.csv
     manifest: /Volumes/x10pro/kelp_aef/interim/baseline_eval_manifest.json
-    # Historical P1-21a sidecar paths retained for audit only after default promotion.
-    sidecars:
-      crm_stratified:
-        enabled: false
-        sample_policy: crm_stratified_background_sample
-        input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
-        split_manifest: /Volumes/x10pro/kelp_aef/interim/split_manifest.crm_stratified.parquet
-        ridge_model: /Volumes/x10pro/kelp_aef/models/baselines/ridge_kelp_fraction.crm_stratified.joblib
-        geographic_model: /Volumes/x10pro/kelp_aef/models/baselines/geographic_ridge_lon_lat_year.crm_stratified.joblib
-        sample_predictions: /Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.crm_stratified.parquet
-        predictions: /Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.crm_stratified.parquet
-        prediction_manifest: /Volumes/x10pro/kelp_aef/interim/baseline_full_grid_prediction_manifest.crm_stratified.json
-        metrics: /Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.crm_stratified.csv
-        manifest: /Volumes/x10pro/kelp_aef/interim/baseline_eval_manifest.crm_stratified.json
-        fallback_summary: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_fallback_summary.crm_stratified.csv
-        area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.crm_stratified.masked.csv
   binary_presence:
     sample_policy: crm_stratified_mask_first_sample
     input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
@@ -378,36 +356,6 @@ models:
       manifest: /Volumes/x10pro/kelp_aef/interim/binary_presence_calibration_manifest.json
       include_prevalence_match: true
       reliability_bin_count: 10
-    # Historical P1-21a sidecar paths retained for audit only after default promotion.
-    sidecars:
-      crm_stratified:
-        enabled: false
-        sample_policy: crm_stratified_background_sample
-        allow_missing_split_manifest_rows: true
-        input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
-        model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct.crm_stratified.joblib
-        sample_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_sample_predictions.crm_stratified.parquet
-        full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.crm_stratified.parquet
-        metrics: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_metrics.crm_stratified.csv
-        threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_threshold_selection.crm_stratified.csv
-        full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_full_grid_area_summary.crm_stratified.csv
-        thresholded_model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_thresholded_model_comparison.crm_stratified.csv
-        prediction_manifest: /Volumes/x10pro/kelp_aef/interim/binary_presence_prediction_manifest.crm_stratified.json
-        precision_recall_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_precision_recall.crm_stratified.png
-        map_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_2022_map.crm_stratified.png
-        comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_crm_stratified_comparison.csv
-        calibration:
-          enabled: true
-          input_sample_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_sample_predictions.crm_stratified.parquet
-          input_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.crm_stratified.parquet
-          model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct_calibration.crm_stratified.joblib
-          calibrated_sample_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_calibrated_sample_predictions.crm_stratified.parquet
-          metrics: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_calibration_metrics.crm_stratified.csv
-          threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_calibrated_threshold_selection.crm_stratified.csv
-          full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_calibrated_full_grid_area_summary.crm_stratified.csv
-          calibration_curve_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_calibration_curve.crm_stratified.png
-          threshold_figure: /Volumes/x10pro/kelp_aef/reports/figures/binary_presence_calibrated_thresholds.crm_stratified.png
-          manifest: /Volumes/x10pro/kelp_aef/interim/binary_presence_calibration_manifest.crm_stratified.json
   conditional_canopy:
     input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
     target: kelp_fraction_y
@@ -432,17 +380,6 @@ models:
     full_grid_likely_positive_summary: /Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_full_grid_likely_positive_summary.csv
     residual_figure: /Volumes/x10pro/kelp_aef/reports/figures/conditional_canopy_positive_residuals.png
     manifest: /Volumes/x10pro/kelp_aef/interim/conditional_canopy_manifest.json
-    # Historical P1-21a sidecar paths retained for audit only after default promotion.
-    sidecars:
-      crm_stratified:
-        enabled: false
-        sample_policy: crm_stratified_background_sample
-        reuse_model: true
-        input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
-        calibrated_binary_sample_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_calibrated_sample_predictions.crm_stratified.parquet
-        calibrated_binary_full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_calibrated_full_grid_area_summary.crm_stratified.csv
-        full_grid_likely_positive_summary: /Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_full_grid_likely_positive_summary.crm_stratified.csv
-        reuse_manifest: /Volumes/x10pro/kelp_aef/interim/conditional_canopy_reuse_manifest.crm_stratified.json
   hurdle:
     sample_policy: crm_stratified_mask_first_sample
     inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
@@ -475,24 +412,6 @@ models:
     residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_residual_by_observed_bin.csv
     assumed_background_leakage: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_assumed_background_leakage.csv
     map_figure: /Volumes/x10pro/kelp_aef/reports/figures/hurdle_2022_observed_predicted_residual.png
-    # Historical P1-21a sidecar paths retained for audit only after default promotion.
-    sidecars:
-      crm_stratified:
-        enabled: false
-        sample_policy: crm_stratified_background_sample
-        binary_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.crm_stratified.parquet
-        binary_calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct_calibration.crm_stratified.joblib
-        binary_calibrated_threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/binary_presence_calibrated_threshold_selection.crm_stratified.csv
-        conditional_model: /Volumes/x10pro/kelp_aef/models/conditional_canopy/ridge_positive_annual_max.joblib
-        reference_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.crm_stratified.masked.csv
-        predictions: /Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.crm_stratified.parquet
-        prediction_manifest: /Volumes/x10pro/kelp_aef/interim/hurdle_prediction_manifest.crm_stratified.json
-        metrics: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_metrics.crm_stratified.csv
-        area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_area_calibration.crm_stratified.csv
-        model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_model_comparison.crm_stratified.csv
-        residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_residual_by_observed_bin.crm_stratified.csv
-        assumed_background_leakage: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_assumed_background_leakage.crm_stratified.csv
-        map_figure: /Volumes/x10pro/kelp_aef/reports/figures/hurdle_2022_observed_predicted_residual.crm_stratified.png
 
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures

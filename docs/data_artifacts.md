@@ -124,9 +124,10 @@ artifact root. They are generated artifacts and should not be tracked in git.
 | Interactive residual map | `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.html` | Local HTML map for exploring observed, predicted, and residual values. | Not tracked by default |
 | Area bias by year | `/Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv` | Full-grid year-level area-bias summary. | Not tracked |
 | Phase 0 report snapshot | `docs/report_snapshots/monterey_phase0_model_analysis.md` | Repo copy of the closed Phase 0 report. | Tracked |
-| Phase 1 Markdown report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md` | Active model-hardening report with model comparison and data-health sections. | Not tracked |
-| Phase 1 HTML report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.html` | Rendered Phase 1 report with embedded figures and model comparison. | Not tracked |
-| Phase 1 PDF report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.pdf` | PDF Phase 1 report with the same core model-comparison content. | Not tracked |
+| Phase 1 Markdown report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md` | Generated Phase 1 closeout report with the final model-policy decision, model comparison, and data-health sections. | Not tracked |
+| Phase 1 HTML report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.html` | Rendered Phase 1 closeout report with embedded figures and model comparison. | Not tracked |
+| Phase 1 PDF report | `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.pdf` | PDF Phase 1 closeout report with the same core model-comparison content. | Not tracked |
+| Phase 1 closeout report snapshot | `docs/report_snapshots/monterey_phase1_closeout_model_analysis.md` | Repo copy of the final Phase 1 closeout report. | Tracked |
 | Pixel skill and area calibration figure | `/Volumes/x10pro/kelp_aef/reports/figures/model_analysis_pixel_skill_area_calibration.png` | Two-panel Phase 1 model comparison showing 10% annual-max F1 and full-grid signed area bias for the primary report split/year. | Not tracked |
 
 ## Phase 0 Artifact Counts
@@ -150,11 +151,10 @@ with population-expanded background weights, but it is still not calibrated on
 the full grid. In the final report, station-supported Kelpwatch rows and
 assumed-background rows are interpreted separately.
 
-Phase 1 has been selected as Monterey annual-max model and domain hardening.
-The high-level artifact categories are defined in
-`docs/phase1_model_domain_hardening.md`. Add exact artifact rows here only when
-the corresponding implementation task defines concrete paths in
-`configs/monterey_smoke.yaml`.
+Phase 1 closed as Monterey annual-max model and domain hardening on
+2026-05-13. The high-level artifact categories are defined in
+`docs/phase1_model_domain_hardening.md`, and the final model-policy decision is
+tracked in `docs/phase1_closeout_model_policy_decision.md`.
 
 ## Phase 1 Domain Source Outputs
 
@@ -237,8 +237,8 @@ workflow.
 | Default CRM-stratified masked sample | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet` | Default model-input sample built from retained full-grid rows, all retained Kelpwatch-observed rows, and retained assumed-background rows sampled by `domain_mask_reason` and `depth_bin`. | Not tracked |
 | Default CRM-stratified sample manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked_manifest.json` | Active sample policy, mask-first flag, retained-domain population counts, sampled counts, quota-dropped counts, mask-dropped counts, deterministic seed, and feature-policy note. | Not tracked |
 | Default CRM-stratified sample summary | `/Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked_summary.csv` | Population counts, sampled counts, effective fractions, and weights by year, label source, mask reason, and retained depth bin. | Not tracked |
-| Historical CRM-stratified sidecar sample | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet` | Disabled audit sample from the earlier sidecar experiment; retained temporarily for comparison provenance until the sidecar cleanup task. | Not tracked |
-| Historical CRM-stratified all-model comparison | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_crm_stratified_all_models_comparison.csv` | Report comparison artifact now populated by the active default policy plus shared observed-positive support rows; Task 34 will retire the recurring sidecar framing. | Not tracked |
+| Historical CRM-stratified sidecar sample | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet` | Disabled audit sample from the earlier sidecar experiment; retained on disk for comparison provenance only. | Not tracked |
+| Historical CRM-stratified all-model comparison | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_crm_stratified_all_models_comparison.csv` | Audit comparison artifact now populated by the active default policy plus shared observed-positive support rows. It is not a headline report section. | Not tracked |
 
 ## Phase 1 Balanced Binary Presence Model
 
