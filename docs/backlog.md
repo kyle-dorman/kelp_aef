@@ -106,13 +106,14 @@ start.
   - Full-grid calibration is still poor because small positive predictions over
     millions of assumed-background cells accumulate into large area
     overprediction.
-  - Phase 1 should compare binary, hurdle, capped-weight, and
-    stratified-background policies against reference baselines.
+  - Phase 1 compared binary, hurdle, capped-weight, and stratified-background
+    policies against reference baselines; the P1-22 direct-continuous paths were
+    recorded as failures and removed from the active pipeline.
   - P1-21b accepted
     `docs/phase1_crm_stratified_sampling_policy_decision.md` as the
     CRM-stratified sampling-policy decision. Remaining implementation is tracked
-    in P1-21c, and alternative capped-weight or stratified-background model
-    experiments remain separate follow-up work.
+    in P1-21c. Alternative capped-weight and stratified-background model
+    experiments were completed as P1-22 negative tests.
   - Refactor background sampling to be mask-first: filter to the retained
     plausible-kelp domain before applying row budgets or bathymetry/depth
     strata, then sample from that retained population.

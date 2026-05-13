@@ -52,7 +52,8 @@ corresponding implementation task starts.
 - Bathymetry/DEM domain filtering and mask-aware diagnostics.
 - Binary models derived from thresholding annual max.
 - Hurdle or two-stage annual-max modeling.
-- Capped-weight or stratified-background continuous models.
+- Historical comparison against capped-weight and stratified-background
+  continuous models already completed as negative P1-22 tests.
 - Validation-year calibration for thresholds, probabilities, and area totals.
 - Report improvements that make each pipeline rerun interpretable.
 

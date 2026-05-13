@@ -94,6 +94,26 @@ Before implementation, write a short removal plan that lists:
 - Regenerate the Phase 1 report and verify the retained-domain scoreboard still
   compares the active ridge/reference/binary/conditional/hurdle paths correctly.
 
+## Resolved Removal Plan
+
+- Delete the active direct-continuous implementation file:
+  `src/kelp_aef/evaluation/continuous_objective.py`.
+- Remove `train-continuous-objective` imports, command registration, argument
+  parser, and dispatch from `src/kelp_aef/cli.py`.
+- Remove the full `models.continuous_objective` block from
+  `configs/monterey_smoke.yaml`.
+- Remove continuous-objective report plumbing from
+  `src/kelp_aef/evaluation/model_analysis.py`, including comparison rows,
+  sampling rows, artifact specs, report sections, active appendix narrative,
+  and artifact-kind labels.
+- Delete `tests/test_continuous_objective.py` and remove continuous-objective
+  expectations from `tests/test_package.py` and `tests/test_model_analysis.py`.
+- Update `docs/data_artifacts.md` so P1-22 direct-continuous outputs are
+  described as historical failure artifacts rather than active maintained
+  outputs.
+- Preserve the negative-result audit trail in task files and the sweep result
+  note. Do not delete generated artifacts under `/Volumes/x10pro/kelp_aef`.
+
 ## Validation Command
 
 Focused validation:
@@ -160,3 +180,60 @@ note; it should not include active scoreboard rows for the failed P1-22 models.
 - Do not start a new model search in this cleanup task.
 - Do not delete generated artifacts under `/Volumes/x10pro/kelp_aef` without an
   explicit follow-up request.
+
+## Completion Notes
+
+Completed on 2026-05-13.
+
+Removed the active P1-22 direct-continuous implementation surfaces:
+
+- Deleted `src/kelp_aef/evaluation/continuous_objective.py`.
+- Deleted `tests/test_continuous_objective.py`.
+- Removed `train-continuous-objective` CLI imports, command registration,
+  parser arguments, and dispatch from `src/kelp_aef/cli.py`.
+- Removed `models.continuous_objective` from `configs/monterey_smoke.yaml`.
+- Removed continuous-objective comparison rows, sampling rows, artifact specs,
+  report sections, scoreboard entries, and next-step narrative from
+  `src/kelp_aef/evaluation/model_analysis.py`.
+- Removed continuous-objective expectations from package and model-analysis
+  tests.
+- Updated `docs/data_artifacts.md`, `docs/backlog.md`, and
+  `docs/phase1_model_domain_hardening.md` so P1-22 direct-continuous artifacts
+  are historical failure records rather than active maintained outputs.
+
+Preserved the negative-result audit trail in:
+
+- `tasks/36_test_capped_weight_continuous_model.md`
+- `tasks/37_test_stratified_background_continuous_model.md`
+- `docs/phase1_stratified_background_sweep_results.md`
+
+No generated artifacts under `/Volumes/x10pro/kelp_aef` were deleted.
+
+Report refresh:
+
+```bash
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
+```
+
+The refreshed
+`/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_phase1_model_comparison.csv`
+contains no capped-weight, stratified-background, or continuous-objective rows.
+The remaining comparison model names are:
+
+```text
+calibrated_hard_gate_conditional_canopy
+calibrated_probability_x_conditional_canopy
+geographic_ridge_lon_lat_year
+grid_cell_climatology
+no_skill_train_mean
+previous_year_annual_max
+ridge_regression
+```
+
+Validation passed:
+
+```bash
+uv run pytest tests/test_package.py tests/test_model_analysis.py
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
+make check
+```
