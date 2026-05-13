@@ -18,6 +18,10 @@ from kelp_aef.domain.usgs_3dep import download_usgs_3dep, query_usgs_3dep
 from kelp_aef.evaluation.baselines import predict_full_grid, train_baselines
 from kelp_aef.evaluation.binary_presence import calibrate_binary_presence, train_binary_presence
 from kelp_aef.evaluation.conditional_canopy import train_conditional_canopy
+from kelp_aef.evaluation.continuous_objective import (
+    DEFAULT_EXPERIMENT as DEFAULT_CONTINUOUS_OBJECTIVE_EXPERIMENT,
+)
+from kelp_aef.evaluation.continuous_objective import train_continuous_objective
 from kelp_aef.evaluation.hurdle import compose_hurdle_model
 from kelp_aef.evaluation.model_analysis import analyze_model
 from kelp_aef.features.aef_catalog import query_aef_catalog
@@ -61,6 +65,7 @@ COMMANDS: dict[str, str] = {
     "train-binary-presence": "Train the balanced binary annual-max presence model.",
     "calibrate-binary-presence": "Calibrate binary annual-max probabilities and thresholds.",
     "train-conditional-canopy": "Train the positive-only conditional canopy amount model.",
+    "train-continuous-objective": "Train a direct continuous objective experiment.",
     "compose-hurdle-model": "Compose calibrated presence and conditional canopy predictions.",
     "map-residuals": "Map baseline predictions, residuals, and area bias.",
     "analyze-model": "Analyze model behavior and write the Phase 1 report.",
@@ -185,6 +190,8 @@ def build_parser() -> argparse.ArgumentParser:
             add_align_full_grid_arguments(subparser)
         if command == "predict-full-grid":
             add_predict_full_grid_arguments(subparser)
+        if command == "train-continuous-objective":
+            add_train_continuous_objective_arguments(subparser)
 
     return parser
 
@@ -630,6 +637,18 @@ def add_predict_full_grid_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_train_continuous_objective_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add direct continuous-objective experiment options."""
+    parser.add_argument(
+        "--experiment",
+        default=DEFAULT_CONTINUOUS_OBJECTIVE_EXPERIMENT,
+        help=(
+            "Configured continuous-objective experiment to run. Defaults to "
+            f"{DEFAULT_CONTINUOUS_OBJECTIVE_EXPERIMENT}."
+        ),
+    )
+
+
 def run_scaffold_command(command: str, config_path: Path) -> int:
     """Run a CLI command scaffold until the pipeline step is implemented."""
     LOGGER.info("%s: using config %s", command, config_path)
@@ -789,6 +808,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_code = calibrate_binary_presence(config_path)
         elif command == "train-conditional-canopy":
             exit_code = train_conditional_canopy(config_path)
+        elif command == "train-continuous-objective":
+            exit_code = train_continuous_objective(
+                config_path,
+                experiment=str(args.experiment),
+            )
         elif command == "compose-hurdle-model":
             exit_code = compose_hurdle_model(config_path)
         elif command == "map-residuals":

@@ -92,6 +92,7 @@ PHASE1_MODEL_DISPLAY_ORDER = (
     "grid_cell_climatology",
     "geographic_ridge_lon_lat_year",
     "ridge_regression",
+    "ridge_capped_weight",
     "calibrated_probability_x_conditional_canopy",
     "calibrated_hard_gate_conditional_canopy",
 )
@@ -101,6 +102,7 @@ PHASE1_MODEL_DISPLAY_LABELS = {
     "grid_cell_climatology": "Cell climatology",
     "geographic_ridge_lon_lat_year": "Geographic ridge",
     "ridge_regression": "AEF ridge",
+    "ridge_capped_weight": "Capped-weight ridge",
     "calibrated_probability_x_conditional_canopy": "Hurdle expected",
     "calibrated_hard_gate_conditional_canopy": "Hurdle hard gate",
 }
@@ -108,6 +110,7 @@ PRIMARY_SCOREBOARD_MODELS = (
     "previous_year_annual_max",
     "grid_cell_climatology",
     "ridge_regression",
+    "ridge_capped_weight",
     "calibrated_probability_x_conditional_canopy",
     "calibrated_hard_gate_conditional_canopy",
 )
@@ -115,6 +118,7 @@ PRIMARY_SCOREBOARD_LABELS = {
     "previous_year_annual_max": "Previous-year annual max",
     "grid_cell_climatology": "Grid-cell climatology",
     "ridge_regression": "AEF ridge regression",
+    "ridge_capped_weight": "Capped-weight ridge",
     "calibrated_probability_x_conditional_canopy": "Expected-value hurdle",
     "calibrated_hard_gate_conditional_canopy": "Hard-gated hurdle",
 }
@@ -122,6 +126,7 @@ PRIMARY_SCOREBOARD_KIND = {
     "previous_year_annual_max": "Reference persistence",
     "grid_cell_climatology": "Reference site memory",
     "ridge_regression": "AEF continuous baseline",
+    "ridge_capped_weight": "AEF direct continuous experiment",
     "calibrated_probability_x_conditional_canopy": "AEF hurdle candidate",
     "calibrated_hard_gate_conditional_canopy": "AEF hurdle diagnostic",
 }
@@ -3069,10 +3074,64 @@ def build_phase1_model_comparison(
         if comparison_row:
             rows.append(comparison_row)
     rows.extend(reference_area_calibration_comparison_rows(reference_area_calibration))
+    rows.extend(continuous_objective_model_comparison_rows(analysis_config))
     rows.extend(hurdle_model_comparison_rows(analysis_config))
     if not has_primary_full_grid_comparison(rows, analysis_config):
         rows.extend(full_grid_comparison_rows(data.model_predictions, analysis_config))
     return rows
+
+
+def continuous_objective_model_comparison_rows(
+    analysis_config: ModelAnalysisConfig,
+) -> list[dict[str, object]]:
+    """Read direct continuous-objective area rows for the Phase 1 comparison table."""
+    output: list[dict[str, object]] = []
+    for spec in continuous_objective_artifact_specs(analysis_config):
+        for row in read_optional_csv_rows(optional_spec_path(spec, "metrics_path")):
+            if str(row.get("model_family", "")) not in {"", "continuous_objective"}:
+                continue
+            output.append(
+                {
+                    "model_name": row.get("model_name", spec.get("model_name", "")),
+                    "split": row.get("split", ""),
+                    "year": row.get("year", ""),
+                    "mask_status": row.get("mask_status", ""),
+                    "evaluation_scope": row.get("evaluation_scope", ""),
+                    "label_source": row.get("label_source", ""),
+                    "row_count": row.get("row_count", ""),
+                    "mae": row.get("mae", math.nan),
+                    "rmse": row.get("rmse", math.nan),
+                    "r2": row.get("r2", math.nan),
+                    "spearman": row.get("spearman", math.nan),
+                    "f1_ge_10pct": row.get("f1_ge_10pct", math.nan),
+                    "observed_canopy_area": row.get("observed_canopy_area", math.nan),
+                    "predicted_canopy_area": row.get("predicted_canopy_area", math.nan),
+                    "area_pct_bias": row.get("area_pct_bias", math.nan),
+                }
+            )
+        for row in read_optional_csv_rows(optional_spec_path(spec, "area_calibration_path")):
+            if str(row.get("model_family", "")) not in {"", "continuous_objective"}:
+                continue
+            output.append(
+                {
+                    "model_name": row.get("model_name", spec.get("model_name", "")),
+                    "split": row.get("split", ""),
+                    "year": row.get("year", ""),
+                    "mask_status": row.get("mask_status", ""),
+                    "evaluation_scope": row.get("evaluation_scope", ""),
+                    "label_source": row.get("label_source", ""),
+                    "row_count": row.get("row_count", ""),
+                    "mae": row.get("mae", math.nan),
+                    "rmse": row.get("rmse", math.nan),
+                    "r2": row.get("r2", math.nan),
+                    "spearman": row.get("spearman", math.nan),
+                    "f1_ge_10pct": row.get("f1_ge_10pct", math.nan),
+                    "observed_canopy_area": row.get("observed_canopy_area", math.nan),
+                    "predicted_canopy_area": row.get("predicted_canopy_area", math.nan),
+                    "area_pct_bias": row.get("area_pct_bias", math.nan),
+                }
+            )
+    return output
 
 
 def hurdle_model_comparison_rows(analysis_config: ModelAnalysisConfig) -> list[dict[str, object]]:
@@ -3255,6 +3314,7 @@ def build_all_model_sampling_policy_comparison(
                 source_path=optional_spec_path(spec, "hurdle_assumed_background_leakage_path"),
             )
         )
+    rows.extend(continuous_objective_sampling_rows(analysis_config))
     return sorted(
         rows,
         key=lambda row: (
@@ -3318,6 +3378,49 @@ def sampling_policy_artifact_specs(
     add_conditional_sidecar_specs(specs, conditional)
     add_hurdle_sidecar_specs(specs, hurdle)
     return list(specs.values())
+
+
+def continuous_objective_artifact_specs(
+    analysis_config: ModelAnalysisConfig,
+) -> list[dict[str, object]]:
+    """Read configured direct continuous-objective artifact specs."""
+    config = load_yaml_config(analysis_config.config_path)
+    models = optional_mapping(config.get("models"), "models")
+    objective = optional_mapping(models.get("continuous_objective"), "models.continuous_objective")
+    experiments = optional_mapping(
+        objective.get("experiments"),
+        "models.continuous_objective.experiments",
+    )
+    specs: list[dict[str, object]] = []
+    for name, value in experiments.items():
+        experiment = str(name)
+        block = require_mapping(
+            value,
+            f"models.continuous_objective.experiments.{experiment}",
+        )
+        if not optional_bool(
+            block.get("enabled"),
+            f"models.continuous_objective.experiments.{experiment}.enabled",
+            True,
+        ):
+            continue
+        sample_policy = str(
+            block.get("sample_policy") or objective.get("sample_policy") or "current_masked_sample"
+        )
+        specs.append(
+            {
+                "experiment": experiment,
+                "sample_policy": sample_policy,
+                "model_name": str(block.get("model_name", experiment)),
+                "metrics_path": optional_path(block.get("metrics")),
+                "area_calibration_path": optional_path(block.get("area_calibration")),
+                "assumed_background_leakage_path": optional_path(
+                    block.get("assumed_background_leakage")
+                ),
+                "manifest_path": optional_path(block.get("manifest")),
+            }
+        )
+    return specs
 
 
 def ensure_policy_spec(
@@ -3921,6 +4024,113 @@ def hurdle_leakage_sampling_rows(
                     ),
                     "assumed_background_predicted_positive_rate": row.get(
                         "assumed_background_predicted_positive_rate", math.nan
+                    ),
+                },
+            )
+        )
+    return output
+
+
+def continuous_objective_sampling_rows(
+    analysis_config: ModelAnalysisConfig,
+) -> list[dict[str, object]]:
+    """Convert configured continuous-objective artifacts to all-model rows."""
+    output: list[dict[str, object]] = []
+    for spec in continuous_objective_artifact_specs(analysis_config):
+        sample_policy = str(spec["sample_policy"])
+        metrics_path = optional_spec_path(spec, "metrics_path")
+        area_path = optional_spec_path(spec, "area_calibration_path")
+        leakage_path = optional_spec_path(spec, "assumed_background_leakage_path")
+        output.extend(
+            continuous_objective_metric_sampling_rows(
+                read_optional_csv_rows(metrics_path),
+                sample_policy=sample_policy,
+                source_path=metrics_path,
+            )
+        )
+        output.extend(
+            area_metric_sampling_rows(
+                read_optional_csv_rows(area_path),
+                sample_policy=sample_policy,
+                model_family="continuous_objective",
+                artifact_kind="continuous_objective_area_calibration",
+                source_path=area_path,
+            )
+        )
+        output.extend(
+            continuous_objective_leakage_sampling_rows(
+                read_optional_csv_rows(leakage_path),
+                sample_policy=sample_policy,
+                source_path=leakage_path,
+            )
+        )
+    return output
+
+
+def continuous_objective_metric_sampling_rows(
+    rows: list[dict[str, object]],
+    *,
+    sample_policy: str,
+    source_path: Path | None,
+) -> list[dict[str, object]]:
+    """Convert continuous-objective sample metric rows to all-model rows."""
+    output: list[dict[str, object]] = []
+    for row in rows:
+        output.append(
+            all_model_sampling_row(
+                sample_policy=sample_policy,
+                model_family="continuous_objective",
+                model_name=str(row.get("model_name", "")),
+                artifact_kind="continuous_objective_sample_metric",
+                row=row,
+                source_path=source_path,
+                values={
+                    "target_label": row.get("target", "kelp_fraction_y"),
+                    "f1_ge_10pct": row.get("f1_ge_10pct", math.nan),
+                    "mae": row.get("mae", math.nan),
+                    "rmse": row.get("rmse", math.nan),
+                    "r2": row.get("r2", math.nan),
+                    "spearman": row.get("spearman", math.nan),
+                    "observed_canopy_area": row.get("observed_canopy_area", math.nan),
+                    "predicted_canopy_area": row.get("predicted_canopy_area", math.nan),
+                    "area_bias": row.get("area_bias", math.nan),
+                    "area_pct_bias": row.get("area_pct_bias", math.nan),
+                    "predicted_positive_rate": row.get(
+                        "predicted_positive_rate_ge_10pct",
+                        math.nan,
+                    ),
+                },
+            )
+        )
+    return output
+
+
+def continuous_objective_leakage_sampling_rows(
+    rows: list[dict[str, object]],
+    *,
+    sample_policy: str,
+    source_path: Path | None,
+) -> list[dict[str, object]]:
+    """Convert continuous-objective assumed-background leakage rows to all-model rows."""
+    output: list[dict[str, object]] = []
+    for row in rows:
+        output.append(
+            all_model_sampling_row(
+                sample_policy=sample_policy,
+                model_family="continuous_objective",
+                model_name=str(row.get("model_name", "")),
+                artifact_kind="continuous_objective_assumed_background_leakage",
+                row=row,
+                source_path=source_path,
+                values={
+                    "assumed_background_count": row.get("assumed_background_count", math.nan),
+                    "assumed_background_predicted_area_m2": row.get(
+                        "assumed_background_predicted_area_m2",
+                        math.nan,
+                    ),
+                    "assumed_background_predicted_positive_rate": row.get(
+                        "assumed_background_predicted_positive_rate",
+                        math.nan,
                     ),
                 },
             )
@@ -5233,6 +5443,7 @@ def write_report(
         if row["year"] == analysis_config.analysis_year
         and row["stage"] in {"annual_labels", "model_input_sample", "retained_model_rows"}
     ]
+    continuous_objective_section = continuous_objective_report_section(tables, analysis_config)
     report = [
         "# Monterey Phase 1 Model Analysis",
         "",
@@ -5254,6 +5465,7 @@ def write_report(
             output_path,
         ),
         "",
+        *continuous_objective_section,
         "## What Improved Since Ridge",
         "",
         improvement_since_ridge_markdown(tables, analysis_config),
@@ -6090,6 +6302,12 @@ CONTINUOUS_SAMPLING_POLICY_SPECS: tuple[tuple[str, str, str, str], ...] = (
         "AEF ridge regression",
     ),
     (
+        "continuous_objective",
+        "ridge_capped_weight",
+        "continuous_objective_area_calibration",
+        "Capped-weight ridge",
+    ),
+    (
         "hurdle",
         "calibrated_probability_x_conditional_canopy",
         "hurdle_area_calibration",
@@ -6571,6 +6789,197 @@ def primary_scoreboard_markdown(
     return "\n".join(lines)
 
 
+def continuous_objective_report_section(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+) -> list[str]:
+    """Return the capped-weight continuous objective report section when available."""
+    capped = comparison_lookup(
+        tables.phase1_model_comparison,
+        analysis_config,
+        model_name="ridge_capped_weight",
+        evaluation_scope_value=evaluation_scope(analysis_config.domain_mask),
+        label_source="all",
+    )
+    if not capped:
+        return []
+    return [
+        "## Capped-Weight Continuous Objective",
+        "",
+        continuous_objective_markdown(tables, analysis_config, capped),
+        "",
+    ]
+
+
+def continuous_objective_markdown(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+    capped: dict[str, object],
+) -> str:
+    """Build the report narrative for the capped-weight direct continuous model."""
+    ridge = comparison_lookup(
+        tables.phase1_model_comparison,
+        analysis_config,
+        model_name="ridge_regression",
+        evaluation_scope_value=evaluation_scope(analysis_config.domain_mask),
+        label_source="all",
+    )
+    expected = comparison_lookup(
+        tables.phase1_model_comparison,
+        analysis_config,
+        model_name="calibrated_probability_x_conditional_canopy",
+        evaluation_scope_value=evaluation_scope(analysis_config.domain_mask),
+        label_source="all",
+    )
+    station = comparison_lookup(
+        tables.phase1_model_comparison,
+        analysis_config,
+        model_name="ridge_capped_weight",
+        evaluation_scope_value="kelpwatch_station_sample",
+        label_source="kelpwatch_station",
+    )
+    leakage = sampling_policy_row(
+        tables.all_model_sampling_policy_comparison,
+        analysis_config,
+        sample_policy=analysis_config.sample_policy,
+        model_family="continuous_objective",
+        model_name="ridge_capped_weight",
+        artifact_kind="continuous_objective_assumed_background_leakage",
+        label_source="assumed_background",
+    )
+    lines = [
+        continuous_objective_result_sentence(capped, ridge, expected),
+        "",
+        "| Diagnostic | Capped-weight ridge | AEF ridge | Expected-value hurdle |",
+        "|---|---:|---:|---:|",
+        comparison_metric_row("RMSE", "rmse", capped, ridge, expected, decimal_places=4),
+        comparison_metric_row("F1 >=10%", "f1_ge_10pct", capped, ridge, expected, decimal_places=3),
+        comparison_percent_row("Area bias", "area_pct_bias", capped, ridge, expected),
+        comparison_area_row(
+            "Predicted area (M m2)", "predicted_canopy_area", capped, ridge, expected
+        ),
+        comparison_metric_row("Station RMSE", "rmse", station, {}, {}, decimal_places=4),
+    ]
+    if leakage is not None:
+        lines.extend(
+            [
+                "",
+                (
+                    "Assumed-background leakage for the capped-weight model is "
+                    f"`{format_area_millions(row_float(leakage, 'assumed_background_predicted_area_m2'))} M m2` "
+                    "inside the retained full-grid domain."
+                ),
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "The cap and alpha selection are validation-only; the 2022 row is held out for reporting.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def comparison_lookup(
+    rows: list[dict[str, object]],
+    analysis_config: ModelAnalysisConfig,
+    *,
+    model_name: str,
+    evaluation_scope_value: str,
+    label_source: str,
+) -> dict[str, object]:
+    """Return one Phase 1 comparison row matching the primary split/year context."""
+    for row in rows:
+        if (
+            str(row.get("model_name", "")) == model_name
+            and str(row.get("split", "")) == analysis_config.analysis_split
+            and sampling_policy_year_matches(row.get("year"), analysis_config.analysis_year)
+            and str(row.get("evaluation_scope", "")) == evaluation_scope_value
+            and str(row.get("label_source", "")) == label_source
+        ):
+            return row
+    return {}
+
+
+def continuous_objective_result_sentence(
+    capped: dict[str, object],
+    ridge: dict[str, object],
+    expected: dict[str, object],
+) -> str:
+    """State whether capped weighting beats ridge or competes with the hurdle model."""
+    beats_ridge = row_float(capped, "rmse", math.inf) < row_float(ridge, "rmse", math.inf) and abs(
+        row_float(capped, "area_pct_bias", math.inf)
+    ) < abs(row_float(ridge, "area_pct_bias", math.inf))
+    competes_with_hurdle = (
+        row_float(capped, "rmse", math.inf) <= row_float(expected, "rmse", math.inf) * 1.05
+        and abs(row_float(capped, "area_pct_bias", math.inf))
+        <= abs(row_float(expected, "area_pct_bias", math.inf)) * 1.25
+    )
+    if competes_with_hurdle:
+        result = "competes with the expected-value hurdle"
+    elif beats_ridge:
+        result = (
+            "beats ridge on the combined RMSE and area-bias check but does not match the hurdle"
+        )
+    else:
+        result = "fails to beat ridge on the combined RMSE and area-bias check"
+    return (
+        "The capped-weight direct continuous model "
+        f"{result}. It remains a Kelpwatch-style annual-max weak-label experiment, "
+        "not independent biomass validation."
+    )
+
+
+def comparison_metric_row(
+    label: str,
+    field: str,
+    capped: dict[str, object],
+    ridge: dict[str, object],
+    expected: dict[str, object],
+    *,
+    decimal_places: int,
+) -> str:
+    """Format one scalar comparison row for the capped-weight report table."""
+    return (
+        f"| {label} | "
+        f"{format_decimal(row_float(capped, field), decimal_places)} | "
+        f"{format_decimal(row_float(ridge, field), decimal_places)} | "
+        f"{format_decimal(row_float(expected, field), decimal_places)} |"
+    )
+
+
+def comparison_percent_row(
+    label: str,
+    field: str,
+    capped: dict[str, object],
+    ridge: dict[str, object],
+    expected: dict[str, object],
+) -> str:
+    """Format one percent comparison row for the capped-weight report table."""
+    return (
+        f"| {label} | "
+        f"{format_percent(row_float(capped, field), 1)} | "
+        f"{format_percent(row_float(ridge, field), 1)} | "
+        f"{format_percent(row_float(expected, field), 1)} |"
+    )
+
+
+def comparison_area_row(
+    label: str,
+    field: str,
+    capped: dict[str, object],
+    ridge: dict[str, object],
+    expected: dict[str, object],
+) -> str:
+    """Format one area comparison row for the capped-weight report table."""
+    return (
+        f"| {label} | "
+        f"{format_area_millions(row_float(capped, field))} | "
+        f"{format_area_millions(row_float(ridge, field))} | "
+        f"{format_area_millions(row_float(expected, field))} |"
+    )
+
+
 def primary_scoreboard_lookup(
     rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
 ) -> dict[str, dict[str, object]]:
@@ -6701,6 +7110,19 @@ def next_modeling_step_markdown(
     scoreboard = primary_scoreboard_lookup(tables.phase1_model_comparison, analysis_config)
     expected = scoreboard.get("calibrated_probability_x_conditional_canopy", {})
     previous = scoreboard.get("previous_year_annual_max", {})
+    capped = scoreboard.get("ridge_capped_weight", {})
+    if capped:
+        return (
+            "Decision: keep `crm_stratified_mask_first_sample` as the default policy and keep the "
+            "expected-value hurdle as the current AEF full-grid candidate unless a later direct "
+            "continuous objective beats it. The capped-weight ridge row now tests the first direct "
+            f"continuous alternative: its area bias is "
+            f"`{format_percent(row_float(capped, 'area_pct_bias'), 1)}` versus the expected-value "
+            f"hurdle `{format_percent(row_float(expected, 'area_pct_bias'), 1)}` and previous-year "
+            f"persistence `{format_percent(row_float(previous, 'area_pct_bias'), 1)}`.\n\n"
+            "Next modeling task: run the stratified-background continuous objective and compare it "
+            "against this same retained-domain scoreboard before selecting a final Phase 1 policy."
+        )
     return (
         "Decision: keep `crm_stratified_mask_first_sample` as the default policy and treat the "
         "expected-value hurdle as the current AEF full-grid candidate. Do not promote it as final: "

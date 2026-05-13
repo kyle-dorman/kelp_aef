@@ -184,6 +184,107 @@ uv run python -c "import pandas as pd; p='/Volumes/x10pro/kelp_aef/reports/table
 - No cap, threshold, or policy is tuned on 2022 test rows.
 - `make check` passes.
 
+## Completion Notes
+
+Completed on 2026-05-13.
+
+Implemented as a dedicated `train-continuous-objective` command with an explicit
+`models.continuous_objective.experiments.capped-weight` config block. The fitted
+model is a direct ridge regression on `A00-A63` and `kelp_fraction_y`, using:
+
+```text
+fit_weight = 1.0 for Kelpwatch-supported or positive rows
+fit_weight = min(max(sample_weight, 1.0), 5.0) for assumed-background rows
+```
+
+The cap is `5.0`; ridge alpha was selected on the 2021 validation split only.
+The selected alpha was `0.01`. No 2022 test rows were used for cap, threshold,
+or model-selection decisions.
+
+Generated artifacts:
+
+- `/Volumes/x10pro/kelp_aef/models/continuous_objective/ridge_capped_weight.joblib`
+- `/Volumes/x10pro/kelp_aef/processed/continuous_objective_capped_weight_sample_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/processed/continuous_objective_capped_weight_full_grid_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_capped_weight_metrics.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_capped_weight_area_calibration.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_capped_weight_assumed_background_leakage.csv`
+- `/Volumes/x10pro/kelp_aef/interim/continuous_objective_capped_weight_manifest.json`
+
+Primary 2022 retained-domain result:
+
+| Model | RMSE | R2 | F1 >=10% | Predicted area | Area bias |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| AEF ridge regression | 0.0452 | 0.587 | 0.476 | 8.42 M m2 | +102.1% |
+| Capped-weight ridge | 0.0493 | 0.507 | 0.590 | 8.64 M m2 | +107.5% |
+| Expected-value hurdle | 0.0322 | 0.790 | 0.812 | 3.50 M m2 | -16.0% |
+
+Station-skill context: capped-weight ridge Kelpwatch-station test RMSE was
+`0.1969`, worse than ridge `0.1647`. Assumed-background leakage was
+`5.69 M m2` over `599,997` retained assumed-background rows, with predicted
+positive rate `0.87%`.
+
+Conclusion: capped weighting failed to beat ridge on the combined RMSE and
+area-bias check and does not compete with the expected-value hurdle. Continue to
+P1-22b only as a separate stratified-background direct-continuous experiment.
+
+### Cap Sweep Follow-up
+
+Follow-up run on 2026-05-13 after checking whether the cap itself explained the
+poor cap-5 result. The sweep varied only `fit_weight_cap`; it kept the same
+CRM-stratified mask-first sample, train/validation/test years, annual-max
+target, `A00-A63` feature set, ridge alpha grid, and retained-domain full-grid
+inference table fixed.
+
+Additional experiments were added under
+`models.continuous_objective.experiments`: `cap-1`, `cap-2`, `cap-10`,
+`cap-20`, and `cap-100`. The existing `capped-weight` experiment remains the
+cap-5 run. Cap 100 is effectively uncapped for the current sample because the
+maximum raw assumed-background `sample_weight` is just under 100.
+
+| Cap | Alpha | Val sample RMSE | Test station RMSE | Test full-grid RMSE | Area bias | Pred area (M m2) | Background leak (M m2) | Background positive rate | Train background weight share |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0.01 | 0.1016 | 0.1623 | 0.0452 | +102.1% | 8.42 | 5.04 | 1.95% | 51.6% |
+| 2 | 0.01 | 0.1072 | 0.1720 | 0.0459 | +107.8% | 8.65 | 5.33 | 1.59% | 68.1% |
+| 5 | 0.01 | 0.1226 | 0.1969 | 0.0493 | +107.5% | 8.64 | 5.69 | 0.87% | 84.2% |
+| 10 | 0.01 | 0.1359 | 0.2180 | 0.0520 | +84.4% | 7.67 | 5.17 | 0.39% | 90.6% |
+| 20 | 0.01 | 0.1388 | 0.2228 | 0.0523 | +62.8% | 6.78 | 4.47 | 0.37% | 93.3% |
+| 100 | 0.01 | 0.1419 | 0.2288 | 0.0529 | +43.0% | 5.95 | 3.83 | 0.32% | 95.2% |
+
+Sweep interpretation: cap 5 is not failing because it forgot to cap weights.
+The cap is active, and changing it moves the expected tradeoff. Lower caps
+protect station skill and full-grid RMSE but still leak enough small
+background predictions to overpredict area by about 100%. Higher caps suppress
+some full-grid area bias and lower the background positive rate, but the
+background rows dominate the fit and station skill degrades sharply. The direct
+continuous objective remains the issue; no cap in this sweep produces a
+competitive retained-domain all-label result.
+
+Additional generated cap-sweep artifacts follow the pattern:
+
+- `/Volumes/x10pro/kelp_aef/models/continuous_objective/ridge_capped_weight_cap_{1,2,10,20,100}.joblib`
+- `/Volumes/x10pro/kelp_aef/processed/continuous_objective_cap_{1,2,10,20,100}_sample_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/processed/continuous_objective_cap_{1,2,10,20,100}_full_grid_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_cap_{1,2,10,20,100}_metrics.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_cap_{1,2,10,20,100}_area_calibration.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_cap_{1,2,10,20,100}_assumed_background_leakage.csv`
+- `/Volumes/x10pro/kelp_aef/interim/continuous_objective_cap_{1,2,10,20,100}_manifest.json`
+
+Validation passed:
+
+```bash
+make check
+uv run kelp-aef train-continuous-objective --config configs/monterey_smoke.yaml --experiment cap-1
+uv run kelp-aef train-continuous-objective --config configs/monterey_smoke.yaml --experiment cap-2
+uv run kelp-aef train-continuous-objective --config configs/monterey_smoke.yaml --experiment cap-10
+uv run kelp-aef train-continuous-objective --config configs/monterey_smoke.yaml --experiment cap-20
+uv run kelp-aef train-continuous-objective --config configs/monterey_smoke.yaml --experiment cap-100
+uv run pytest tests/test_continuous_objective.py tests/test_model_analysis.py
+uv run mypy src/kelp_aef/evaluation/continuous_objective.py src/kelp_aef/cli.py src/kelp_aef/evaluation/model_analysis.py
+uv run kelp-aef train-continuous-objective --config configs/monterey_smoke.yaml --experiment capped-weight
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
+```
+
 ## Known Constraints Or Non-Goals
 
 - Do not use CRM depth, elevation, depth bin, or mask reason as predictors.

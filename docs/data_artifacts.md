@@ -294,6 +294,23 @@ thresholds on the 2022 test split.
 | Hurdle assumed-background leakage | `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_assumed_background_leakage.csv` | Assumed-background predicted area and predicted-positive leakage diagnostics for each composition policy. | Not tracked |
 | Hurdle 2022 map figure | `/Volumes/x10pro/kelp_aef/reports/figures/hurdle_2022_observed_predicted_residual.png` | Three-panel 2022 retained-domain expected-value map of observed, predicted, and residual area. | Not tracked |
 
+## Phase 1 Capped-Weight Continuous Objective
+
+These outputs test a direct continuous ridge objective with capped retained
+background fit weights. They keep the active annual-max label, AEF feature set,
+split, retained-domain mask, and default CRM-stratified mask-first sample fixed.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| Capped-weight ridge model | `/Volumes/x10pro/kelp_aef/models/continuous_objective/ridge_capped_weight.joblib` | Serialized direct continuous ridge model, selected validation-only alpha, feature list, and fit-weight policy metadata. | Not tracked |
+| Capped-weight sample predictions | `/Volumes/x10pro/kelp_aef/processed/continuous_objective_capped_weight_sample_predictions.parquet` | Row-level model-input sample predictions with uncapped sample weight and training-only capped `fit_weight` metadata. | Not tracked |
+| Capped-weight full-grid predictions | `/Volumes/x10pro/kelp_aef/processed/continuous_objective_capped_weight_full_grid_predictions.parquet` | Row-level retained-domain full-grid predictions for area calibration and leakage diagnostics. | Not tracked |
+| Capped-weight metrics | `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_capped_weight_metrics.csv` | Unweighted sample metrics by split, year, and label source; fit weights are reported as diagnostics only. | Not tracked |
+| Capped-weight area calibration | `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_capped_weight_area_calibration.csv` | Full-grid retained-domain area calibration rows computed from row-level capped-weight predictions. | Not tracked |
+| Capped-weight assumed-background leakage | `/Volumes/x10pro/kelp_aef/reports/tables/continuous_objective_capped_weight_assumed_background_leakage.csv` | Retained assumed-background predicted area and predicted-positive leakage diagnostics. | Not tracked |
+| Capped-weight manifest | `/Volumes/x10pro/kelp_aef/interim/continuous_objective_capped_weight_manifest.json` | Inputs, outputs, validation-only alpha diagnostics, cap policy, row counts, and non-use of 2022 test rows for model selection. | Not tracked |
+| Cap-sweep variants | `/Volumes/x10pro/kelp_aef/{models/continuous_objective,processed,reports/tables,interim}/continuous_objective_cap_{1,2,10,20,100}_*` | Follow-up cap sweep around the cap-5 experiment using the same sample, split, features, alpha grid, and retained full-grid inference contract. | Not tracked |
+
 ## Phase 1 Masked Training Outputs
 
 These outputs apply the P1-12 plausible-kelp domain mask to the model-input

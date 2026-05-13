@@ -13,6 +13,9 @@ from kelp_aef.evaluation.model_analysis import (
     build_binary_threshold_recommendation,
     build_class_balance_by_split,
     conditional_likely_positive_sampling_rows,
+    continuous_objective_model_comparison_rows,
+    continuous_objective_report_section,
+    continuous_objective_sampling_rows,
     sampling_policy_comparison_markdown,
 )
 
@@ -336,6 +339,44 @@ def test_conditional_likely_positive_sampling_rows_use_sidecar_policy(tmp_path: 
     assert rows[0]["source_path"] == str(source_path)
 
 
+def test_continuous_objective_artifacts_feed_model_analysis(tmp_path: Path) -> None:
+    """Verify capped-weight artifacts feed comparison rows and report text."""
+    config_path = write_continuous_objective_analysis_fixture(tmp_path)
+    config = SimpleNamespace(
+        config_path=config_path,
+        sample_policy="crm_stratified_mask_first_sample",
+        analysis_split="test",
+        analysis_year=2022,
+        domain_mask=None,
+    )
+
+    comparison_rows = continuous_objective_model_comparison_rows(config)
+    sampling_rows = continuous_objective_sampling_rows(config)
+    tables = SimpleNamespace(
+        phase1_model_comparison=[
+            reference_comparison_row("ridge_regression", rmse=0.08, area_pct_bias=1.0),
+            reference_comparison_row(
+                "calibrated_probability_x_conditional_canopy",
+                rmse=0.05,
+                area_pct_bias=0.2,
+            ),
+            *comparison_rows,
+        ],
+        all_model_sampling_policy_comparison=sampling_rows,
+    )
+
+    section = continuous_objective_report_section(tables, config)
+
+    assert any(row["model_name"] == "ridge_capped_weight" for row in comparison_rows)
+    assert {
+        "continuous_objective_sample_metric",
+        "continuous_objective_area_calibration",
+        "continuous_objective_assumed_background_leakage",
+    } <= {row["artifact_kind"] for row in sampling_rows}
+    assert "Capped-Weight Continuous Objective" in "\n".join(section)
+    assert "beats ridge" in "\n".join(section)
+
+
 def test_analyze_model_treats_domain_mask_as_primary_full_grid_scope(
     tmp_path: Path,
 ) -> None:
@@ -395,6 +436,140 @@ def test_analyze_model_treats_domain_mask_as_primary_full_grid_scope(
     ).iloc[0]
     assert full_grid_balance["mask_status"] == "plausible_kelp_domain"
     assert full_grid_balance["evaluation_scope"] == "full_grid_masked"
+
+
+def write_continuous_objective_analysis_fixture(tmp_path: Path) -> Path:
+    """Write minimal capped-weight artifacts and config for model-analysis helpers."""
+    metrics = tmp_path / "reports/tables/continuous_objective_capped_weight_metrics.csv"
+    area = tmp_path / "reports/tables/continuous_objective_capped_weight_area_calibration.csv"
+    leakage = (
+        tmp_path
+        / "reports/tables/continuous_objective_capped_weight_assumed_background_leakage.csv"
+    )
+    manifest = tmp_path / "interim/continuous_objective_capped_weight_manifest.json"
+    config_path = tmp_path / "config.yaml"
+    metrics.parent.mkdir(parents=True, exist_ok=True)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "ridge_capped_weight",
+                "model_family": "continuous_objective",
+                "split": "test",
+                "year": 2022,
+                "label_source": "kelpwatch_station",
+                "mask_status": "unmasked",
+                "evaluation_scope": "kelpwatch_station_sample",
+                "row_count": 12,
+                "mae": 0.02,
+                "rmse": 0.04,
+                "r2": 0.7,
+                "spearman": 0.8,
+                "f1_ge_10pct": 0.9,
+                "observed_canopy_area": 900.0,
+                "predicted_canopy_area": 850.0,
+                "area_pct_bias": -0.0556,
+            }
+        ]
+    ).to_csv(metrics, index=False)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "ridge_capped_weight",
+                "model_family": "continuous_objective",
+                "split": "test",
+                "year": 2022,
+                "label_source": "all",
+                "mask_status": "unmasked",
+                "evaluation_scope": "full_grid_prediction",
+                "row_count": 100,
+                "mae": 0.03,
+                "rmse": 0.06,
+                "r2": 0.5,
+                "f1_ge_10pct": 0.75,
+                "observed_canopy_area": 1000.0,
+                "predicted_canopy_area": 1400.0,
+                "area_bias": 400.0,
+                "area_pct_bias": 0.4,
+            },
+            {
+                "model_name": "ridge_capped_weight",
+                "model_family": "continuous_objective",
+                "split": "test",
+                "year": 2022,
+                "label_source": "assumed_background",
+                "mask_status": "unmasked",
+                "evaluation_scope": "full_grid_prediction",
+                "row_count": 80,
+                "mae": 0.01,
+                "rmse": 0.02,
+                "r2": 0.0,
+                "f1_ge_10pct": 0.0,
+                "observed_canopy_area": 0.0,
+                "predicted_canopy_area": 300.0,
+                "area_bias": 300.0,
+                "area_pct_bias": float("nan"),
+            },
+        ]
+    ).to_csv(area, index=False)
+    pd.DataFrame(
+        [
+            {
+                "model_name": "ridge_capped_weight",
+                "model_family": "continuous_objective",
+                "split": "test",
+                "year": 2022,
+                "label_source": "assumed_background",
+                "mask_status": "unmasked",
+                "evaluation_scope": "full_grid_prediction",
+                "assumed_background_count": 80,
+                "assumed_background_predicted_area_m2": 300.0,
+                "assumed_background_predicted_positive_rate": 0.01,
+            }
+        ]
+    ).to_csv(leakage, index=False)
+    manifest.write_text(json.dumps({"command": "train-continuous-objective"}))
+    config_path.write_text(
+        f"""
+models:
+  continuous_objective:
+    sample_policy: crm_stratified_mask_first_sample
+    experiments:
+      capped-weight:
+        model_name: ridge_capped_weight
+        metrics: {metrics}
+        area_calibration: {area}
+        assumed_background_leakage: {leakage}
+        manifest: {manifest}
+""".lstrip()
+    )
+    return config_path
+
+
+def reference_comparison_row(
+    model_name: str,
+    *,
+    rmse: float,
+    area_pct_bias: float,
+) -> dict[str, object]:
+    """Build one primary comparison row for report-helper assertions."""
+    return {
+        "model_name": model_name,
+        "split": "test",
+        "year": 2022,
+        "mask_status": "unmasked",
+        "evaluation_scope": "full_grid_prediction",
+        "label_source": "all",
+        "row_count": 100,
+        "mae": rmse / 2,
+        "rmse": rmse,
+        "r2": 0.5,
+        "spearman": 0.5,
+        "f1_ge_10pct": 0.7,
+        "observed_canopy_area": 1000.0,
+        "predicted_canopy_area": 1000.0 * (1.0 + area_pct_bias),
+        "area_pct_bias": area_pct_bias,
+    }
 
 
 def test_class_balance_rows_cover_grouped_rates_and_metadata() -> None:

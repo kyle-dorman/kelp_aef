@@ -602,7 +602,7 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef compose-hurdle-model --config configs/monterey_smoke.yaml`,
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
     manual report-heading and PNG-dimension checks, and `make check`.
-- [ ] P1-22a: Test a capped-weight continuous model.
+- [x] P1-22a: Test a capped-weight continuous model.
   - Plan: `tasks/36_test_capped_weight_continuous_model.md`.
   - Goal: Check whether capped retained-background fit weights let a simple
     continuous model compete with the hurdle model without collapsing or leaking
@@ -610,6 +610,27 @@ masking change should end with an updated model-analysis report.
   - Output: capped-weight continuous model comparison row.
   - Validation: report shows station skill, background leakage, and full-grid
     area calibration.
+  - Completed: added `kelp-aef train-continuous-objective --experiment
+    capped-weight`, wrote the capped-weight ridge model/prediction/metric
+    artifacts, refreshed the Phase 1 report, and added the capped-weight row to
+    the retained-domain scoreboard.
+  - Result: capped-weight ridge failed to beat ridge or compete with the
+    expected-value hurdle on the 2022 retained-domain all-label row. RMSE was
+    `0.0493` and area bias was `+107.5%`, compared with ridge `0.0452` /
+    `+102.1%` and expected-value hurdle `0.0322` / `-16.0%`.
+  - Follow-up cap sweep: caps `1`, `2`, `5`, `10`, `20`, and `100` all selected
+    `alpha=0.01`. Cap `1` had the best full-grid RMSE (`0.0452`) and station
+    RMSE (`0.1623`) but still overpredicted area by `+102.1%`; cap `100`
+    reduced area bias to `+43.0%` but worsened full-grid RMSE to `0.0529` and
+    station RMSE to `0.2288`. No cap resolves the direct-continuous objective
+    tradeoff.
+  - Validation passed:
+    `uv run pytest tests/test_continuous_objective.py tests/test_model_analysis.py`,
+    focused `ruff`/`mypy` checks, `uv run kelp-aef
+    train-continuous-objective --config configs/monterey_smoke.yaml
+    --experiment capped-weight`, and `uv run kelp-aef analyze-model --config
+    configs/monterey_smoke.yaml`; final full validation passed with
+    `make check`.
 - [ ] P1-22b: Test a stratified-background continuous model.
   - Plan: `tasks/37_test_stratified_background_continuous_model.md`.
   - Goal: Check whether retained-domain stratum-balanced background weighting
