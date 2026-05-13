@@ -92,6 +92,7 @@ alignment:
           fraction: 0.01
           min_rows_per_year: 500
       fail_on_dropped_positive: true
+    # Historical P1-21a sidecar paths retained for audit only after default promotion.
     crm_stratified:
       enabled: false
       output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
@@ -320,6 +321,7 @@ models:
     prediction_manifest: /Volumes/x10pro/kelp_aef/interim/baseline_full_grid_prediction_manifest.json
     metrics: /Volumes/x10pro/kelp_aef/reports/tables/baseline_metrics.csv
     manifest: /Volumes/x10pro/kelp_aef/interim/baseline_eval_manifest.json
+    # Historical P1-21a sidecar paths retained for audit only after default promotion.
     sidecars:
       crm_stratified:
         enabled: false
@@ -376,6 +378,7 @@ models:
       manifest: /Volumes/x10pro/kelp_aef/interim/binary_presence_calibration_manifest.json
       include_prevalence_match: true
       reliability_bin_count: 10
+    # Historical P1-21a sidecar paths retained for audit only after default promotion.
     sidecars:
       crm_stratified:
         enabled: false
@@ -429,6 +432,7 @@ models:
     full_grid_likely_positive_summary: /Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_full_grid_likely_positive_summary.csv
     residual_figure: /Volumes/x10pro/kelp_aef/reports/figures/conditional_canopy_positive_residuals.png
     manifest: /Volumes/x10pro/kelp_aef/interim/conditional_canopy_manifest.json
+    # Historical P1-21a sidecar paths retained for audit only after default promotion.
     sidecars:
       crm_stratified:
         enabled: false
@@ -471,6 +475,7 @@ models:
     residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_residual_by_observed_bin.csv
     assumed_background_leakage: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_assumed_background_leakage.csv
     map_figure: /Volumes/x10pro/kelp_aef/reports/figures/hurdle_2022_observed_predicted_residual.png
+    # Historical P1-21a sidecar paths retained for audit only after default promotion.
     sidecars:
       crm_stratified:
         enabled: false

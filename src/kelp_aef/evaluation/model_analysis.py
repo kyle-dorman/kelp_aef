@@ -579,6 +579,7 @@ class ModelAnalysisConfig:
     predictions_path: Path
     metrics_path: Path
     model_name: str
+    sample_policy: str
     analysis_split: str
     analysis_year: int
     feature_columns: tuple[str, ...]
@@ -804,6 +805,7 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
         ),
         metrics_path=Path(require_string(baselines.get("metrics"), "models.baselines.metrics")),
         model_name=str(settings.get("model_name", DEFAULT_MODEL_NAME)),
+        sample_policy=default_sampling_policy(config),
         analysis_split=str(settings.get("split", DEFAULT_ANALYSIS_SPLIT)),
         analysis_year=optional_int(
             settings.get("year"), "reports.model_analysis.year", DEFAULT_ANALYSIS_YEAR
@@ -1180,6 +1182,31 @@ def optional_bool(value: object, name: str, default: bool) -> bool:
         msg = f"config field must be a boolean: {name}"
         raise ValueError(msg)
     return value
+
+
+def default_sampling_policy(config: dict[str, Any]) -> str:
+    """Return the active default model-input sampling policy from config."""
+    models = optional_mapping(config.get("models"), "models")
+    baselines = optional_mapping(models.get("baselines"), "models.baselines")
+    binary = optional_mapping(models.get("binary_presence"), "models.binary_presence")
+    hurdle = optional_mapping(models.get("hurdle"), "models.hurdle")
+    alignment = optional_mapping(config.get("alignment"), "alignment")
+    background_sample = optional_mapping(
+        alignment.get("background_sample"),
+        "alignment.background_sample",
+    )
+    domain_mask = optional_mapping(
+        background_sample.get("domain_mask"),
+        "alignment.background_sample.domain_mask",
+    )
+    policy = (
+        baselines.get("sample_policy")
+        or binary.get("sample_policy")
+        or hurdle.get("sample_policy")
+        or domain_mask.get("sampling_policy")
+        or "current_masked_sample"
+    )
+    return str(policy)
 
 
 def output_path(outputs: dict[str, Any], key: str, default: Path) -> Path:
@@ -5201,6 +5228,14 @@ def write_report(
         f"- Config: `{analysis_config.config_path}`",
         f"- Annual labels: `{analysis_config.label_path}`",
         f"- Model input sample: `{analysis_config.aligned_table_path}`",
+        (
+            f"- Default sampling policy: `{analysis_config.sample_policy}` "
+            f"({sampling_policy_label(analysis_config.sample_policy)})."
+        ),
+        (
+            "- Sampling-policy decision note: "
+            "`docs/phase1_crm_stratified_sampling_policy_decision.md`"
+        ),
         f"- Predictions: `{analysis_config.predictions_path}`",
         f"- Metrics: `{analysis_config.metrics_path}`",
         "",
@@ -5211,13 +5246,6 @@ def write_report(
         "## Model Comparison",
         "",
         model_comparison_markdown(tables.phase1_model_comparison, analysis_config),
-        "",
-        "## CRM-Stratified Sampling Policy Comparison",
-        "",
-        sampling_policy_comparison_markdown(
-            tables.all_model_sampling_policy_comparison,
-            analysis_config,
-        ),
         "",
         "## Reference Baseline Ranking",
         "",
@@ -5379,7 +5407,7 @@ def write_report(
         hurdle_model_appendix_markdown(analysis_config),
         f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
         (
-            "- CRM-stratified all-model sampling-policy comparison table: "
+            "- Sampling-policy audit table: "
             f"`{analysis_config.all_model_sampling_policy_comparison_path}`"
         ),
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
@@ -7854,6 +7882,7 @@ def write_manifest(
         "command": "analyze-model",
         "config_path": str(analysis_config.config_path),
         "model_name": analysis_config.model_name,
+        "sample_policy": analysis_config.sample_policy,
         "split": analysis_config.analysis_split,
         "year": analysis_config.analysis_year,
         "inputs": {

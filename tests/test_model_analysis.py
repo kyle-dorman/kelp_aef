@@ -92,7 +92,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
 
     all_model_comparison = pd.read_csv(fixture["all_model_sampling_policy_comparison"])
     assert "sample_policy" in all_model_comparison.columns
-    assert {"current_masked_sample"} == set(all_model_comparison["sample_policy"])
+    assert {"crm_stratified_mask_first_sample"} == set(all_model_comparison["sample_policy"])
     assert {"continuous_baseline", "binary_presence"} <= set(all_model_comparison["model_family"])
 
     data_health = pd.read_csv(fixture["data_health"])
@@ -166,11 +166,11 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "Annual-Max Binary Threshold Comparison" in report
     assert "Balanced Binary Presence Model" in report
     assert "Calibrated Binary Presence Probabilities" in report
-    sampling_section = report.split("## CRM-Stratified Sampling Policy Comparison", maxsplit=1)[
-        1
-    ].split("## Reference Baseline Ranking", maxsplit=1)[0]
-    assert "**Continuous canopy and area**" in sampling_section
-    assert "**Binary presence and support**" in sampling_section
+    assert "Default sampling policy: `crm_stratified_mask_first_sample`" in report
+    assert "docs/phase1_crm_stratified_sampling_policy_decision.md" in report
+    assert "CRM-Stratified Sampling Policy Comparison" not in report
+    assert "**Continuous canopy and area**" not in report
+    assert "**Binary presence and support**" not in report
     assert "Thresholded baseline comparison" in report
     assert "Binary presence 2022 map" in report
     assert "Platt scaling" in report
@@ -186,8 +186,8 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert 'src="data:image/png;base64,' in html_report
 
 
-def test_sampling_policy_report_filters_to_trained_model_tables(tmp_path: Path) -> None:
-    """Verify the CRM sampling report section shows useful trained-model tables."""
+def test_sampling_policy_audit_helper_filters_to_trained_model_tables(tmp_path: Path) -> None:
+    """Verify the legacy sampling-policy audit helper filters to trained-model rows."""
     config = SimpleNamespace(
         all_model_sampling_policy_comparison_path=tmp_path / "all_models.csv",
         analysis_split="test",
@@ -790,6 +790,7 @@ splits:
   output_manifest: {split_manifest}
 models:
   baselines:
+    sample_policy: crm_stratified_mask_first_sample
     features: A00-A01
     sample_predictions: {predictions}
     predictions: {predictions}

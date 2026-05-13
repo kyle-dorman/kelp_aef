@@ -560,7 +560,7 @@ masking change should end with an updated model-analysis report.
     `background_rows_per_year_controls_default_masked_workflow: false`.
     Retained depth strata are now `0_40m` and `40_60m`; the historical
     CRM sidecar paths remain disabled for audit until P1-21d.
-- [ ] P1-21d: Retire sidecar sampling-policy reporting after promotion.
+- [x] P1-21d: Retire sidecar sampling-policy reporting after promotion.
   - Goal: Remove the temporary current-vs-CRM report section once the design
     decision is documented and the CRM-stratified policy is the default.
   - Plan: `tasks/34_remove_sampling_policy_sidecar_reporting.md`.
@@ -569,6 +569,17 @@ masking change should end with an updated model-analysis report.
   - Validation: `uv run pytest tests/test_model_analysis.py`,
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`, and
     `make check`.
+  - Completed: removed the temporary report section from the active Phase 1
+    report, added the default `crm_stratified_mask_first_sample` policy and
+    decision-note pointer to the normal artifact context, and kept the
+    all-model sampling-policy CSV as an audit table rather than a headline
+    report section. Disabled P1-21a sidecar config paths are now marked as
+    audit-only.
+  - Validation passed:
+    `uv run pytest tests/test_model_analysis.py`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
+    manual grep confirmed the retired section text is absent from the refreshed
+    Markdown report, and `make check`.
 - [ ] P1-22: Test one capped-weight or stratified-background continuous model.
   - Goal: Check whether a simpler continuous objective can compete with the
     hurdle model without collapsing or leaking positives.
