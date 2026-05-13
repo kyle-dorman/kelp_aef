@@ -1618,7 +1618,7 @@ def write_hurdle_map_figure(map_frames: list[pd.DataFrame], output_path: Path) -
     residual = frame["residual_kelp_max_y"].to_numpy(dtype=float)
     area_max = finite_percentile(np.concatenate([observed, predicted]), 99.5, default=900.0)
     residual_abs = finite_percentile(np.abs(residual), 99.5, default=900.0)
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4), sharex=True, sharey=True)
+    fig, axes = plt.subplots(3, 1, figsize=(6.5, 12.5), sharex=True, sharey=True)
     panels = [
         ("Observed area", observed, "viridis", 0.0, area_max),
         ("Hurdle expected area", predicted, "viridis", 0.0, area_max),
@@ -1629,7 +1629,7 @@ def write_hurdle_map_figure(map_frames: list[pd.DataFrame], output_path: Path) -
             frame["longitude"],
             frame["latitude"],
             c=values,
-            s=0.2,
+            s=0.35,
             linewidths=0,
             cmap=cmap,
             vmin=vmin,
@@ -1638,10 +1638,9 @@ def write_hurdle_map_figure(map_frames: list[pd.DataFrame], output_path: Path) -
         )
         ax.set_title(title)
         ax.set_xlabel("Longitude")
-        fig.colorbar(points, ax=ax, fraction=0.046, pad=0.02)
-    axes[0].set_ylabel("Latitude")
+        ax.set_ylabel("Latitude")
+        fig.colorbar(points, ax=ax, fraction=0.036, pad=0.02)
     fig.suptitle("First hurdle model: expected-value 2022 retained-domain map")
-    fig.tight_layout()
     fig.savefig(output_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
 

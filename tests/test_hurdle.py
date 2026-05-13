@@ -4,6 +4,7 @@ from pathlib import Path
 import joblib  # type: ignore[import-untyped]
 import numpy as np
 import pandas as pd
+from matplotlib import image as mpimg
 from sklearn.linear_model import Ridge  # type: ignore[import-untyped]
 from sklearn.pipeline import Pipeline  # type: ignore[import-untyped]
 from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
@@ -26,6 +27,8 @@ def test_compose_hurdle_model_writes_predictions_and_diagnostics(tmp_path: Path)
     manifest = json.loads(fixture["manifest"].read_text())
 
     assert fixture["map_figure"].is_file()
+    height, width = png_dimensions(fixture["map_figure"])
+    assert height > width
     assert set(predictions["composition_policy"]) == {"expected_value", "hard_gate"}
     assert {
         "calibrated_probability_x_conditional_canopy",
@@ -81,6 +84,12 @@ def test_compose_hurdle_model_writes_crm_stratified_sidecar(tmp_path: Path) -> N
     assert manifest["inputs"]["binary_full_grid_predictions"] == str(
         fixture["sidecar_binary_predictions"]
     )
+
+
+def png_dimensions(path: Path) -> tuple[int, int]:
+    """Return PNG image height and width in pixels."""
+    image = mpimg.imread(path)
+    return int(image.shape[0]), int(image.shape[1])
 
 
 def write_hurdle_fixture(tmp_path: Path, *, include_sidecar: bool = False) -> dict[str, Path]:

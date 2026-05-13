@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
+from matplotlib import image as mpimg
 
 from kelp_aef import main
 
@@ -23,6 +24,9 @@ def test_map_residuals_writes_exploration_artifacts(tmp_path: Path) -> None:
         "manifest",
     ):
         assert fixture[key].is_file()
+
+    height, width = png_dimensions(fixture["static_map"])
+    assert height > width
 
     area_by_year = pd.read_csv(fixture["area_by_year"])
     test_row = area_by_year.query(
@@ -78,6 +82,15 @@ def test_map_residuals_filters_full_grid_rows_to_domain_mask(tmp_path: Path) -> 
     assert set(audit["domain_mask_reason"]) == {"dropped_too_deep"}
     assert set(top_residuals["domain_mask_reason"]) == {"retained_shallow_depth"}
     assert set(top_residuals["depth_bin"]) == {"shallow_depth"}
+
+    height, width = png_dimensions(fixture["static_map"])
+    assert height > width
+
+
+def png_dimensions(path: Path) -> tuple[int, int]:
+    """Return PNG image height and width in pixels."""
+    image = mpimg.imread(path)
+    return int(image.shape[0]), int(image.shape[1])
 
 
 def write_residual_map_fixture(

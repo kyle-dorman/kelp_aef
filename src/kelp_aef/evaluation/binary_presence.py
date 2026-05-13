@@ -3267,7 +3267,8 @@ def write_binary_full_grid_map(binary_config: BinaryPresenceConfig) -> None:
     probability = map_rows["pred_binary_probability"].to_numpy(dtype=float)
     predicted = map_rows["pred_binary_class"].to_numpy(dtype=bool)
     outcome = binary_outcome_codes(observed, predicted)
-    fig, axes = plt.subplots(1, 4, figsize=(18, 5), constrained_layout=True)
+    fig, axes_grid = plt.subplots(2, 2, figsize=(11, 10), constrained_layout=True)
+    axes = axes_grid.ravel()
     plot_binary_scatter_panel(
         axes[0],
         map_rows,

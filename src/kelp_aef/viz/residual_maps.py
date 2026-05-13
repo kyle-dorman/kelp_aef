@@ -881,7 +881,7 @@ def write_static_map(
 ) -> None:
     """Write a three-panel observed, predicted, and residual static map."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5), constrained_layout=True)
+    fig, axes = plt.subplots(3, 1, figsize=(6.5, 13.5), constrained_layout=True)
     observed = dataframe["kelp_max_y"].to_numpy(dtype=float)
     predicted = dataframe["pred_kelp_max_y"].to_numpy(dtype=float)
     residual = dataframe["residual_kelp_max_y"].to_numpy(dtype=float)

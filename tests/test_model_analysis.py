@@ -151,21 +151,21 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         fixture["pixel_skill_area_calibration_figure"]
     )
     assert fixture["pdf_report"].stat().st_size > 0
-    assert "Phase 1 Harness Status" in report
-    assert "Model Comparison" in report
-    assert "Reference Baseline Ranking" in report
-    assert "Phase 1 Coverage Gaps" in report
+    assert "Current Default Policy And Data Scope" in report
+    assert "2022 Retained-Domain Model Scoreboard" in report
+    assert "What Improved Since Ridge" in report
+    assert "Remaining Failure Modes" in report
+    assert "Decision / Next Modeling Step" in report
+    assert "Phase 1 Harness Status" not in report
+    assert "Reference Baseline Ranking" not in report
+    assert "Phase 1 Coverage Gaps" not in report
     assert "Phase 0 Decision Evidence" not in report
-    assert "failed ridge objective" in report
-    assert "sampling/objective calibration problem" in report
     assert "previous-year persistence" in report
     assert "Observed, Predicted, And Error Map" in report
     assert "![Pixel skill and area calibration]" in report
-    assert "Mask-Aware Residual Diagnostics" in report
-    assert "Class And Target Balance" in report
-    assert "Annual-Max Binary Threshold Comparison" in report
-    assert "Balanced Binary Presence Model" in report
-    assert "Calibrated Binary Presence Probabilities" in report
+    assert "mask-aware residual rows" in report
+    assert "Annual-max class balance" in report
+    assert "Threshold, Calibration, And Amount Diagnostics" in report
     assert "Default sampling policy: `crm_stratified_mask_first_sample`" in report
     assert "docs/phase1_crm_stratified_sampling_policy_decision.md" in report
     assert "CRM-Stratified Sampling Policy Comparison" not in report
@@ -181,8 +181,8 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "ridge_2022_residual_interactive.html" in report
     assert "Alternative Target-Framing Findings" not in report
     assert "<h1>Monterey Phase 1 Model Analysis</h1>" in html_report
-    assert "<h2>Model Comparison</h2>" in html_report
-    assert "<h2>Class And Target Balance</h2>" in html_report
+    assert "<h2>2022 Retained-Domain Model Scoreboard</h2>" in html_report
+    assert "<h2>Decision / Next Modeling Step</h2>" in html_report
     assert 'src="data:image/png;base64,' in html_report
 
 
@@ -368,7 +368,7 @@ def test_analyze_model_treats_domain_mask_as_primary_full_grid_scope(
     assert manifest["mask_status"] == "plausible_kelp_domain"
     assert manifest["evaluation_scope"] == "full_grid_masked"
     assert "plausible_kelp_domain" in report
-    assert "| ridge_regression | background_inclusive_sample | plausible_kelp_domain |" in report
+    assert "| AEF ridge regression | AEF continuous baseline |" in report
     assert set(residual_context["mask_status"]) == {"plausible_kelp_domain"}
     assert "dropped_too_deep" not in set(residual_context["domain_mask_reason"])
     assert {

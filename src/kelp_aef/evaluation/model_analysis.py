@@ -104,6 +104,27 @@ PHASE1_MODEL_DISPLAY_LABELS = {
     "calibrated_probability_x_conditional_canopy": "Hurdle expected",
     "calibrated_hard_gate_conditional_canopy": "Hurdle hard gate",
 }
+PRIMARY_SCOREBOARD_MODELS = (
+    "previous_year_annual_max",
+    "grid_cell_climatology",
+    "ridge_regression",
+    "calibrated_probability_x_conditional_canopy",
+    "calibrated_hard_gate_conditional_canopy",
+)
+PRIMARY_SCOREBOARD_LABELS = {
+    "previous_year_annual_max": "Previous-year annual max",
+    "grid_cell_climatology": "Grid-cell climatology",
+    "ridge_regression": "AEF ridge regression",
+    "calibrated_probability_x_conditional_canopy": "Expected-value hurdle",
+    "calibrated_hard_gate_conditional_canopy": "Hard-gated hurdle",
+}
+PRIMARY_SCOREBOARD_KIND = {
+    "previous_year_annual_max": "Reference persistence",
+    "grid_cell_climatology": "Reference site memory",
+    "ridge_regression": "AEF continuous baseline",
+    "calibrated_probability_x_conditional_canopy": "AEF hurdle candidate",
+    "calibrated_hard_gate_conditional_canopy": "AEF hurdle diagnostic",
+}
 PDF_PAGE_WIDTH_IN = 8.5
 PDF_PAGE_HEIGHT_IN = 11.0
 PDF_MARGIN_X = 0.055
@@ -5217,63 +5238,15 @@ def write_report(
         "",
         "## Executive Summary",
         "",
-        "This is the active hardening report for the Monterey annual-max pipeline. It keeps the Kelpwatch annual-max target fixed and treats the current ridge output as a reference model to improve, not as a production result. Results should be interpreted as learning Kelpwatch-style labels, not field-verified kelp truth.",
+        executive_summary_markdown(data, tables, analysis_config),
         "",
-        shrinkage_summary_markdown(data.metrics, tables.residual_by_bin, analysis_config),
+        "## Current Default Policy And Data Scope",
         "",
-        "Phase 1 focus: **Monterey annual-max model and domain hardening**. The harness is set up to compare reference baselines, domain-mask variants, imbalance-aware models, pixel skill, and area calibration in the main reports after each pipeline rerun.",
+        current_policy_scope_markdown(analysis_config),
         "",
-        "## Current Annual-Max Scope And Artifacts",
+        "## 2022 Retained-Domain Model Scoreboard",
         "",
-        f"- Config: `{analysis_config.config_path}`",
-        f"- Annual labels: `{analysis_config.label_path}`",
-        f"- Model input sample: `{analysis_config.aligned_table_path}`",
-        (
-            f"- Default sampling policy: `{analysis_config.sample_policy}` "
-            f"({sampling_policy_label(analysis_config.sample_policy)})."
-        ),
-        (
-            "- Sampling-policy decision note: "
-            "`docs/phase1_crm_stratified_sampling_policy_decision.md`"
-        ),
-        f"- Predictions: `{analysis_config.predictions_path}`",
-        f"- Metrics: `{analysis_config.metrics_path}`",
-        "",
-        "## Phase 1 Harness Status",
-        "",
-        phase1_harness_status_markdown(tables, analysis_config),
-        "",
-        "## Model Comparison",
-        "",
-        model_comparison_markdown(tables.phase1_model_comparison, analysis_config),
-        "",
-        "## Reference Baseline Ranking",
-        "",
-        reference_baseline_ranking_markdown(tables.phase1_model_comparison, analysis_config),
-        "",
-        baseline_comparison_markdown(data.metrics, analysis_config),
-        "",
-        baseline_calibration_markdown(data.metrics, analysis_config),
-        "",
-        "## Data Health And Label Distribution",
-        "",
-        data_health_markdown(tables.data_health, analysis_config),
-        "",
-        stage_distribution_markdown(stage_rows),
-        "",
-        image_markdown(
-            "Label distribution", analysis_config.label_distribution_figure, output_path
-        ),
-        "",
-        "## Quarter And Season Grounding",
-        "",
-        "Kelpwatch source quarter metadata is written to the quarter mapping table. In the current source, quarter 1 is Jan-Mar, quarter 2 is Apr-Jun, quarter 3 is Jul-Sep, and quarter 4 is Oct-Dec. This report treats configured winter as quarter 1 and configured fall as quarter 4.",
-        "",
-        f"- Quarter mapping table: `{analysis_config.quarter_mapping_path}`",
-        "",
-        "## Pixel Skill And Area Calibration",
-        "",
-        metric_summary_markdown(data.metrics, analysis_config),
+        primary_scoreboard_markdown(tables.phase1_model_comparison, analysis_config),
         "",
         image_markdown(
             "Pixel skill and area calibration",
@@ -5281,13 +5254,25 @@ def write_report(
             output_path,
         ),
         "",
-        image_markdown(
-            "Observed vs predicted distribution",
-            analysis_config.observed_predicted_figure,
-            output_path,
-        ),
+        "## What Improved Since Ridge",
         "",
-        "## Observed, Predicted, And Error Map",
+        improvement_since_ridge_markdown(tables, analysis_config),
+        "",
+        "### Hurdle Observed, Predicted, And Error Map",
+        "",
+        hurdle_model_figure_markdown(analysis_config, output_path),
+        "",
+        "### Binary-Presence Diagnostic Map",
+        "",
+        binary_presence_decision_markdown(analysis_config),
+        "",
+        binary_presence_map_figure_markdown(analysis_config, output_path),
+        "",
+        "## Remaining Failure Modes",
+        "",
+        remaining_failure_modes_markdown(tables, analysis_config, test_distribution),
+        "",
+        "### Ridge Observed, Predicted, And Error Map",
         "",
         map_section_markdown(analysis_config),
         "",
@@ -5295,16 +5280,6 @@ def write_report(
             "Observed, predicted, and residual map",
             analysis_config.observed_predicted_residual_map_figure,
             output_path,
-        ),
-        "",
-        "## Residual And Saturation Findings",
-        "",
-        prediction_distribution_markdown(test_distribution),
-        "",
-        residual_bin_interpretation_markdown(tables.residual_by_bin, analysis_config),
-        "",
-        image_markdown(
-            "Observed 900 predictions", analysis_config.observed_900_figure, output_path
         ),
         "",
         image_markdown(
@@ -5317,19 +5292,29 @@ def write_report(
             output_path,
         ),
         "",
-        "## Mask-Aware Residual Diagnostics",
-        "",
-        mask_aware_residual_markdown(tables, analysis_config),
-        "",
         image_markdown(
             "Residual by retained domain context",
             analysis_config.residual_domain_context_figure,
             output_path,
         ),
         "",
-        "## Class And Target Balance",
+        "## Decision / Next Modeling Step",
+        "",
+        next_modeling_step_markdown(tables, analysis_config),
+        "",
+        "## Appendix",
+        "",
+        "### Data Health And Scope Checks",
+        "",
+        data_health_markdown(tables.data_health, analysis_config),
+        "",
+        stage_distribution_markdown(stage_rows),
         "",
         class_target_balance_markdown(tables, analysis_config),
+        "",
+        image_markdown(
+            "Label distribution", analysis_config.label_distribution_figure, output_path
+        ),
         "",
         image_markdown(
             "Annual-max class balance",
@@ -5337,55 +5322,19 @@ def write_report(
             output_path,
         ),
         "",
-        "## Annual-Max Binary Threshold Comparison",
+        "### Threshold, Calibration, And Amount Diagnostics",
         "",
         binary_threshold_comparison_markdown(tables, analysis_config),
         "",
-        image_markdown(
-            "Annual-max binary threshold comparison",
-            analysis_config.binary_threshold_comparison_figure,
-            output_path,
-        ),
-        "",
-        "## Balanced Binary Presence Model",
-        "",
         binary_presence_markdown(tables, analysis_config),
-        "",
-        binary_presence_figure_markdown(analysis_config, output_path),
-        "",
-        "## Calibrated Binary Presence Probabilities",
         "",
         binary_presence_calibration_markdown(analysis_config),
         "",
-        binary_presence_calibration_figure_markdown(analysis_config, output_path),
-        "",
-        "## Conditional Canopy Amount Model",
-        "",
         conditional_canopy_markdown(analysis_config),
-        "",
-        conditional_canopy_figure_markdown(analysis_config, output_path),
-        "",
-        "## First Hurdle Model",
         "",
         hurdle_model_markdown(tables, analysis_config),
         "",
-        hurdle_model_figure_markdown(analysis_config, output_path),
-        "",
-        "## Binary Threshold Sensitivity",
-        "",
-        threshold_sensitivity_markdown(tables.threshold_sensitivity, analysis_config),
-        "",
-        f"Detailed threshold sensitivity is written to `{analysis_config.threshold_sensitivity_path}`. These rows are diagnostics only; this task does not choose a production binary threshold.",
-        "",
-        "## Phase 1 Coverage Gaps",
-        "",
-        "Implemented rows currently cover train-mean no-skill, previous-year persistence, grid-cell climatology, lat/lon/year geography, and AEF ridge regression after the reference-baseline task has been rerun. Missing rows that should appear in this same report as Phase 1 progresses: bathymetry/DEM mask variants and imbalance-aware model variants.",
-        "",
-        "## Interpretation",
-        "",
-        interpretation_markdown(data.metrics, tables, analysis_config),
-        "",
-        "## Appendix",
+        "### Artifact Index",
         "",
         f"- Stage distribution table: `{analysis_config.label_distribution_path}`",
         f"- Prediction distribution table: `{analysis_config.prediction_distribution_path}`",
@@ -5411,6 +5360,7 @@ def write_report(
             f"`{analysis_config.all_model_sampling_policy_comparison_path}`"
         ),
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
+        f"- Quarter mapping table: `{analysis_config.quarter_mapping_path}`",
         f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
         f"- Reference area calibration table: `{analysis_config.reference_area_calibration_path}`",
         f"- Phase 1 PDF report: `{analysis_config.pdf_report_path}`",
@@ -5666,6 +5616,8 @@ def pdf_report_lines(markdown_lines: list[str], markdown_base_dir: Path) -> list
             output.extend(wrapped_pdf_lines(stripped[2:], "h1", 84))
         elif stripped.startswith("## "):
             output.extend(wrapped_pdf_lines(stripped[3:], "h2", 92))
+        elif stripped.startswith("### "):
+            output.extend(wrapped_pdf_lines(stripped[4:], "h3", 98))
         elif stripped.startswith("|") or in_code_block:
             output.extend(wrapped_pdf_lines(stripped, "mono", 116))
         else:
@@ -5708,6 +5660,8 @@ def draw_pdf_line(fig: Any, text: str, style: str, y_position: float) -> None:
         font_size = 14.0
     elif style == "h2":
         font_size = 11.0
+    elif style == "h3":
+        font_size = 9.5
     fig.text(
         PDF_MARGIN_X,
         y_position,
@@ -5715,7 +5669,7 @@ def draw_pdf_line(fig: Any, text: str, style: str, y_position: float) -> None:
         ha="left",
         va="top",
         fontsize=font_size,
-        fontweight="bold" if style in {"h1", "h2"} else "normal",
+        fontweight="bold" if style in {"h1", "h2", "h3"} else "normal",
         family="monospace" if style == "mono" else "sans-serif",
         color="#111827",
     )
@@ -5727,6 +5681,8 @@ def pdf_line_height(style: str) -> float:
         return PDF_LINE_HEIGHT * 1.8
     if style == "h2":
         return PDF_LINE_HEIGHT * 1.55
+    if style == "h3":
+        return PDF_LINE_HEIGHT * 1.3
     if style == "mono":
         return PDF_LINE_HEIGHT * 0.92
     return PDF_LINE_HEIGHT
@@ -5755,6 +5711,9 @@ def markdown_lines_to_html(markdown_lines: list[str], markdown_base_dir: Path) -
             index += 1
         elif stripped.startswith("## "):
             output.append(f"<h2>{inline_markdown_to_html(stripped[3:])}</h2>")
+            index += 1
+        elif stripped.startswith("### "):
+            output.append(f"<h3>{inline_markdown_to_html(stripped[4:])}</h3>")
             index += 1
         elif IMAGE_MARKDOWN_PATTERN.fullmatch(stripped):
             output.append(image_line_to_html(stripped, markdown_base_dir))
@@ -6485,6 +6444,316 @@ def map_section_markdown(analysis_config: ModelAnalysisConfig) -> str:
         "The observed and predicted panels use the same canopy-area scale, and the error "
         "panel uses `observed - predicted`, so positive residuals are underprediction. The linked "
         f"interactive map is `{analysis_config.residual_interactive_html}`."
+    )
+
+
+def executive_summary_markdown(
+    data: AnalysisData, tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the decision-report executive summary."""
+    scoreboard = primary_scoreboard_lookup(tables.phase1_model_comparison, analysis_config)
+    ridge = scoreboard.get("ridge_regression", {})
+    expected = scoreboard.get("calibrated_probability_x_conditional_canopy", {})
+    previous = scoreboard.get("previous_year_annual_max", {})
+    calibrated_binary = primary_calibrated_binary_metric(analysis_config)
+    high_canopy = primary_conditional_high_canopy_row(analysis_config)
+    ridge_station = station_metric_row(
+        data.metrics, analysis_config.model_name, analysis_config.analysis_split
+    )
+    lines = [
+        (
+            "This is the current-state decision report for the Monterey annual-max Phase 1 "
+            "workflow. It evaluates Kelpwatch-style weak labels, not independent field truth."
+        ),
+        (
+            "Current default policy: CRM-stratified, mask-first retained-domain sampling with "
+            f"`mask_status = {mask_status(analysis_config.domain_mask)}` and "
+            f"`evaluation_scope = {evaluation_scope(analysis_config.domain_mask)}`."
+        ),
+        (
+            "Ridge is no longer the best candidate. It still leaks too much retained full-grid "
+            f"background area: the primary full-grid area bias is "
+            f"`{format_percent(row_float(ridge, 'area_pct_bias'), 1)}` and predicted area is "
+            f"`{format_area_millions(row_float(ridge, 'predicted_canopy_area'))} M m2`."
+        ),
+        (
+            "The expected-value hurdle is the main AEF full-grid candidate right now: primary "
+            f"RMSE is `{format_decimal(row_float(expected, 'rmse'), 4)}`, R2 is "
+            f"`{format_decimal(row_float(expected, 'r2'), 3)}`, and area bias is "
+            f"`{format_percent(row_float(expected, 'area_pct_bias'), 1)}`."
+        ),
+        (
+            "Previous-year persistence remains a strong benchmark, with primary RMSE "
+            f"`{format_decimal(row_float(previous, 'rmse'), 4)}` and area bias "
+            f"`{format_percent(row_float(previous, 'area_pct_bias'), 1)}`."
+        ),
+        (
+            "Calibrated binary presence is strong for the Kelpwatch-style "
+            "`annual_max_ge_10pct` target: primary test AUPRC is "
+            f"`{format_decimal(row_float(calibrated_binary, 'auprc'), 3)}` and F1 is "
+            f"`{format_decimal(row_float(calibrated_binary, 'f1'), 3)}`."
+        ),
+        (
+            "The main weakness is still high-canopy amount prediction. In positive "
+            f"`annual_max_ge_50pct` rows, the conditional amount model mean residual is "
+            f"`{format_decimal(row_float(high_canopy, 'mean_residual_area'), 1)} m2`; positive "
+            "residual means observed canopy exceeds predicted canopy."
+        ),
+        (
+            "Station-row ridge context remains useful but secondary: Kelpwatch-station test R2 is "
+            f"`{format_decimal(row_float(ridge_station, 'r2'), 3)}` and station-area bias is "
+            f"`{format_percent(row_float(ridge_station, 'area_pct_bias'), 1)}`."
+        ),
+    ]
+    return "\n\n".join(lines)
+
+
+def current_policy_scope_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Build the current default policy and artifact scope section."""
+    lines = [
+        f"- Config: `{analysis_config.config_path}`",
+        f"- Label input: Kelpwatch annual max from `{analysis_config.label_path}`.",
+        f"- Model input sample: `{analysis_config.aligned_table_path}`",
+        (
+            f"- Default sampling policy: `{analysis_config.sample_policy}` "
+            f"({sampling_policy_label(analysis_config.sample_policy)})."
+        ),
+        (
+            "- Sampling-policy decision note: "
+            "`docs/phase1_crm_stratified_sampling_policy_decision.md`"
+        ),
+        (
+            f"- Primary full-grid reporting scope: `{evaluation_scope(analysis_config.domain_mask)}` "
+            f"inside `{mask_status(analysis_config.domain_mask)}`."
+        ),
+        (
+            f"- Primary split/year: `{analysis_config.analysis_split}` "
+            f"`{analysis_config.analysis_year}`."
+        ),
+        f"- Continuous baseline predictions: `{analysis_config.predictions_path}`",
+        f"- Model comparison table: `{analysis_config.phase1_model_comparison_path}`",
+    ]
+    return "\n".join(lines)
+
+
+def primary_scoreboard_markdown(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the primary retained-domain scoreboard table."""
+    lookup = primary_scoreboard_lookup(rows, analysis_config)
+    if not lookup:
+        return "No primary retained-domain scoreboard rows were available."
+    lines = [
+        (
+            f"Primary rows use `split = {analysis_config.analysis_split}`, "
+            f"`year = {analysis_config.analysis_year}`, "
+            f"`evaluation_scope = {evaluation_scope(analysis_config.domain_mask)}`, and "
+            "`label_source = all`."
+        ),
+        "",
+        "| Model | Role | Rows | RMSE | R2 | F1 >=10% | Predicted area (M m2) | Area bias |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for model_name in PRIMARY_SCOREBOARD_MODELS:
+        row = lookup.get(model_name)
+        if row is None:
+            continue
+        lines.append(
+            f"| {PRIMARY_SCOREBOARD_LABELS[model_name]} | "
+            f"{PRIMARY_SCOREBOARD_KIND[model_name]} | "
+            f"{row.get('row_count', '')} | "
+            f"{format_decimal(row_float(row, 'rmse'), 4)} | "
+            f"{format_decimal(row_float(row, 'r2'), 3)} | "
+            f"{format_decimal(row_float(row, 'f1_ge_10pct'), 3)} | "
+            f"{format_area_millions(row_float(row, 'predicted_canopy_area'))} | "
+            f"{format_percent(row_float(row, 'area_pct_bias'), 1)} |"
+        )
+    return "\n".join(lines)
+
+
+def primary_scoreboard_lookup(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> dict[str, dict[str, object]]:
+    """Return primary scoreboard rows keyed by model name."""
+    primary = primary_scoreboard_rows(rows, analysis_config)
+    lookup: dict[str, dict[str, object]] = {}
+    for row in primary:
+        model_name = str(row.get("model_name", ""))
+        if model_name in PRIMARY_SCOREBOARD_MODELS and model_name not in lookup:
+            lookup[model_name] = row
+    return lookup
+
+
+def primary_scoreboard_rows(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> list[dict[str, object]]:
+    """Filter comparison rows to the primary retained-domain report scope."""
+    return [
+        row
+        for row in rows
+        if row.get("split") == analysis_config.analysis_split
+        and sampling_policy_year_matches(row.get("year"), analysis_config.analysis_year)
+        and row.get("evaluation_scope") == evaluation_scope(analysis_config.domain_mask)
+        and row.get("label_source") == "all"
+    ]
+
+
+def improvement_since_ridge_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the concise improvement narrative relative to ridge."""
+    scoreboard = primary_scoreboard_lookup(tables.phase1_model_comparison, analysis_config)
+    ridge = scoreboard.get("ridge_regression", {})
+    expected = scoreboard.get("calibrated_probability_x_conditional_canopy", {})
+    hard_gate = scoreboard.get("calibrated_hard_gate_conditional_canopy", {})
+    previous = scoreboard.get("previous_year_annual_max", {})
+    lines = [
+        (
+            "The clearest improvement is full-grid area behavior. AEF ridge predicts "
+            f"`{format_area_millions(row_float(ridge, 'predicted_canopy_area'))} M m2` "
+            f"inside the retained domain, while the expected-value hurdle predicts "
+            f"`{format_area_millions(row_float(expected, 'predicted_canopy_area'))} M m2` "
+            "by multiplying calibrated presence probability by conditional canopy amount."
+        ),
+        (
+            f"Relative to ridge area bias `{format_percent(row_float(ridge, 'area_pct_bias'), 1)}`, "
+            f"the expected-value hurdle area bias is "
+            f"`{format_percent(row_float(expected, 'area_pct_bias'), 1)}`. Its RMSE "
+            f"`{format_decimal(row_float(expected, 'rmse'), 4)}` is also lower than ridge "
+            f"`{format_decimal(row_float(ridge, 'rmse'), 4)}` in the same retained-domain scope."
+        ),
+        (
+            "The hard-gated hurdle is kept as a diagnostic because it has strong thresholded "
+            f"support (F1 `{format_decimal(row_float(hard_gate, 'f1_ge_10pct'), 3)}`), but "
+            "the expected-value row is the main full-grid canopy candidate because it preserves "
+            "a continuous expected area estimate."
+        ),
+        (
+            "Persistence remains hard to beat: previous-year annual max has RMSE "
+            f"`{format_decimal(row_float(previous, 'rmse'), 4)}` and area bias "
+            f"`{format_percent(row_float(previous, 'area_pct_bias'), 1)}`. That benchmark "
+            "sets the bar for any next AEF model."
+        ),
+    ]
+    return "\n\n".join(lines)
+
+
+def binary_presence_decision_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Build the concise binary-presence interpretation for the main report."""
+    calibrated = primary_calibrated_binary_metric(analysis_config)
+    if not calibrated:
+        return "Calibrated binary-presence metrics were not available."
+    return (
+        "Calibrated binary presence is the strongest classification component for the "
+        "Kelpwatch-style `annual_max_ge_10pct` target. The primary test row has AUPRC "
+        f"`{format_decimal(row_float(calibrated, 'auprc'), 3)}`, precision "
+        f"`{format_decimal(row_float(calibrated, 'precision'), 3)}`, recall "
+        f"`{format_decimal(row_float(calibrated, 'recall'), 3)}`, and F1 "
+        f"`{format_decimal(row_float(calibrated, 'f1'), 3)}` at the validation-selected "
+        f"threshold `{format_decimal(row_float(calibrated, 'probability_threshold'), 2)}`. "
+        "The map below is diagnostic support for where the binary gate still admits false "
+        "positives or misses observed canopy."
+    )
+
+
+def binary_presence_map_figure_markdown(
+    analysis_config: ModelAnalysisConfig, report_path: Path
+) -> str:
+    """Return only the binary-presence map figure link for the main report."""
+    map_figure = analysis_config.binary_presence_map_figure
+    if map_figure is not None and map_figure.exists():
+        return image_markdown("Binary presence 2022 map", map_figure, report_path)
+    return ""
+
+
+def remaining_failure_modes_markdown(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+    test_distribution: dict[str, object],
+) -> str:
+    """Build the focused remaining-failure section."""
+    high_canopy = primary_conditional_high_canopy_row(analysis_config)
+    near_saturated = primary_conditional_near_saturated_row(analysis_config)
+    lines = [
+        prediction_distribution_markdown(test_distribution),
+        residual_bin_interpretation_markdown(tables.residual_by_bin, analysis_config),
+        mask_aware_residual_markdown(tables, analysis_config),
+        (
+            "High-canopy amount remains the model bottleneck. On held-out observed-positive "
+            f"`annual_max_ge_50pct` rows, the conditional amount model mean residual is "
+            f"`{format_decimal(row_float(high_canopy, 'mean_residual_area'), 1)} m2`; on "
+            f"`near_saturated_ge_810m2` rows it is "
+            f"`{format_decimal(row_float(near_saturated, 'mean_residual_area'), 1)} m2`."
+        ),
+        (
+            "These failures point to the next continuous-objective experiment, not to changing "
+            "the annual-max label input, the retained-domain mask, or the validation-selected "
+            "binary threshold in this reporting pass."
+        ),
+    ]
+    return "\n\n".join(lines)
+
+
+def next_modeling_step_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the report-level decision and next modeling step."""
+    scoreboard = primary_scoreboard_lookup(tables.phase1_model_comparison, analysis_config)
+    expected = scoreboard.get("calibrated_probability_x_conditional_canopy", {})
+    previous = scoreboard.get("previous_year_annual_max", {})
+    return (
+        "Decision: keep `crm_stratified_mask_first_sample` as the default policy and treat the "
+        "expected-value hurdle as the current AEF full-grid candidate. Do not promote it as final: "
+        f"its area bias `{format_percent(row_float(expected, 'area_pct_bias'), 1)}` is close to "
+        f"previous-year persistence `{format_percent(row_float(previous, 'area_pct_bias'), 1)}`, "
+        "but the high-canopy residuals show that amount prediction is still weak.\n\n"
+        "Next modeling task: run one narrowly scoped continuous-objective experiment for retained "
+        "domain rows, such as capped weights or stratified-background weighting, and compare it "
+        "against the same 2022 retained-domain scoreboard. Keep the annual-max target, mask, "
+        "split, and validation-only threshold/calibration semantics fixed."
+    )
+
+
+def primary_calibrated_binary_metric(
+    analysis_config: ModelAnalysisConfig,
+) -> dict[str, object]:
+    """Return the primary calibrated binary metric row for the report."""
+    rows = read_optional_csv_rows(analysis_config.binary_presence_calibration_metrics_path)
+    preferred = calibration_metric_lookup(
+        rows,
+        split=analysis_config.analysis_split,
+        label_source="all",
+        probability_source="platt_calibrated",
+    )
+    return preferred or calibration_metric_lookup(
+        rows,
+        split=analysis_config.analysis_split,
+        label_source="all",
+        probability_source="raw_logistic",
+    )
+
+
+def primary_conditional_high_canopy_row(
+    analysis_config: ModelAnalysisConfig,
+) -> dict[str, object]:
+    """Return the held-out high-canopy conditional residual row."""
+    return conditional_residual_lookup(
+        read_optional_csv_rows(analysis_config.conditional_canopy_positive_residuals_path),
+        split=analysis_config.analysis_split,
+        label_source="all",
+        observed_bin="annual_max_ge_50pct",
+    )
+
+
+def primary_conditional_near_saturated_row(
+    analysis_config: ModelAnalysisConfig,
+) -> dict[str, object]:
+    """Return the held-out near-saturated conditional residual row."""
+    return conditional_residual_lookup(
+        read_optional_csv_rows(analysis_config.conditional_canopy_positive_residuals_path),
+        split=analysis_config.analysis_split,
+        label_source="all",
+        observed_bin="near_saturated_ge_810m2",
     )
 
 

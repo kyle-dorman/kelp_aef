@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from matplotlib import image as mpimg
 
 from kelp_aef import main
 from kelp_aef.evaluation.binary_presence import (
@@ -29,6 +30,8 @@ def test_train_binary_presence_writes_artifacts(tmp_path: Path) -> None:
     assert fixture["model"].is_file()
     assert fixture["precision_recall_figure"].is_file()
     assert fixture["map_figure"].is_file()
+    height, width = png_dimensions(fixture["map_figure"])
+    assert width / height < 1.5
     assert set(sample_predictions["target_label"]) == {"annual_max_ge_10pct"}
     assert sample_predictions["pred_binary_probability"].between(0, 1).all()
     assert {"pred_binary_class", "domain_mask_reason", "depth_bin"}.issubset(
@@ -126,6 +129,12 @@ def test_binary_target_uses_10pct_annual_max_rule() -> None:
     target = build_binary_target(pd.Series([0.0, 0.099, 0.10, 0.5]), 0.10)
 
     assert target.tolist() == [False, False, True, True]
+
+
+def png_dimensions(path: Path) -> tuple[int, int]:
+    """Return PNG image height and width in pixels."""
+    image = mpimg.imread(path)
+    return int(image.shape[0]), int(image.shape[1])
 
 
 def test_validation_threshold_handles_no_positive_rows(tmp_path: Path) -> None:

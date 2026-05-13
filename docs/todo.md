@@ -580,7 +580,7 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
     manual grep confirmed the retired section text is absent from the refreshed
     Markdown report, and `make check`.
-- [ ] P1-21e: Simplify the Phase 1 report story and make maps larger.
+- [x] P1-21e: Simplify the Phase 1 report story and make maps larger.
   - Goal: Turn the accumulated Phase 1 report into a current-state decision
     report with a clear 2022 retained-domain scoreboard, concise interpretation,
     and readable report-embedded maps.
@@ -591,6 +591,17 @@ masking change should end with an updated model-analysis report.
   - Validation: focused report/map tests, regenerate map and report artifacts
     with the Monterey smoke config, visually check map orientation, then run
     `make check`.
+  - Completed: rewrote the active Phase 1 report as a decision report with a
+    primary 2022 retained-domain scoreboard, moved detailed diagnostic
+    chronology into the appendix, and regenerated ridge, binary-presence, and
+    hurdle maps with larger vertical or two-column layouts.
+  - Validation passed:
+    `uv run pytest tests/test_model_analysis.py tests/test_residual_maps.py tests/test_hurdle.py tests/test_binary_presence.py`,
+    `uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef train-binary-presence --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef compose-hurdle-model --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
+    manual report-heading and PNG-dimension checks, and `make check`.
 - [ ] P1-22: Test one capped-weight or stratified-background continuous model.
   - Goal: Check whether a simpler continuous objective can compete with the
     hurdle model without collapsing or leaking positives.
