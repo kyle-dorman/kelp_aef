@@ -260,6 +260,11 @@ background rows dominate the fit and station skill degrades sharply. The direct
 continuous objective remains the issue; no cap in this sweep produces a
 competitive retained-domain all-label result.
 
+Historical snapshot note: keep this task and commit as the record of the
+negative result. If the direct-continuous implementation is backed out later,
+preserve this table and interpretation in the task history so the cap sweep does
+not need to be rediscovered.
+
 Additional generated cap-sweep artifacts follow the pattern:
 
 - `/Volumes/x10pro/kelp_aef/models/continuous_objective/ridge_capped_weight_cap_{1,2,10,20,100}.joblib`
