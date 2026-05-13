@@ -108,6 +108,15 @@ start.
     overprediction.
   - Phase 1 should compare binary, hurdle, capped-weight, and
     stratified-background policies against reference baselines.
+  - Refactor background sampling to be mask-first: filter to the retained
+    plausible-kelp domain before applying row budgets or bathymetry/depth
+    strata, then sample from that retained population.
+  - Replace or reinterpret `background_rows_per_year` for masked workflows
+    because the current value mostly limits a pre-mask file size and the domain
+    mask does most of the retained-training-set selection.
+  - Add an explicit retained-background budget/stratum quota to make default
+    and CRM-stratified samples comparable by construction, not as a side effect
+    of post-hoc mask filtering.
 - [ ] Evaluate alternative Kelpwatch temporal label aggregations after Phase 1.
   - Deferred explicitly.
   - Keep annual max as the Phase 1 label input because the current signal is

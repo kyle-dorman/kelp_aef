@@ -17,11 +17,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, SupportsIndex, cast
 
+import joblib  # type: ignore[import-untyped]
 import matplotlib
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
 import pyarrow.dataset as ds
 import xarray as xr
+from pyarrow.lib import ArrowInvalid
 from sklearn.decomposition import PCA  # type: ignore[import-untyped]
 from sklearn.preprocessing import StandardScaler  # type: ignore[import-untyped]
 
@@ -44,6 +46,12 @@ from kelp_aef.evaluation.baselines import (
     root_mean_squared_error,
     safe_ratio,
     write_reference_area_calibration,
+)
+from kelp_aef.evaluation.binary_presence import (
+    BinaryCalibrator,
+    apply_binary_calibrator,
+    binary_auprc,
+    binary_auroc,
 )
 from kelp_aef.labels.kelpwatch import NETCDF_ENGINE
 
@@ -394,6 +402,43 @@ PHASE1_MODEL_COMPARISON_FIELDS = (
     "predicted_canopy_area",
     "area_pct_bias",
 )
+ALL_MODEL_SAMPLING_POLICY_COMPARISON_FIELDS = (
+    "sample_policy",
+    "model_family",
+    "model_name",
+    "artifact_kind",
+    "split",
+    "year",
+    "label_source",
+    "mask_status",
+    "evaluation_scope",
+    "row_count",
+    "target_label",
+    "probability_source",
+    "threshold_policy",
+    "probability_threshold",
+    "auprc",
+    "auroc",
+    "precision",
+    "recall",
+    "f1",
+    "f1_ge_10pct",
+    "mae",
+    "rmse",
+    "r2",
+    "spearman",
+    "observed_canopy_area",
+    "predicted_canopy_area",
+    "area_bias",
+    "area_pct_bias",
+    "predicted_positive_rate",
+    "predicted_positive_area_m2",
+    "assumed_background_count",
+    "assumed_background_false_positive_rate",
+    "assumed_background_predicted_positive_rate",
+    "assumed_background_predicted_area_m2",
+    "source_path",
+)
 REFERENCE_AREA_CALIBRATION_FIELDS = (
     "model_name",
     "split",
@@ -585,6 +630,7 @@ class ModelAnalysisConfig:
     feature_separability_path: Path
     phase1_decision_path: Path
     phase1_model_comparison_path: Path
+    all_model_sampling_policy_comparison_path: Path
     data_health_path: Path
     class_balance_by_split_path: Path
     target_balance_by_label_source_path: Path
@@ -651,6 +697,7 @@ class AnalysisTables:
     feature_separability: list[dict[str, object]]
     phase1_decision: list[dict[str, object]]
     phase1_model_comparison: list[dict[str, object]]
+    all_model_sampling_policy_comparison: list[dict[str, object]]
     data_health: list[dict[str, object]]
     class_balance_by_split: list[dict[str, object]]
     target_balance_by_label_source: list[dict[str, object]]
@@ -965,6 +1012,11 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             outputs,
             "model_analysis_phase1_model_comparison",
             tables_dir / "model_analysis_phase1_model_comparison.csv",
+        ),
+        all_model_sampling_policy_comparison_path=output_path(
+            outputs,
+            "model_analysis_crm_stratified_all_models_comparison",
+            tables_dir / "model_analysis_crm_stratified_all_models_comparison.csv",
         ),
         data_health_path=output_path(
             outputs,
@@ -1418,7 +1470,7 @@ def add_target_framings(labels: pd.DataFrame, analysis_config: ModelAnalysisConf
             frame[f"high_presence_ge_{suffix}_y"] = frame["kelp_fraction_y"] > 0
         else:
             frame[f"high_presence_ge_{suffix}_y"] = frame["kelp_fraction_y"] >= threshold
-    return frame
+    return frame.reset_index(drop=True)
 
 
 def quarter_column(quarter: int) -> str:
@@ -1496,6 +1548,10 @@ def build_analysis_tables(
     phase1_model_comparison = build_phase1_model_comparison(
         data, analysis_config, reference_area_calibration
     )
+    all_model_sampling_policy_comparison = build_all_model_sampling_policy_comparison(
+        analysis_config,
+        reference_area_calibration,
+    )
     data_health = build_data_health_rows(data, analysis_config)
     balance_sources = build_balance_sources(data, analysis_config)
     class_balance_by_split = build_class_balance_by_split(balance_sources)
@@ -1534,6 +1590,7 @@ def build_analysis_tables(
         feature_separability=feature_separability,
         phase1_decision=phase1_decision,
         phase1_model_comparison=phase1_model_comparison,
+        all_model_sampling_policy_comparison=all_model_sampling_policy_comparison,
         data_health=data_health,
         class_balance_by_split=class_balance_by_split,
         target_balance_by_label_source=target_balance_by_label_source,
@@ -3037,6 +3094,793 @@ def reference_area_calibration_comparison_rows(
     return rows
 
 
+def build_all_model_sampling_policy_comparison(
+    analysis_config: ModelAnalysisConfig,
+    reference_area_calibration: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Build the authoritative current-vs-CRM all-model comparison table."""
+    specs = sampling_policy_artifact_specs(analysis_config)
+    rows: list[dict[str, object]] = []
+    for spec in specs:
+        sample_policy = str(spec["sample_policy"])
+        rows.extend(
+            baseline_metric_sampling_rows(
+                read_optional_csv_rows(optional_spec_path(spec, "baseline_metrics_path")),
+                sample_policy=sample_policy,
+                source_path=optional_spec_path(spec, "baseline_metrics_path"),
+            )
+        )
+        baseline_path = optional_spec_path(spec, "baseline_area_calibration_path")
+        baseline_rows = (
+            reference_area_calibration
+            if sample_policy == "current_masked_sample"
+            else read_optional_csv_rows(baseline_path)
+        )
+        rows.extend(
+            area_metric_sampling_rows(
+                baseline_rows,
+                sample_policy=sample_policy,
+                model_family="continuous_baseline",
+                artifact_kind="full_grid_area_calibration",
+                source_path=baseline_path,
+            )
+        )
+        rows.extend(
+            binary_metric_sampling_rows(
+                read_optional_csv_rows(optional_spec_path(spec, "binary_metrics_path")),
+                sample_policy=sample_policy,
+                artifact_kind="binary_sample_metric",
+                source_path=optional_spec_path(spec, "binary_metrics_path"),
+            )
+        )
+        rows.extend(
+            binary_metric_sampling_rows(
+                read_optional_csv_rows(optional_spec_path(spec, "binary_calibration_metrics_path")),
+                sample_policy=sample_policy,
+                artifact_kind="binary_calibrated_sample_metric",
+                source_path=optional_spec_path(spec, "binary_calibration_metrics_path"),
+            )
+        )
+        rows.extend(
+            binary_full_grid_sampling_rows(
+                read_optional_csv_rows(
+                    optional_spec_path(spec, "binary_calibration_full_grid_area_summary_path")
+                ),
+                sample_policy=sample_policy,
+                source_path=optional_spec_path(
+                    spec, "binary_calibration_full_grid_area_summary_path"
+                ),
+            )
+        )
+        rows.extend(
+            binary_full_grid_metric_sampling_rows(
+                full_grid_predictions_path=optional_spec_path(
+                    spec, "binary_full_grid_predictions_path"
+                ),
+                calibration_model_path=optional_spec_path(spec, "binary_calibration_model_path"),
+                sample_policy=sample_policy,
+                source_path=optional_spec_path(spec, "binary_full_grid_predictions_path"),
+                analysis_config=analysis_config,
+            )
+        )
+        rows.extend(
+            conditional_metric_sampling_rows(
+                read_optional_csv_rows(optional_spec_path(spec, "conditional_metrics_path")),
+                sample_policy=sample_policy,
+                source_path=optional_spec_path(spec, "conditional_metrics_path"),
+            )
+        )
+        rows.extend(
+            conditional_likely_positive_sampling_rows(
+                read_optional_csv_rows(
+                    optional_spec_path(spec, "conditional_likely_positive_summary_path")
+                ),
+                sample_policy=sample_policy,
+                source_path=optional_spec_path(spec, "conditional_likely_positive_summary_path"),
+            )
+        )
+        rows.extend(
+            area_metric_sampling_rows(
+                read_optional_csv_rows(optional_spec_path(spec, "hurdle_area_calibration_path")),
+                sample_policy=sample_policy,
+                model_family="hurdle",
+                artifact_kind="hurdle_area_calibration",
+                source_path=optional_spec_path(spec, "hurdle_area_calibration_path"),
+            )
+        )
+        rows.extend(
+            hurdle_leakage_sampling_rows(
+                read_optional_csv_rows(
+                    optional_spec_path(spec, "hurdle_assumed_background_leakage_path")
+                ),
+                sample_policy=sample_policy,
+                source_path=optional_spec_path(spec, "hurdle_assumed_background_leakage_path"),
+            )
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            str(row.get("sample_policy", "")),
+            str(row.get("model_family", "")),
+            str(row.get("model_name", "")),
+            str(row.get("artifact_kind", "")),
+            str(row.get("split", "")),
+            str(row.get("year", "")),
+            str(row.get("label_source", "")),
+        ),
+    )
+
+
+def sampling_policy_artifact_specs(
+    analysis_config: ModelAnalysisConfig,
+) -> list[dict[str, object]]:
+    """Read current and sidecar artifact paths grouped by sample policy."""
+    config = load_yaml_config(analysis_config.config_path)
+    models = require_mapping(config.get("models"), "models")
+    baselines = optional_mapping(models.get("baselines"), "models.baselines")
+    binary = optional_mapping(models.get("binary_presence"), "models.binary_presence")
+    binary_calibration = optional_mapping(
+        binary.get("calibration"), "models.binary_presence.calibration"
+    )
+    conditional = optional_mapping(models.get("conditional_canopy"), "models.conditional_canopy")
+    hurdle = optional_mapping(models.get("hurdle"), "models.hurdle")
+    specs: dict[str, dict[str, object]] = {}
+    current_policy = str(
+        baselines.get("sample_policy")
+        or binary.get("sample_policy")
+        or hurdle.get("sample_policy")
+        or "current_masked_sample"
+    )
+    current = ensure_policy_spec(specs, current_policy)
+    current.update(
+        {
+            "baseline_metrics_path": analysis_config.metrics_path,
+            "baseline_area_calibration_path": analysis_config.reference_area_calibration_path,
+            "binary_metrics_path": analysis_config.binary_presence_metrics_path,
+            "binary_full_grid_predictions_path": optional_path(binary.get("full_grid_predictions")),
+            "binary_calibration_metrics_path": (
+                analysis_config.binary_presence_calibration_metrics_path
+            ),
+            "binary_calibration_model_path": optional_path(binary_calibration.get("model")),
+            "binary_calibration_full_grid_area_summary_path": (
+                analysis_config.binary_presence_calibration_full_grid_area_summary_path
+            ),
+            "conditional_metrics_path": analysis_config.conditional_canopy_metrics_path,
+            "conditional_likely_positive_summary_path": (
+                analysis_config.conditional_canopy_full_grid_likely_positive_summary_path
+            ),
+            "hurdle_area_calibration_path": analysis_config.hurdle_area_calibration_path,
+            "hurdle_assumed_background_leakage_path": (
+                analysis_config.hurdle_assumed_background_leakage_path
+            ),
+        }
+    )
+    add_baseline_sidecar_specs(specs, baselines)
+    add_binary_sidecar_specs(specs, binary)
+    add_conditional_sidecar_specs(specs, conditional)
+    add_hurdle_sidecar_specs(specs, hurdle)
+    return list(specs.values())
+
+
+def ensure_policy_spec(
+    specs: dict[str, dict[str, object]],
+    sample_policy: str,
+) -> dict[str, object]:
+    """Return the mutable artifact spec for one sample policy."""
+    if sample_policy not in specs:
+        specs[sample_policy] = {"sample_policy": sample_policy}
+    return specs[sample_policy]
+
+
+def add_baseline_sidecar_specs(
+    specs: dict[str, dict[str, object]],
+    baselines: dict[str, Any],
+) -> None:
+    """Add baseline sidecar area-calibration paths to policy specs."""
+    sidecars = optional_mapping(baselines.get("sidecars"), "models.baselines.sidecars")
+    for name, value in sidecars.items():
+        sidecar = require_mapping(value, f"models.baselines.sidecars.{name}")
+        sample_policy = str(sidecar.get("sample_policy", name))
+        spec = ensure_policy_spec(specs, sample_policy)
+        spec["baseline_metrics_path"] = optional_path(sidecar.get("metrics"))
+        spec["baseline_area_calibration_path"] = optional_path(sidecar.get("area_calibration"))
+
+
+def add_binary_sidecar_specs(
+    specs: dict[str, dict[str, object]],
+    binary: dict[str, Any],
+) -> None:
+    """Add binary sidecar metric and calibration paths to policy specs."""
+    sidecars = optional_mapping(binary.get("sidecars"), "models.binary_presence.sidecars")
+    for name, value in sidecars.items():
+        sidecar = require_mapping(value, f"models.binary_presence.sidecars.{name}")
+        sample_policy = str(sidecar.get("sample_policy", name))
+        calibration = optional_mapping(
+            sidecar.get("calibration"),
+            f"models.binary_presence.sidecars.{name}.calibration",
+        )
+        spec = ensure_policy_spec(specs, sample_policy)
+        spec.update(
+            {
+                "binary_metrics_path": optional_path(sidecar.get("metrics")),
+                "binary_full_grid_predictions_path": optional_path(
+                    sidecar.get("full_grid_predictions")
+                ),
+                "binary_calibration_model_path": optional_path(calibration.get("model")),
+                "binary_calibration_metrics_path": optional_path(calibration.get("metrics")),
+                "binary_calibration_full_grid_area_summary_path": optional_path(
+                    calibration.get("full_grid_area_summary")
+                ),
+            }
+        )
+
+
+def add_conditional_sidecar_specs(
+    specs: dict[str, dict[str, object]],
+    conditional: dict[str, Any],
+) -> None:
+    """Add conditional sidecar diagnostic paths to policy specs."""
+    sidecars = optional_mapping(
+        conditional.get("sidecars"),
+        "models.conditional_canopy.sidecars",
+    )
+    for name, value in sidecars.items():
+        sidecar = require_mapping(value, f"models.conditional_canopy.sidecars.{name}")
+        sample_policy = str(sidecar.get("sample_policy", name))
+        spec = ensure_policy_spec(specs, sample_policy)
+        spec["conditional_likely_positive_summary_path"] = optional_path(
+            sidecar.get("full_grid_likely_positive_summary")
+        )
+        spec["conditional_reuse_manifest_path"] = optional_path(sidecar.get("reuse_manifest"))
+
+
+def add_hurdle_sidecar_specs(
+    specs: dict[str, dict[str, object]],
+    hurdle: dict[str, Any],
+) -> None:
+    """Add hurdle sidecar area and leakage paths to policy specs."""
+    sidecars = optional_mapping(hurdle.get("sidecars"), "models.hurdle.sidecars")
+    for name, value in sidecars.items():
+        sidecar = require_mapping(value, f"models.hurdle.sidecars.{name}")
+        sample_policy = str(sidecar.get("sample_policy", name))
+        spec = ensure_policy_spec(specs, sample_policy)
+        spec.update(
+            {
+                "hurdle_area_calibration_path": optional_path(sidecar.get("area_calibration")),
+                "hurdle_assumed_background_leakage_path": optional_path(
+                    sidecar.get("assumed_background_leakage")
+                ),
+            }
+        )
+
+
+def optional_spec_path(spec: dict[str, object], key: str) -> Path | None:
+    """Return an optional path from a sampling-policy artifact spec."""
+    value = spec.get(key)
+    return value if isinstance(value, Path) else None
+
+
+def area_metric_sampling_rows(
+    rows: list[dict[str, object]],
+    *,
+    sample_policy: str,
+    model_family: str,
+    artifact_kind: str,
+    source_path: Path | None,
+) -> list[dict[str, object]]:
+    """Convert area-calibration rows to the all-model sample-policy schema."""
+    output: list[dict[str, object]] = []
+    for row in rows:
+        output.append(
+            all_model_sampling_row(
+                sample_policy=sample_policy,
+                model_family=model_family,
+                model_name=str(row.get("model_name", "")),
+                artifact_kind=artifact_kind,
+                row=row,
+                source_path=source_path,
+                values={
+                    "f1_ge_10pct": row.get("f1_ge_10pct", math.nan),
+                    "mae": row.get("mae", math.nan),
+                    "rmse": row.get("rmse", math.nan),
+                    "r2": row.get("r2", math.nan),
+                    "spearman": row.get("spearman", math.nan),
+                    "observed_canopy_area": row.get("observed_canopy_area", math.nan),
+                    "predicted_canopy_area": row.get("predicted_canopy_area", math.nan),
+                    "area_bias": row.get("area_bias", math.nan),
+                    "area_pct_bias": row.get("area_pct_bias", math.nan),
+                },
+            )
+        )
+    return output
+
+
+def baseline_metric_sampling_rows(
+    rows: list[dict[str, object]],
+    *,
+    sample_policy: str,
+    source_path: Path | None,
+) -> list[dict[str, object]]:
+    """Convert continuous baseline sample metrics to all-model rows."""
+    output: list[dict[str, object]] = []
+    for row in rows:
+        if str(row.get("weighted", "False")).lower() in {"true", "1"}:
+            continue
+        metric_group = str(row.get("metric_group", "overall"))
+        metric_group_value = str(row.get("metric_group_value", "all"))
+        if metric_group == "overall":
+            label_source = "all"
+            evaluation = "background_inclusive_sample"
+        elif metric_group == "label_source":
+            label_source = metric_group_value
+            evaluation = (
+                "kelpwatch_station_sample"
+                if label_source == "kelpwatch_station"
+                else ("background_inclusive_sample")
+            )
+        else:
+            continue
+        output.append(
+            all_model_sampling_row(
+                sample_policy=sample_policy,
+                model_family="continuous_baseline",
+                model_name=str(row.get("model_name", "")),
+                artifact_kind="baseline_sample_metric",
+                row={
+                    **row,
+                    "label_source": label_source,
+                    "evaluation_scope": evaluation,
+                },
+                source_path=source_path,
+                values={
+                    "target_label": row.get("target", "kelp_fraction_y"),
+                    "f1_ge_10pct": row.get("f1_ge_10pct", math.nan),
+                    "mae": row.get("mae", math.nan),
+                    "rmse": row.get("rmse", math.nan),
+                    "r2": row.get("r2", math.nan),
+                    "spearman": row.get("spearman", math.nan),
+                    "observed_canopy_area": row.get("observed_canopy_area", math.nan),
+                    "predicted_canopy_area": row.get("predicted_canopy_area", math.nan),
+                    "area_bias": row.get("area_bias", math.nan),
+                    "area_pct_bias": row.get("area_pct_bias", math.nan),
+                },
+            )
+        )
+    return output
+
+
+def binary_metric_sampling_rows(
+    rows: list[dict[str, object]],
+    *,
+    sample_policy: str,
+    artifact_kind: str,
+    source_path: Path | None,
+) -> list[dict[str, object]]:
+    """Convert binary sample metric rows to the all-model sample-policy schema."""
+    output: list[dict[str, object]] = []
+    for row in rows:
+        output.append(
+            all_model_sampling_row(
+                sample_policy=sample_policy,
+                model_family="binary_presence",
+                model_name=str(row.get("model_name", "logistic_annual_max_ge_10pct")),
+                artifact_kind=artifact_kind,
+                row={
+                    **row,
+                    "evaluation_scope": row.get("evaluation_scope", "binary_sample_metric"),
+                },
+                source_path=source_path,
+                values={
+                    "target_label": row.get("target_label", "annual_max_ge_10pct"),
+                    "probability_source": row.get("probability_source", "raw_logistic"),
+                    "threshold_policy": row.get("threshold_policy", ""),
+                    "probability_threshold": row.get("probability_threshold", math.nan),
+                    "auprc": row.get("auprc", math.nan),
+                    "auroc": row.get("auroc", math.nan),
+                    "precision": row.get("precision", math.nan),
+                    "recall": row.get("recall", math.nan),
+                    "f1": row.get("f1", math.nan),
+                    "predicted_positive_rate": row.get("predicted_positive_rate", math.nan),
+                    "assumed_background_count": row.get("assumed_background_count", math.nan),
+                    "assumed_background_false_positive_rate": row.get(
+                        "assumed_background_false_positive_rate", math.nan
+                    ),
+                },
+            )
+        )
+    return output
+
+
+def binary_full_grid_sampling_rows(
+    rows: list[dict[str, object]],
+    *,
+    sample_policy: str,
+    source_path: Path | None,
+) -> list[dict[str, object]]:
+    """Convert calibrated binary full-grid summaries to all-model rows."""
+    output: list[dict[str, object]] = []
+    for row in rows:
+        output.append(
+            all_model_sampling_row(
+                sample_policy=sample_policy,
+                model_family="binary_presence",
+                model_name=str(row.get("model_name", "logistic_annual_max_ge_10pct")),
+                artifact_kind="binary_calibrated_full_grid_area",
+                row=row,
+                source_path=source_path,
+                values={
+                    "target_label": row.get("target_label", "annual_max_ge_10pct"),
+                    "probability_source": row.get("probability_source", ""),
+                    "threshold_policy": row.get("threshold_policy", ""),
+                    "probability_threshold": row.get("probability_threshold", math.nan),
+                    "predicted_positive_rate": row.get("predicted_positive_rate", math.nan),
+                    "predicted_positive_area_m2": row.get("predicted_positive_area_m2", math.nan),
+                    "assumed_background_count": row.get("assumed_background_count", math.nan),
+                    "assumed_background_predicted_positive_rate": row.get(
+                        "assumed_background_predicted_positive_rate", math.nan
+                    ),
+                },
+            )
+        )
+    return output
+
+
+def binary_full_grid_metric_sampling_rows(
+    *,
+    full_grid_predictions_path: Path | None,
+    calibration_model_path: Path | None,
+    sample_policy: str,
+    source_path: Path | None,
+    analysis_config: ModelAnalysisConfig,
+) -> list[dict[str, object]]:
+    """Compute primary full-grid binary metrics for one sampling policy."""
+    if (
+        full_grid_predictions_path is None
+        or calibration_model_path is None
+        or not full_grid_predictions_path.exists()
+        or not calibration_model_path.exists()
+    ):
+        return []
+    predictions = read_binary_full_grid_metric_frame(full_grid_predictions_path, analysis_config)
+    if predictions.empty:
+        return []
+    payload = cast(dict[str, Any], joblib.load(calibration_model_path))
+    policy_thresholds = cast(dict[str, tuple[str, float]], payload.get("policy_thresholds", {}))
+    calibrator = binary_calibrator_from_payload(payload)
+    raw_probabilities = predictions["pred_binary_probability"].to_numpy(dtype=float)
+    rows: list[dict[str, object]] = []
+    for threshold_policy, (probability_source, probability_threshold) in policy_thresholds.items():
+        probabilities = (
+            raw_probabilities
+            if probability_source == "raw_logistic"
+            else apply_binary_calibrator(calibrator, raw_probabilities)
+        )
+        for row in binary_full_grid_metric_group_rows(
+            predictions,
+            probabilities,
+            sample_policy=sample_policy,
+            probability_source=probability_source,
+            threshold_policy=threshold_policy,
+            probability_threshold=float(probability_threshold),
+            source_path=source_path,
+            analysis_config=analysis_config,
+        ):
+            rows.append(row)
+    return rows
+
+
+def read_binary_full_grid_metric_frame(
+    path: Path, analysis_config: ModelAnalysisConfig
+) -> pd.DataFrame:
+    """Read primary split/year binary full-grid predictions for metric evaluation."""
+    columns = [
+        "split",
+        "year",
+        "label_source",
+        "binary_observed_y",
+        "pred_binary_probability",
+        "target_label",
+        "mask_status",
+        "evaluation_scope",
+    ]
+    available = set(ds.dataset(path, format="parquet").schema.names)  # type: ignore[no-untyped-call]
+    selected_columns = [column for column in columns if column in available]
+    filters = [
+        ("split", "==", analysis_config.analysis_split),
+        ("year", "==", analysis_config.analysis_year),
+    ]
+    try:
+        frame = pd.read_parquet(path, columns=selected_columns, filters=filters)
+    except (ArrowInvalid, NotImplementedError, ValueError):
+        frame = pd.read_parquet(path, columns=selected_columns)
+        frame = frame.loc[
+            (frame["split"] == analysis_config.analysis_split)
+            & (frame["year"].astype(int) == analysis_config.analysis_year)
+        ].copy()
+    required = {"split", "year", "binary_observed_y", "pred_binary_probability"}
+    if not required.issubset(frame.columns):
+        return pd.DataFrame()
+    if "label_source" not in frame.columns:
+        frame["label_source"] = "all"
+    return frame.reset_index(drop=True)
+
+
+def binary_calibrator_from_payload(payload: dict[str, Any]) -> BinaryCalibrator:
+    """Build a binary calibrator object from the serialized calibration payload."""
+    return BinaryCalibrator(
+        method=str(payload.get("calibration_method", "platt")),
+        model=payload.get("calibrator"),
+        status=str(payload.get("calibration_status", "")),
+        coefficient=object_to_float(payload.get("coefficient")),
+        intercept=object_to_float(payload.get("intercept")),
+    )
+
+
+def binary_full_grid_metric_group_rows(
+    predictions: pd.DataFrame,
+    probabilities: np.ndarray,
+    *,
+    sample_policy: str,
+    probability_source: str,
+    threshold_policy: str,
+    probability_threshold: float,
+    source_path: Path | None,
+    analysis_config: ModelAnalysisConfig,
+) -> list[dict[str, object]]:
+    """Build all-label and label-source full-grid binary metric rows."""
+    output = [
+        binary_full_grid_metric_row(
+            predictions,
+            probabilities,
+            sample_policy=sample_policy,
+            label_source="all",
+            probability_source=probability_source,
+            threshold_policy=threshold_policy,
+            probability_threshold=probability_threshold,
+            source_path=source_path,
+            analysis_config=analysis_config,
+        )
+    ]
+    for label_source, group in predictions.groupby("label_source", sort=True, dropna=False):
+        index = group.index.to_numpy()
+        output.append(
+            binary_full_grid_metric_row(
+                group,
+                probabilities[index],
+                sample_policy=sample_policy,
+                label_source=str(label_source),
+                probability_source=probability_source,
+                threshold_policy=threshold_policy,
+                probability_threshold=probability_threshold,
+                source_path=source_path,
+                analysis_config=analysis_config,
+            )
+        )
+    return output
+
+
+def binary_full_grid_metric_row(
+    predictions: pd.DataFrame,
+    probabilities: np.ndarray,
+    *,
+    sample_policy: str,
+    label_source: str,
+    probability_source: str,
+    threshold_policy: str,
+    probability_threshold: float,
+    source_path: Path | None,
+    analysis_config: ModelAnalysisConfig,
+) -> dict[str, object]:
+    """Build one full-grid binary metric row for the all-model comparison."""
+    observed = predictions["binary_observed_y"].to_numpy(dtype=bool)
+    valid = np.isfinite(probabilities)
+    observed = observed[valid]
+    valid_probabilities = probabilities[valid]
+    predicted = valid_probabilities >= probability_threshold
+    false_positive = ~observed & predicted
+    precision, recall, f1 = precision_recall_f1(observed, predicted)
+    positive_count = int(np.count_nonzero(observed))
+    label_sources = (
+        predictions.loc[valid, "label_source"].to_numpy(dtype=object)
+        if "label_source" in predictions.columns
+        else np.full(observed.shape, label_source, dtype=object)
+    )
+    assumed_background = label_sources == "assumed_background"
+    assumed_background_false_positive = assumed_background & false_positive
+    auprc = binary_auprc(observed, valid_probabilities)
+    auroc = binary_auroc(observed, valid_probabilities)
+    target_label = (
+        str(predictions["target_label"].dropna().iloc[0])
+        if "target_label" in predictions.columns and not predictions["target_label"].dropna().empty
+        else "annual_max_ge_10pct"
+    )
+    row = {
+        "split": analysis_config.analysis_split,
+        "year": analysis_config.analysis_year,
+        "label_source": label_source,
+        "mask_status": mask_status(analysis_config.domain_mask),
+        "evaluation_scope": evaluation_scope(analysis_config.domain_mask),
+        "row_count": int(observed.size),
+    }
+    return all_model_sampling_row(
+        sample_policy=sample_policy,
+        model_family="binary_presence",
+        model_name="logistic_annual_max_ge_10pct",
+        artifact_kind="binary_calibrated_full_grid_metric",
+        row=row,
+        source_path=source_path,
+        values={
+            "target_label": target_label,
+            "probability_source": probability_source,
+            "threshold_policy": threshold_policy,
+            "probability_threshold": probability_threshold,
+            "auprc": auprc,
+            "auroc": auroc,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "predicted_positive_rate": safe_ratio(int(np.count_nonzero(predicted)), len(predicted)),
+            "assumed_background_count": int(np.count_nonzero(assumed_background)),
+            "assumed_background_false_positive_rate": safe_ratio(
+                int(np.count_nonzero(assumed_background_false_positive)),
+                int(np.count_nonzero(assumed_background)),
+            ),
+            "observed_canopy_area": positive_count * KELPWATCH_PIXEL_AREA_M2,
+            "predicted_positive_area_m2": int(np.count_nonzero(predicted))
+            * KELPWATCH_PIXEL_AREA_M2,
+            "f1_ge_10pct": f1,
+            "area_bias": math.nan,
+            "area_pct_bias": math.nan,
+            "mae": math.nan,
+            "rmse": math.nan,
+            "r2": math.nan,
+            "spearman": math.nan,
+            "assumed_background_predicted_positive_rate": safe_ratio(
+                int(np.count_nonzero(assumed_background & predicted)),
+                int(np.count_nonzero(assumed_background)),
+            ),
+            "assumed_background_predicted_area_m2": int(
+                np.count_nonzero(assumed_background & predicted)
+            )
+            * KELPWATCH_PIXEL_AREA_M2,
+        },
+    )
+
+
+def conditional_metric_sampling_rows(
+    rows: list[dict[str, object]],
+    *,
+    sample_policy: str,
+    source_path: Path | None,
+) -> list[dict[str, object]]:
+    """Convert conditional positive-only metric rows to all-model rows."""
+    output: list[dict[str, object]] = []
+    policy = (
+        "shared_observed_positive_support"
+        if sample_policy != "current_masked_sample"
+        else sample_policy
+    )
+    for row in rows:
+        output.append(
+            all_model_sampling_row(
+                sample_policy=policy,
+                model_family="conditional_canopy",
+                model_name=str(row.get("model_name", "")),
+                artifact_kind="conditional_positive_only_metric",
+                row=row,
+                source_path=source_path,
+                values={
+                    "target_label": row.get("positive_target_label", "annual_max_ge_10pct"),
+                    "mae": row.get("mae_fraction", math.nan),
+                    "rmse": row.get("rmse_fraction", math.nan),
+                    "r2": row.get("r2_fraction", math.nan),
+                    "spearman": row.get("spearman_fraction", math.nan),
+                    "observed_canopy_area": row.get("observed_canopy_area", math.nan),
+                    "predicted_canopy_area": row.get("predicted_canopy_area", math.nan),
+                    "area_bias": row.get("area_bias", math.nan),
+                    "area_pct_bias": row.get("area_pct_bias", math.nan),
+                },
+            )
+        )
+    return output
+
+
+def conditional_likely_positive_sampling_rows(
+    rows: list[dict[str, object]],
+    *,
+    sample_policy: str,
+    source_path: Path | None,
+) -> list[dict[str, object]]:
+    """Convert conditional likely-positive summaries to all-model rows."""
+    output: list[dict[str, object]] = []
+    for row in rows:
+        output.append(
+            all_model_sampling_row(
+                sample_policy=sample_policy,
+                model_family="conditional_canopy",
+                model_name=str(row.get("conditional_model_name", "")),
+                artifact_kind="conditional_likely_positive_full_grid_summary",
+                row=row,
+                source_path=source_path,
+                values={
+                    "probability_source": row.get("probability_source", ""),
+                    "threshold_policy": row.get("likely_positive_threshold_policy", ""),
+                    "probability_threshold": row.get("probability_threshold", math.nan),
+                    "predicted_positive_rate": row.get("likely_positive_rate", math.nan),
+                    "predicted_positive_area_m2": row.get("likely_positive_cell_area_m2", math.nan),
+                    "assumed_background_count": row.get("assumed_background_count", math.nan),
+                    "assumed_background_predicted_positive_rate": row.get(
+                        "assumed_background_likely_positive_rate", math.nan
+                    ),
+                },
+            )
+        )
+    return output
+
+
+def hurdle_leakage_sampling_rows(
+    rows: list[dict[str, object]],
+    *,
+    sample_policy: str,
+    source_path: Path | None,
+) -> list[dict[str, object]]:
+    """Convert hurdle assumed-background leakage rows to all-model rows."""
+    output: list[dict[str, object]] = []
+    for row in rows:
+        output.append(
+            all_model_sampling_row(
+                sample_policy=sample_policy,
+                model_family="hurdle",
+                model_name=str(row.get("model_name", "")),
+                artifact_kind="hurdle_assumed_background_leakage",
+                row=row,
+                source_path=source_path,
+                values={
+                    "probability_threshold": row.get("presence_probability_threshold", math.nan),
+                    "assumed_background_count": row.get("assumed_background_count", math.nan),
+                    "assumed_background_predicted_area_m2": row.get(
+                        "assumed_background_predicted_area_m2", math.nan
+                    ),
+                    "assumed_background_predicted_positive_rate": row.get(
+                        "assumed_background_predicted_positive_rate", math.nan
+                    ),
+                },
+            )
+        )
+    return output
+
+
+def all_model_sampling_row(
+    *,
+    sample_policy: str,
+    model_family: str,
+    model_name: str,
+    artifact_kind: str,
+    row: dict[str, object],
+    source_path: Path | None,
+    values: dict[str, object],
+) -> dict[str, object]:
+    """Build one row in the all-model sampling-policy comparison schema."""
+    base: dict[str, object] = {field: "" for field in ALL_MODEL_SAMPLING_POLICY_COMPARISON_FIELDS}
+    base.update(
+        {
+            "sample_policy": sample_policy,
+            "model_family": model_family,
+            "model_name": model_name,
+            "artifact_kind": artifact_kind,
+            "split": row.get("split", row.get("evaluation_split", "")),
+            "year": row.get("year", row.get("evaluation_year", "")),
+            "label_source": row.get("label_source", "all"),
+            "mask_status": row.get("mask_status", ""),
+            "evaluation_scope": row.get("evaluation_scope", ""),
+            "row_count": row.get("row_count", ""),
+            "source_path": str(source_path) if source_path is not None else "",
+        }
+    )
+    base.update(values)
+    return base
+
+
 def split_year_labels(split_manifest: pd.DataFrame) -> dict[str, str]:
     """Return compact year labels for each split in the split manifest."""
     if "split" not in split_manifest.columns or "year" not in split_manifest.columns:
@@ -3726,6 +4570,11 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
         PHASE1_MODEL_COMPARISON_FIELDS,
     )
     write_csv(
+        tables.all_model_sampling_policy_comparison,
+        analysis_config.all_model_sampling_policy_comparison_path,
+        ALL_MODEL_SAMPLING_POLICY_COMPARISON_FIELDS,
+    )
+    write_csv(
         tables.class_balance_by_split,
         analysis_config.class_balance_by_split_path,
         CLASS_BALANCE_FIELDS,
@@ -4333,6 +5182,13 @@ def write_report(
         "",
         model_comparison_markdown(tables.phase1_model_comparison, analysis_config),
         "",
+        "## CRM-Stratified Sampling Policy Comparison",
+        "",
+        sampling_policy_comparison_markdown(
+            tables.all_model_sampling_policy_comparison,
+            analysis_config,
+        ),
+        "",
         "## Reference Baseline Ranking",
         "",
         reference_baseline_ranking_markdown(tables.phase1_model_comparison, analysis_config),
@@ -4492,6 +5348,10 @@ def write_report(
         conditional_canopy_appendix_markdown(analysis_config),
         hurdle_model_appendix_markdown(analysis_config),
         f"- Phase 1 model comparison table: `{analysis_config.phase1_model_comparison_path}`",
+        (
+            "- CRM-stratified all-model sampling-policy comparison table: "
+            f"`{analysis_config.all_model_sampling_policy_comparison_path}`"
+        ),
         f"- Phase 1 data-health table: `{analysis_config.data_health_path}`",
         f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
         f"- Reference area calibration table: `{analysis_config.reference_area_calibration_path}`",
@@ -5157,6 +6017,303 @@ def model_comparison_markdown(
             f"{format_percent(row_float(row, 'area_pct_bias'), 2)} |"
         )
     return "\n".join(lines)
+
+
+def sampling_policy_comparison_markdown(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build a report summary focused on trained sampling-policy comparisons."""
+    if not rows:
+        return (
+            "CRM-stratified sampling-policy comparison rows were not available yet. Run "
+            "the baseline, binary, calibration, hurdle, and report commands before "
+            "interpreting this section."
+        )
+    policies = sampling_policy_display_order(rows)
+    lines = [
+        (
+            "The authoritative all-model sampling-policy table is "
+            f"`{analysis_config.all_model_sampling_policy_comparison_path}`. It compares "
+            "current and CRM-stratified artifacts under the same annual-max target, year split, "
+            "feature set, full-grid inference table, and retained-domain reporting scope. "
+            "Validation rows remain the only rows used for threshold and calibration selection; "
+            "2022 test rows are audit rows only."
+        ),
+        "",
+        (
+            "This report view filters that audit table to trained outputs that can answer the "
+            "sampling-policy question. It intentionally excludes no-skill, persistence, "
+            "climatology, and geography reference rows from this section."
+        ),
+        f"Policies represented: `{', '.join(policies)}`.",
+        "",
+        "**Continuous canopy and area**",
+        "",
+        continuous_sampling_policy_markdown(rows, analysis_config),
+        "",
+        "**Binary presence and support**",
+        "",
+        binary_sampling_policy_markdown(rows, analysis_config),
+        "",
+        (
+            "The conditional positive-only canopy model is not repeated as a separate "
+            "current-vs-CRM row because the CRM sidecar reuses that observed-positive model; "
+            "its effect shows up through the hurdle compositions and the binary likely-positive "
+            "support."
+        ),
+    ]
+    return "\n".join(lines)
+
+
+CONTINUOUS_SAMPLING_POLICY_SPECS: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "continuous_baseline",
+        "ridge_regression",
+        "full_grid_area_calibration",
+        "AEF ridge regression",
+    ),
+    (
+        "hurdle",
+        "calibrated_probability_x_conditional_canopy",
+        "hurdle_area_calibration",
+        "Hurdle expected value",
+    ),
+    (
+        "hurdle",
+        "calibrated_hard_gate_conditional_canopy",
+        "hurdle_area_calibration",
+        "Hurdle hard gate",
+    ),
+)
+
+
+def continuous_sampling_policy_markdown(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the continuous/area trained-model sampling-policy table."""
+    policies = sampling_policy_display_order(rows)
+    lines = [
+        "| Model | Policy | RMSE | F1 >=10% | Area (M m2) | Area bias | Assumed-bg area (M m2) |",
+        "|---|---|---:|---:|---:|---:|---:|",
+    ]
+    rendered_rows = 0
+    for family, model_name, artifact_kind, label in CONTINUOUS_SAMPLING_POLICY_SPECS:
+        for policy in policies:
+            row = sampling_policy_row(
+                rows,
+                analysis_config,
+                sample_policy=policy,
+                model_family=family,
+                model_name=model_name,
+                artifact_kind=artifact_kind,
+                label_source="all",
+            )
+            if row is None:
+                continue
+            background_row = sampling_policy_row(
+                rows,
+                analysis_config,
+                sample_policy=policy,
+                model_family=family,
+                model_name=model_name,
+                artifact_kind=artifact_kind,
+                label_source="assumed_background",
+            )
+            lines.append(
+                f"| {label} | "
+                f"{sampling_policy_label(policy)} | "
+                f"{format_decimal(row_float(row, 'rmse'), 4)} | "
+                f"{format_decimal(row_float(row, 'f1_ge_10pct'), 3)} | "
+                f"{format_area_millions(row_float(row, 'predicted_canopy_area'))} | "
+                f"{format_percent(row_float(row, 'area_pct_bias'), 1)} | "
+                f"{format_area_millions(row_float(background_row or {}, 'predicted_canopy_area'))} |"
+            )
+            rendered_rows += 1
+    if rendered_rows == 0:
+        return "No trained continuous or hurdle rows were available for the primary split/year."
+    return "\n".join(lines)
+
+
+def binary_sampling_policy_markdown(
+    rows: list[dict[str, object]], analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the calibrated binary-presence sampling-policy table."""
+    policies = sampling_policy_display_order(rows)
+    lines = [
+        "| Policy | Threshold | AUPRC | F1 | Precision | Recall | Positive area (M m2) | Assumed-bg FP rate |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    rendered_rows = 0
+    for policy in policies:
+        metric_row = preferred_binary_sampling_row(
+            rows,
+            analysis_config,
+            sample_policy=policy,
+            artifact_kind="binary_calibrated_full_grid_metric",
+        )
+        if metric_row is None:
+            metric_row = preferred_binary_sampling_row(
+                rows,
+                analysis_config,
+                sample_policy=policy,
+                artifact_kind="binary_calibrated_sample_metric",
+            )
+        full_grid_row = preferred_binary_sampling_row(
+            rows,
+            analysis_config,
+            sample_policy=policy,
+            artifact_kind="binary_calibrated_full_grid_area",
+        )
+        if metric_row is None and full_grid_row is None:
+            continue
+        threshold_row = full_grid_row or metric_row or {}
+        area_row = metric_row or full_grid_row or {}
+        background_rate = row_float(area_row, "assumed_background_false_positive_rate")
+        if math.isnan(background_rate):
+            background_rate = row_float(area_row, "assumed_background_predicted_positive_rate")
+        lines.append(
+            f"| {sampling_policy_label(policy)} | "
+            f"{format_decimal(row_float(threshold_row, 'probability_threshold'), 2)} | "
+            f"{format_decimal(row_float(metric_row or {}, 'auprc'), 3)} | "
+            f"{format_decimal(row_float(metric_row or {}, 'f1'), 3)} | "
+            f"{format_decimal(row_float(metric_row or {}, 'precision'), 3)} | "
+            f"{format_decimal(row_float(metric_row or {}, 'recall'), 3)} | "
+            f"{format_area_millions(row_float(area_row, 'predicted_positive_area_m2'))} | "
+            f"{format_percent(background_rate, 2)} |"
+        )
+        rendered_rows += 1
+    if rendered_rows == 0:
+        return "No calibrated binary-presence rows were available for the primary split/year."
+    return "\n".join(lines)
+
+
+def sampling_policy_display_order(rows: list[dict[str, object]]) -> list[str]:
+    """Return sample policies in a stable report order."""
+    policies = {str(row.get("sample_policy", "")) for row in rows if row.get("sample_policy")}
+    ordered = [
+        policy
+        for policy in ("current_masked_sample", "crm_stratified_background_sample")
+        if policy in policies
+    ]
+    ordered.extend(sorted(policies.difference(ordered)))
+    return ordered
+
+
+def sampling_policy_label(sample_policy: str) -> str:
+    """Return a compact report label for one sample policy."""
+    labels = {
+        "current_masked_sample": "Current masked sample",
+        "crm_stratified_background_sample": "CRM-stratified background",
+        "shared_observed_positive_support": "Shared observed-positive support",
+    }
+    return labels.get(sample_policy, sample_policy)
+
+
+def sampling_policy_row(
+    rows: list[dict[str, object]],
+    analysis_config: ModelAnalysisConfig,
+    *,
+    sample_policy: str,
+    model_family: str,
+    model_name: str,
+    artifact_kind: str,
+    label_source: str,
+    probability_source: str | None = None,
+    threshold_policy: str | None = None,
+) -> dict[str, object] | None:
+    """Return the first comparison row matching the primary report context."""
+    for row in rows:
+        if not sampling_policy_base_match(
+            row,
+            analysis_config,
+            sample_policy=sample_policy,
+            model_family=model_family,
+            model_name=model_name,
+            artifact_kind=artifact_kind,
+            label_source=label_source,
+        ):
+            continue
+        if probability_source is not None and str(row.get("probability_source", "")) != (
+            probability_source
+        ):
+            continue
+        if threshold_policy is not None and str(row.get("threshold_policy", "")) != (
+            threshold_policy
+        ):
+            continue
+        return row
+    return None
+
+
+def preferred_binary_sampling_row(
+    rows: list[dict[str, object]],
+    analysis_config: ModelAnalysisConfig,
+    *,
+    sample_policy: str,
+    artifact_kind: str,
+) -> dict[str, object] | None:
+    """Return the calibrated max-F1 binary row, falling back to any calibrated row."""
+    preferred = sampling_policy_row(
+        rows,
+        analysis_config,
+        sample_policy=sample_policy,
+        model_family="binary_presence",
+        model_name="logistic_annual_max_ge_10pct",
+        artifact_kind=artifact_kind,
+        label_source="all",
+        probability_source="platt_calibrated",
+        threshold_policy="validation_max_f1_calibrated",
+    )
+    if preferred is not None:
+        return preferred
+    return sampling_policy_row(
+        rows,
+        analysis_config,
+        sample_policy=sample_policy,
+        model_family="binary_presence",
+        model_name="logistic_annual_max_ge_10pct",
+        artifact_kind=artifact_kind,
+        label_source="all",
+    )
+
+
+def sampling_policy_base_match(
+    row: dict[str, object],
+    analysis_config: ModelAnalysisConfig,
+    *,
+    sample_policy: str,
+    model_family: str,
+    model_name: str,
+    artifact_kind: str,
+    label_source: str,
+) -> bool:
+    """Return whether one comparison row matches model, policy, split, and year."""
+    return (
+        str(row.get("sample_policy", "")) == sample_policy
+        and str(row.get("model_family", "")) == model_family
+        and str(row.get("model_name", "")) == model_name
+        and str(row.get("artifact_kind", "")) == artifact_kind
+        and str(row.get("label_source", "all")) == label_source
+        and str(row.get("split", "")) == analysis_config.analysis_split
+        and sampling_policy_year_matches(row.get("year"), analysis_config.analysis_year)
+    )
+
+
+def sampling_policy_year_matches(value: object, expected_year: int) -> bool:
+    """Return whether a generic year value equals the expected report year."""
+    if value is None or value == "":
+        return False
+    try:
+        return int(float(str(value))) == expected_year
+    except ValueError:
+        return str(value) == str(expected_year)
+
+
+def format_area_millions(value: float) -> str:
+    """Format an area in square meters as millions of square meters."""
+    if not np.isfinite(value):
+        return "nan"
+    return f"{value / 1_000_000:.2f}"
 
 
 def reference_baseline_ranking_markdown(
@@ -6699,6 +7856,9 @@ def write_manifest(
             "prediction_distribution": str(analysis_config.prediction_distribution_path),
             "phase1_decision": str(analysis_config.phase1_decision_path),
             "phase1_model_comparison": str(analysis_config.phase1_model_comparison_path),
+            "all_model_sampling_policy_comparison": str(
+                analysis_config.all_model_sampling_policy_comparison_path
+            ),
             "class_balance_by_split": str(analysis_config.class_balance_by_split_path),
             "target_balance_by_label_source": str(
                 analysis_config.target_balance_by_label_source_path
@@ -6801,6 +7961,9 @@ def write_manifest(
             "target_framing": len(tables.target_framing),
             "phase1_decision": len(tables.phase1_decision),
             "phase1_model_comparison": len(tables.phase1_model_comparison),
+            "all_model_sampling_policy_comparison": len(
+                tables.all_model_sampling_policy_comparison
+            ),
             "class_balance_by_split": len(tables.class_balance_by_split),
             "target_balance_by_label_source": len(tables.target_balance_by_label_source),
             "background_rate_summary": len(tables.background_rate_summary),

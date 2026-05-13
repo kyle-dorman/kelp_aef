@@ -1,6 +1,7 @@
 import base64
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd  # type: ignore[import-untyped]
 
@@ -11,6 +12,8 @@ from kelp_aef.evaluation.model_analysis import (
     build_binary_threshold_prevalence,
     build_binary_threshold_recommendation,
     build_class_balance_by_split,
+    conditional_likely_positive_sampling_rows,
+    sampling_policy_comparison_markdown,
 )
 
 
@@ -35,6 +38,7 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
         "feature_separability",
         "phase1_decision",
         "phase1_model_comparison",
+        "all_model_sampling_policy_comparison",
         "reference_area_calibration",
         "data_health",
         "class_balance_by_split",
@@ -85,6 +89,11 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert {"no_skill_train_mean", "ridge_regression"} <= set(model_comparison["model_name"])
     assert "full_grid_prediction" in set(model_comparison["evaluation_scope"])
     assert set(model_comparison["mask_status"]) == {"unmasked"}
+
+    all_model_comparison = pd.read_csv(fixture["all_model_sampling_policy_comparison"])
+    assert "sample_policy" in all_model_comparison.columns
+    assert {"current_masked_sample"} == set(all_model_comparison["sample_policy"])
+    assert {"continuous_baseline", "binary_presence"} <= set(all_model_comparison["model_family"])
 
     data_health = pd.read_csv(fixture["data_health"])
     missing_feature_rows = data_health.query(
@@ -157,6 +166,11 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "Annual-Max Binary Threshold Comparison" in report
     assert "Balanced Binary Presence Model" in report
     assert "Calibrated Binary Presence Probabilities" in report
+    sampling_section = report.split("## CRM-Stratified Sampling Policy Comparison", maxsplit=1)[
+        1
+    ].split("## Reference Baseline Ranking", maxsplit=1)[0]
+    assert "**Continuous canopy and area**" in sampling_section
+    assert "**Binary presence and support**" in sampling_section
     assert "Thresholded baseline comparison" in report
     assert "Binary presence 2022 map" in report
     assert "Platt scaling" in report
@@ -170,6 +184,156 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "<h2>Model Comparison</h2>" in html_report
     assert "<h2>Class And Target Balance</h2>" in html_report
     assert 'src="data:image/png;base64,' in html_report
+
+
+def test_sampling_policy_report_filters_to_trained_model_tables(tmp_path: Path) -> None:
+    """Verify the CRM sampling report section shows useful trained-model tables."""
+    config = SimpleNamespace(
+        all_model_sampling_policy_comparison_path=tmp_path / "all_models.csv",
+        analysis_split="test",
+        analysis_year=2022,
+    )
+    rows: list[dict[str, object]] = [
+        {
+            "sample_policy": "current_masked_sample",
+            "model_family": "continuous_baseline",
+            "model_name": "no_skill_train_mean",
+            "artifact_kind": "full_grid_area_calibration",
+            "split": "test",
+            "year": 2022,
+            "label_source": "all",
+            "rmse": 0.8,
+        },
+        {
+            "sample_policy": "current_masked_sample",
+            "model_family": "continuous_baseline",
+            "model_name": "ridge_regression",
+            "artifact_kind": "full_grid_area_calibration",
+            "split": "test",
+            "year": 2022,
+            "label_source": "all",
+            "rmse": 0.04,
+            "f1_ge_10pct": 0.3,
+            "predicted_canopy_area": 12_000_000.0,
+            "area_pct_bias": 0.2,
+        },
+        {
+            "sample_policy": "current_masked_sample",
+            "model_family": "continuous_baseline",
+            "model_name": "ridge_regression",
+            "artifact_kind": "full_grid_area_calibration",
+            "split": "test",
+            "year": 2022,
+            "label_source": "assumed_background",
+            "predicted_canopy_area": 8_000_000.0,
+        },
+        {
+            "sample_policy": "crm_stratified_background_sample",
+            "model_family": "continuous_baseline",
+            "model_name": "ridge_regression",
+            "artifact_kind": "full_grid_area_calibration",
+            "split": "test",
+            "year": 2022,
+            "label_source": "all",
+            "rmse": 0.03,
+            "f1_ge_10pct": 0.5,
+            "predicted_canopy_area": 10_000_000.0,
+            "area_pct_bias": 0.1,
+        },
+        {
+            "sample_policy": "current_masked_sample",
+            "model_family": "binary_presence",
+            "model_name": "logistic_annual_max_ge_10pct",
+            "artifact_kind": "binary_calibrated_full_grid_metric",
+            "split": "test",
+            "year": 2022,
+            "label_source": "all",
+            "probability_source": "platt_calibrated",
+            "threshold_policy": "validation_max_f1_calibrated",
+            "probability_threshold": 0.4,
+            "auprc": 0.65,
+            "f1": 0.6,
+            "precision": 0.5,
+            "recall": 0.75,
+        },
+        {
+            "sample_policy": "current_masked_sample",
+            "model_family": "binary_presence",
+            "model_name": "logistic_annual_max_ge_10pct",
+            "artifact_kind": "binary_calibrated_sample_metric",
+            "split": "test",
+            "year": 2022,
+            "label_source": "all",
+            "probability_source": "platt_calibrated",
+            "threshold_policy": "validation_max_f1_calibrated",
+            "probability_threshold": 0.4,
+            "auprc": 0.9,
+            "f1": 0.8,
+            "precision": 0.7,
+            "recall": 0.9,
+        },
+        {
+            "sample_policy": "current_masked_sample",
+            "model_family": "binary_presence",
+            "model_name": "logistic_annual_max_ge_10pct",
+            "artifact_kind": "binary_calibrated_full_grid_area",
+            "split": "test",
+            "year": 2022,
+            "label_source": "all",
+            "probability_source": "platt_calibrated",
+            "threshold_policy": "validation_max_f1_calibrated",
+            "probability_threshold": 0.4,
+            "predicted_positive_area_m2": 8_500_000.0,
+            "assumed_background_predicted_positive_rate": 0.002,
+        },
+    ]
+
+    markdown = sampling_policy_comparison_markdown(rows, config)
+
+    assert "| Model | Policy | RMSE | F1 >=10% | Area (M m2) |" in markdown
+    assert "| Policy | Threshold | AUPRC | F1 | Precision | Recall |" in markdown
+    assert "Assumed-bg FP rate" in markdown
+    assert "AEF ridge regression" in markdown
+    assert "CRM-stratified background" in markdown
+    assert "| Current masked sample | 0.40 | 0.650 | 0.600 | 0.500 | 0.750 |" in markdown
+    assert "no_skill_train_mean" not in markdown
+    assert "previous_year_annual_max" not in markdown
+    assert "grid_cell_climatology" not in markdown
+
+
+def test_conditional_likely_positive_sampling_rows_use_sidecar_policy(tmp_path: Path) -> None:
+    """Verify conditional sidecar summaries keep their CRM sample-policy identity."""
+    source_path = tmp_path / "conditional_canopy_full_grid_likely_positive_summary.crm.csv"
+
+    rows = conditional_likely_positive_sampling_rows(
+        [
+            {
+                "conditional_model_name": "ridge_positive_annual_max",
+                "split": "test",
+                "year": 2022,
+                "label_source": "all",
+                "mask_status": "plausible_kelp_domain",
+                "evaluation_scope": "conditional_likely_positive_diagnostic",
+                "probability_source": "platt_calibrated",
+                "likely_positive_threshold_policy": "validation_max_f1_calibrated",
+                "probability_threshold": 0.35,
+                "row_count": 999519,
+                "likely_positive_rate": 0.00813,
+                "likely_positive_cell_area_m2": 7313400.0,
+                "assumed_background_count": 969365,
+                "assumed_background_likely_positive_rate": 0.000663,
+            }
+        ],
+        sample_policy="crm_stratified_background_sample",
+        source_path=source_path,
+    )
+
+    assert rows[0]["sample_policy"] == "crm_stratified_background_sample"
+    assert rows[0]["model_family"] == "conditional_canopy"
+    assert rows[0]["artifact_kind"] == "conditional_likely_positive_full_grid_summary"
+    assert rows[0]["probability_threshold"] == 0.35
+    assert rows[0]["predicted_positive_area_m2"] == 7313400.0
+    assert rows[0]["source_path"] == str(source_path)
 
 
 def test_analyze_model_treats_domain_mask_as_primary_full_grid_scope(
@@ -506,6 +670,8 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         "phase1_decision": tmp_path / "reports/tables/model_analysis_phase1_decision_matrix.csv",
         "phase1_model_comparison": tmp_path
         / "reports/tables/model_analysis_phase1_model_comparison.csv",
+        "all_model_sampling_policy_comparison": tmp_path
+        / "reports/tables/model_analysis_crm_stratified_all_models_comparison.csv",
         "reference_area_calibration": tmp_path
         / "reports/tables/reference_baseline_area_calibration.csv",
         "data_health": tmp_path / "reports/tables/model_analysis_data_health.csv",
@@ -609,6 +775,7 @@ def config_text(
         else ""
     )
     pixel_skill_area_figure = paths["pixel_skill_area_calibration_figure"]
+    all_model_comparison = paths["all_model_sampling_policy_comparison"]
     return f"""
 data_root: {tmp_path}
 labels:
@@ -670,6 +837,7 @@ reports:
     model_analysis_feature_separability: {paths["feature_separability"]}
     model_analysis_phase1_decision_matrix: {paths["phase1_decision"]}
     model_analysis_phase1_model_comparison: {paths["phase1_model_comparison"]}
+    model_analysis_crm_stratified_all_models_comparison: {all_model_comparison}
     reference_baseline_area_calibration: {paths["reference_area_calibration"]}
 {masked_outputs}
     model_analysis_data_health: {paths["data_health"]}

@@ -7,7 +7,7 @@ import json
 import logging
 import math
 import operator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, SupportsIndex, cast
 
@@ -271,6 +271,7 @@ class HurdleConfig:
     """Resolved config values for composing the first hurdle model."""
 
     config_path: Path
+    sample_policy: str
     inference_table_path: Path
     binary_full_grid_predictions_path: Path
     binary_calibration_model_path: Path
@@ -312,6 +313,14 @@ class HurdleConfig:
 
 
 @dataclass(frozen=True)
+class HurdleSidecarConfig:
+    """Resolved config values for an optional hurdle sidecar composition."""
+
+    name: str
+    hurdle_config: HurdleConfig
+
+
+@dataclass(frozen=True)
 class LoadedHurdleModels:
     """Loaded model payloads needed for composition only."""
 
@@ -323,6 +332,15 @@ class LoadedHurdleModels:
 def compose_hurdle_model(config_path: Path) -> int:
     """Compose calibrated presence and conditional amount full-grid predictions."""
     hurdle_config = load_hurdle_config(config_path)
+    compose_hurdle_config(hurdle_config)
+    for sidecar in load_hurdle_sidecar_configs(config_path, hurdle_config):
+        LOGGER.info("Composing hurdle sidecar: %s", sidecar.name)
+        compose_hurdle_config(sidecar.hurdle_config)
+    return 0
+
+
+def compose_hurdle_config(hurdle_config: HurdleConfig) -> None:
+    """Compose calibrated presence and conditional amount for one resolved config."""
     models = load_hurdle_models(hurdle_config)
     binary_lookup = load_binary_probability_lookup(hurdle_config, models.calibrator)
     reset_output_path(hurdle_config.predictions_path)
@@ -394,7 +412,6 @@ def compose_hurdle_model(config_path: Path) -> int:
     )
     LOGGER.info("Wrote hurdle full-grid predictions: %s", hurdle_config.predictions_path)
     LOGGER.info("Wrote hurdle metrics: %s", hurdle_config.metrics_path)
-    return 0
 
 
 def load_hurdle_config(config_path: Path) -> HurdleConfig:
@@ -432,6 +449,7 @@ def load_hurdle_config(config_path: Path) -> HurdleConfig:
     )
     return HurdleConfig(
         config_path=config_path,
+        sample_policy=str(hurdle.get("sample_policy", "current_masked_sample")),
         inference_table_path=Path(
             require_string(
                 hurdle.get("inference_table")
@@ -551,6 +569,120 @@ def load_hurdle_config(config_path: Path) -> HurdleConfig:
             default=True,
         ),
         reporting_domain_mask=reporting_domain_mask,
+    )
+
+
+def load_hurdle_sidecar_configs(
+    config_path: Path,
+    base_config: HurdleConfig,
+) -> tuple[HurdleSidecarConfig, ...]:
+    """Load optional hurdle sidecars from the workflow config."""
+    config = load_yaml_config(config_path)
+    models = require_mapping(config.get("models"), "models")
+    hurdle = require_mapping(models.get("hurdle"), "models.hurdle")
+    sidecars = optional_mapping(hurdle.get("sidecars"), "models.hurdle.sidecars")
+    output: list[HurdleSidecarConfig] = []
+    for name, value in sidecars.items():
+        sidecar_name = str(name)
+        sidecar = require_mapping(value, f"models.hurdle.sidecars.{sidecar_name}")
+        if not read_bool(
+            sidecar.get("enabled"),
+            f"models.hurdle.sidecars.{sidecar_name}.enabled",
+            default=True,
+        ):
+            continue
+        threshold_selection_path = hurdle_sidecar_path(
+            sidecar,
+            sidecar_name,
+            "binary_calibrated_threshold_selection",
+        )
+        threshold_value = sidecar.get("presence_threshold")
+        configured_threshold = (
+            None
+            if threshold_value is None
+            else optional_float(
+                threshold_value,
+                f"models.hurdle.sidecars.{sidecar_name}.presence_threshold",
+                base_config.presence_threshold,
+            )
+        )
+        threshold_policy = str(
+            sidecar.get("presence_threshold_policy", base_config.presence_threshold_policy)
+        )
+        output.append(
+            HurdleSidecarConfig(
+                name=sidecar_name,
+                hurdle_config=replace(
+                    base_config,
+                    sample_policy=str(sidecar.get("sample_policy", sidecar_name)),
+                    binary_full_grid_predictions_path=hurdle_sidecar_path(
+                        sidecar, sidecar_name, "binary_full_grid_predictions"
+                    ),
+                    binary_calibration_model_path=hurdle_sidecar_path(
+                        sidecar, sidecar_name, "binary_calibration_model"
+                    ),
+                    binary_threshold_selection_path=threshold_selection_path,
+                    reference_area_calibration_path=hurdle_sidecar_optional_path(
+                        sidecar,
+                        sidecar_name,
+                        "reference_area_calibration",
+                        base_config.reference_area_calibration_path,
+                    ),
+                    predictions_path=hurdle_sidecar_path(sidecar, sidecar_name, "predictions"),
+                    manifest_path=hurdle_sidecar_path(sidecar, sidecar_name, "prediction_manifest"),
+                    metrics_path=hurdle_sidecar_path(sidecar, sidecar_name, "metrics"),
+                    area_calibration_path=hurdle_sidecar_path(
+                        sidecar, sidecar_name, "area_calibration"
+                    ),
+                    model_comparison_path=hurdle_sidecar_path(
+                        sidecar, sidecar_name, "model_comparison"
+                    ),
+                    residual_by_observed_bin_path=hurdle_sidecar_path(
+                        sidecar, sidecar_name, "residual_by_observed_bin"
+                    ),
+                    assumed_background_leakage_path=hurdle_sidecar_path(
+                        sidecar, sidecar_name, "assumed_background_leakage"
+                    ),
+                    map_figure_path=hurdle_sidecar_optional_path(
+                        sidecar, sidecar_name, "map_figure", None
+                    ),
+                    presence_threshold_policy=threshold_policy,
+                    presence_threshold=resolve_presence_threshold(
+                        threshold_selection_path,
+                        threshold_policy,
+                        configured_threshold,
+                    ),
+                ),
+            )
+        )
+    return tuple(output)
+
+
+def hurdle_sidecar_path(config: dict[str, Any], sidecar_name: str, key: str) -> Path:
+    """Read a required hurdle sidecar path from config."""
+    return Path(
+        require_string(
+            config.get(key),
+            f"models.hurdle.sidecars.{sidecar_name}.{key}",
+        )
+    )
+
+
+def hurdle_sidecar_optional_path(
+    config: dict[str, Any],
+    sidecar_name: str,
+    key: str,
+    default: Path | None,
+) -> Path | None:
+    """Read an optional hurdle sidecar path from config."""
+    value = config.get(key)
+    if value is None:
+        return default
+    return Path(
+        require_string(
+            value,
+            f"models.hurdle.sidecars.{sidecar_name}.{key}",
+        )
     )
 
 
@@ -1543,6 +1675,7 @@ def write_hurdle_manifest(
         "command": "compose-hurdle-model",
         "config_path": str(hurdle_config.config_path),
         "model_family": HURDLE_MODEL_FAMILY,
+        "sample_policy": hurdle_config.sample_policy,
         "primary_model_name": hurdle_config.model_name,
         "diagnostic_model_name": hurdle_config.hard_gate_model_name,
         "composition_policies": list(hurdle_config.composition_policies),

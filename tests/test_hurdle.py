@@ -63,39 +63,115 @@ def test_compose_hurdle_model_writes_predictions_and_diagnostics(tmp_path: Path)
     assert manifest["row_counts"]["prediction_rows"] == 40
 
 
-def write_hurdle_fixture(tmp_path: Path) -> dict[str, Path]:
+def test_compose_hurdle_model_writes_crm_stratified_sidecar(tmp_path: Path) -> None:
+    """Verify compose-hurdle-model writes path-distinct CRM-stratified artifacts."""
+    fixture = write_hurdle_fixture(tmp_path, include_sidecar=True)
+
+    assert main(["compose-hurdle-model", "--config", str(fixture["config_path"])]) == 0
+
+    predictions = pd.read_parquet(fixture["sidecar_predictions"])
+    area = pd.read_csv(fixture["sidecar_area_calibration"])
+    manifest = json.loads(fixture["sidecar_manifest"].read_text())
+
+    assert set(predictions["composition_policy"]) == {"expected_value", "hard_gate"}
+    assert set(predictions["presence_probability_threshold"]) == {0.35}
+    assert {"all", "assumed_background", "kelpwatch_station"} <= set(area["label_source"])
+    assert manifest["sample_policy"] == "crm_stratified_background_sample"
+    assert manifest["presence_threshold"] == 0.35
+    assert manifest["inputs"]["binary_full_grid_predictions"] == str(
+        fixture["sidecar_binary_predictions"]
+    )
+
+
+def write_hurdle_fixture(tmp_path: Path, *, include_sidecar: bool = False) -> dict[str, Path]:
     """Write synthetic inputs and config for hurdle composition."""
     full_grid = tmp_path / "interim/aligned_full_grid_training_table.parquet"
     binary_predictions = tmp_path / "processed/binary_presence_full_grid_predictions.parquet"
+    sidecar_binary_predictions = (
+        tmp_path / "processed/binary_presence_full_grid_predictions.crm_stratified.parquet"
+    )
     calibration_model = (
         tmp_path / "models/binary_presence/logistic_annual_max_ge_10pct_calibration.joblib"
     )
+    sidecar_calibration_model = (
+        tmp_path
+        / "models/binary_presence/logistic_annual_max_ge_10pct_calibration.crm_stratified.joblib"
+    )
     threshold_selection = (
         tmp_path / "reports/tables/binary_presence_calibrated_threshold_selection.csv"
+    )
+    sidecar_threshold_selection = (
+        tmp_path
+        / "reports/tables/binary_presence_calibrated_threshold_selection.crm_stratified.csv"
     )
     conditional_model = tmp_path / "models/conditional_canopy/ridge_positive_annual_max.joblib"
     reference_area = tmp_path / "reports/tables/reference_baseline_area_calibration.masked.csv"
     domain_mask = tmp_path / "interim/plausible_kelp_domain_mask.parquet"
     domain_manifest = tmp_path / "interim/plausible_kelp_domain_mask_manifest.json"
     predictions = tmp_path / "processed/hurdle_full_grid_predictions.parquet"
+    sidecar_predictions = tmp_path / "processed/hurdle_full_grid_predictions.crm_stratified.parquet"
     manifest = tmp_path / "interim/hurdle_prediction_manifest.json"
+    sidecar_manifest = tmp_path / "interim/hurdle_prediction_manifest.crm_stratified.json"
     metrics = tmp_path / "reports/tables/hurdle_metrics.csv"
+    sidecar_metrics = tmp_path / "reports/tables/hurdle_metrics.crm_stratified.csv"
     area_calibration = tmp_path / "reports/tables/hurdle_area_calibration.csv"
+    sidecar_area_calibration = (
+        tmp_path / "reports/tables/hurdle_area_calibration.crm_stratified.csv"
+    )
     model_comparison = tmp_path / "reports/tables/hurdle_model_comparison.csv"
+    sidecar_model_comparison = (
+        tmp_path / "reports/tables/hurdle_model_comparison.crm_stratified.csv"
+    )
     residual_by_observed_bin = tmp_path / "reports/tables/hurdle_residual_by_observed_bin.csv"
+    sidecar_residual_by_observed_bin = (
+        tmp_path / "reports/tables/hurdle_residual_by_observed_bin.crm_stratified.csv"
+    )
     assumed_background_leakage = tmp_path / "reports/tables/hurdle_assumed_background_leakage.csv"
+    sidecar_assumed_background_leakage = (
+        tmp_path / "reports/tables/hurdle_assumed_background_leakage.crm_stratified.csv"
+    )
     map_figure = tmp_path / "reports/figures/hurdle_2022_observed_predicted_residual.png"
+    sidecar_map_figure = (
+        tmp_path / "reports/figures/hurdle_2022_observed_predicted_residual.crm_stratified.png"
+    )
     config_path = tmp_path / "config.yaml"
 
     rows = hurdle_rows()
     full_grid.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_parquet(full_grid, index=False)
     write_binary_predictions(binary_predictions, rows)
+    if include_sidecar:
+        write_binary_predictions(sidecar_binary_predictions, rows)
     write_calibration_payload(calibration_model)
+    if include_sidecar:
+        write_calibration_payload(sidecar_calibration_model)
     write_threshold_selection(threshold_selection)
+    if include_sidecar:
+        write_threshold_selection(sidecar_threshold_selection, probability_threshold=0.35)
     write_conditional_payload(conditional_model)
     write_reference_area(reference_area)
     write_domain_mask(domain_mask, domain_manifest)
+    sidecar_config = (
+        f"""
+    sidecars:
+      crm_stratified:
+        sample_policy: crm_stratified_background_sample
+        binary_full_grid_predictions: {sidecar_binary_predictions}
+        binary_calibration_model: {sidecar_calibration_model}
+        binary_calibrated_threshold_selection: {sidecar_threshold_selection}
+        reference_area_calibration: {reference_area}
+        predictions: {sidecar_predictions}
+        prediction_manifest: {sidecar_manifest}
+        metrics: {sidecar_metrics}
+        area_calibration: {sidecar_area_calibration}
+        model_comparison: {sidecar_model_comparison}
+        residual_by_observed_bin: {sidecar_residual_by_observed_bin}
+        assumed_background_leakage: {sidecar_assumed_background_leakage}
+        map_figure: {sidecar_map_figure}
+"""
+        if include_sidecar
+        else ""
+    )
     config_path.write_text(
         f"""
 features:
@@ -135,6 +211,7 @@ models:
     residual_by_observed_bin: {residual_by_observed_bin}
     assumed_background_leakage: {assumed_background_leakage}
     map_figure: {map_figure}
+{sidecar_config}
 reports:
   domain_mask:
     primary_full_grid_domain: plausible_kelp_domain
@@ -156,6 +233,10 @@ reports:
         "residual_by_observed_bin": residual_by_observed_bin,
         "assumed_background_leakage": assumed_background_leakage,
         "map_figure": map_figure,
+        "sidecar_binary_predictions": sidecar_binary_predictions,
+        "sidecar_predictions": sidecar_predictions,
+        "sidecar_manifest": sidecar_manifest,
+        "sidecar_area_calibration": sidecar_area_calibration,
     }
 
 
@@ -219,7 +300,7 @@ def write_calibration_payload(path: Path) -> None:
     )
 
 
-def write_threshold_selection(path: Path) -> None:
+def write_threshold_selection(path: Path, *, probability_threshold: float = 0.4) -> None:
     """Write a selected calibrated threshold row."""
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(
@@ -229,7 +310,7 @@ def write_threshold_selection(path: Path) -> None:
                 "threshold_policy": "validation_max_f1_calibrated",
                 "selected_threshold": True,
                 "recommended_policy": True,
-                "probability_threshold": 0.4,
+                "probability_threshold": probability_threshold,
             }
         ]
     ).to_csv(path, index=False)

@@ -142,23 +142,67 @@ def test_reference_area_calibration_filters_to_reporting_domain_mask(tmp_path: P
     assert set(calibration["evaluation_scope"]) == {"full_grid_masked"}
 
 
+def test_train_baselines_writes_crm_stratified_sidecar(tmp_path: Path) -> None:
+    """Verify train-baselines writes path-distinct CRM-stratified sidecar artifacts."""
+    fixture = write_baseline_fixture(tmp_path, include_full_grid=True, include_sidecar=True)
+
+    assert main(["train-baselines", "--config", str(fixture["config_path"])]) == 0
+
+    sidecar_predictions = pd.read_parquet(fixture["sidecar_sample_predictions"])
+    sidecar_manifest = json.loads(fixture["sidecar_manifest"].read_text())
+    sidecar_split = pd.read_parquet(fixture["sidecar_split_manifest"])
+    sidecar_area_calibration = pd.read_csv(fixture["sidecar_area_calibration"])
+
+    assert fixture["sidecar_model"].is_file()
+    assert fixture["sidecar_geographic_model"].is_file()
+    assert fixture["sidecar_area_calibration"].is_file()
+    assert set(sidecar_predictions["model_name"]) == {
+        "no_skill_train_mean",
+        "ridge_regression",
+        "previous_year_annual_max",
+        "grid_cell_climatology",
+        "geographic_ridge_lon_lat_year",
+    }
+    assert sidecar_manifest["sample_policy"] == "crm_stratified_background_sample"
+    assert len(sidecar_split) == 9
+    assert set(sidecar_area_calibration["model_name"]) == set(sidecar_predictions["model_name"])
+
+
 def write_baseline_fixture(
     tmp_path: Path,
     *,
     include_full_grid: bool = False,
     include_domain_mask: bool = False,
     include_training_mask_columns: bool = False,
+    include_sidecar: bool = False,
 ) -> dict[str, Path]:
     """Write a synthetic aligned table and minimal baseline training config."""
     aligned_table = tmp_path / "interim/aligned_training_table.parquet"
+    sidecar_table = tmp_path / "interim/aligned_training_table.crm_stratified.parquet"
     full_grid_table = tmp_path / "interim/aligned_full_grid_training_table.parquet"
     split_manifest = tmp_path / "interim/split_manifest.parquet"
+    sidecar_split_manifest = tmp_path / "interim/split_manifest.crm_stratified.parquet"
     model = tmp_path / "models/baselines/ridge_kelp_fraction.joblib"
+    sidecar_model = tmp_path / "models/baselines/ridge_kelp_fraction.crm_stratified.joblib"
     sample_predictions = tmp_path / "processed/baseline_sample_predictions.parquet"
+    sidecar_sample_predictions = (
+        tmp_path / "processed/baseline_sample_predictions.crm_stratified.parquet"
+    )
     predictions = tmp_path / "processed/baseline_predictions.parquet"
+    sidecar_predictions = tmp_path / "processed/baseline_predictions.crm_stratified.parquet"
     prediction_manifest = tmp_path / "interim/baseline_prediction_manifest.json"
+    sidecar_prediction_manifest = (
+        tmp_path / "interim/baseline_prediction_manifest.crm_stratified.json"
+    )
     metrics = tmp_path / "reports/tables/baseline_metrics.csv"
+    sidecar_metrics = tmp_path / "reports/tables/baseline_metrics.crm_stratified.csv"
     fallback_summary = tmp_path / "reports/tables/reference_baseline_fallback_summary.csv"
+    sidecar_fallback_summary = (
+        tmp_path / "reports/tables/reference_baseline_fallback_summary.crm_stratified.csv"
+    )
+    sidecar_area_calibration = (
+        tmp_path / "reports/tables/reference_baseline_area_calibration.crm_stratified.csv"
+    )
     area_calibration = tmp_path / (
         "reports/tables/reference_baseline_area_calibration.masked.csv"
         if include_domain_mask
@@ -168,9 +212,18 @@ def write_baseline_fixture(
     domain_mask = tmp_path / "interim/plausible_kelp_domain_mask.parquet"
     domain_manifest = tmp_path / "interim/plausible_kelp_domain_mask_manifest.json"
     manifest = tmp_path / "interim/baseline_eval_manifest.json"
+    sidecar_manifest = tmp_path / "interim/baseline_eval_manifest.crm_stratified.json"
     geographic_model = tmp_path / "models/baselines/geographic_ridge_lon_lat_year.joblib"
+    sidecar_geographic_model = (
+        tmp_path / "models/baselines/geographic_ridge_lon_lat_year.crm_stratified.joblib"
+    )
     config_path = tmp_path / "config.yaml"
     write_aligned_table(aligned_table, include_training_mask_columns=include_training_mask_columns)
+    if include_sidecar:
+        write_aligned_table(
+            sidecar_table,
+            include_training_mask_columns=include_training_mask_columns,
+        )
     if include_full_grid:
         write_aligned_table(full_grid_table)
     if include_domain_mask:
@@ -190,6 +243,26 @@ def write_baseline_fixture(
     masked_area_output = (
         f"    reference_baseline_area_calibration_masked: {area_calibration}\n"
         if include_domain_mask
+        else ""
+    )
+    sidecar_config = (
+        f"""
+    sidecars:
+      crm_stratified:
+        sample_policy: crm_stratified_background_sample
+        input_table: {sidecar_table}
+        split_manifest: {sidecar_split_manifest}
+        ridge_model: {sidecar_model}
+        geographic_model: {sidecar_geographic_model}
+        sample_predictions: {sidecar_sample_predictions}
+        predictions: {sidecar_predictions}
+        prediction_manifest: {sidecar_prediction_manifest}
+        metrics: {sidecar_metrics}
+        manifest: {sidecar_manifest}
+        fallback_summary: {sidecar_fallback_summary}
+        area_calibration: {sidecar_area_calibration}
+"""
+        if include_sidecar
         else ""
     )
     config_path.write_text(
@@ -221,6 +294,7 @@ models:
     prediction_manifest: {prediction_manifest}
     metrics: {metrics}
     manifest: {manifest}
+{sidecar_config}
 reports:
 {domain_mask_config}
   outputs:
@@ -241,6 +315,12 @@ reports:
         "fallback_summary": fallback_summary,
         "area_calibration": area_calibration,
         "manifest": manifest,
+        "sidecar_split_manifest": sidecar_split_manifest,
+        "sidecar_model": sidecar_model,
+        "sidecar_geographic_model": sidecar_geographic_model,
+        "sidecar_sample_predictions": sidecar_sample_predictions,
+        "sidecar_manifest": sidecar_manifest,
+        "sidecar_area_calibration": sidecar_area_calibration,
     }
 
 

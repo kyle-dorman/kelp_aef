@@ -103,6 +103,24 @@ def test_train_binary_presence_writes_crm_stratified_sidecar(tmp_path: Path) -> 
     assert manifest["sample_policy"] == "crm_stratified"
 
 
+def test_calibrate_binary_presence_writes_crm_stratified_sidecar(tmp_path: Path) -> None:
+    """Verify binary calibration is paired with the CRM-stratified sidecar model."""
+    fixture = write_binary_presence_fixture(tmp_path, include_sidecar=True)
+
+    assert main(["train-binary-presence", "--config", str(fixture["config_path"])]) == 0
+    assert main(["calibrate-binary-presence", "--config", str(fixture["config_path"])]) == 0
+
+    calibrated = pd.read_parquet(fixture["sidecar_calibrated_sample_predictions"])
+    metrics = pd.read_csv(fixture["sidecar_calibration_metrics"])
+    manifest = json.loads(fixture["sidecar_calibration_manifest"].read_text())
+
+    assert fixture["sidecar_calibration_model"].is_file()
+    assert calibrated["calibrated_binary_probability"].between(0, 1).all()
+    assert {"raw_logistic", "platt_calibrated"} <= set(metrics["probability_source"])
+    assert manifest["sample_policy"] == "crm_stratified"
+    assert manifest["inputs"]["sample_predictions"] == str(fixture["sidecar_sample_predictions"])
+
+
 def test_binary_target_uses_10pct_annual_max_rule() -> None:
     """Verify target construction uses `>= 10%` rather than positive canopy."""
     target = build_binary_target(pd.Series([0.0, 0.099, 0.10, 0.5]), 0.10)
@@ -205,6 +223,33 @@ def write_binary_presence_fixture(
     )
     sidecar_map_figure = tmp_path / "reports/figures/binary_presence_2022_map.crm_stratified.png"
     sidecar_comparison = tmp_path / "reports/tables/binary_presence_crm_stratified_comparison.csv"
+    sidecar_calibration_model = (
+        tmp_path
+        / "models/binary_presence/logistic_annual_max_ge_10pct_calibration.crm_stratified.joblib"
+    )
+    sidecar_calibrated_sample_predictions = (
+        tmp_path / "processed/binary_presence_calibrated_sample_predictions.crm_stratified.parquet"
+    )
+    sidecar_calibration_metrics = (
+        tmp_path / "reports/tables/binary_presence_calibration_metrics.crm_stratified.csv"
+    )
+    sidecar_calibrated_threshold_selection = (
+        tmp_path
+        / "reports/tables/binary_presence_calibrated_threshold_selection.crm_stratified.csv"
+    )
+    sidecar_calibrated_full_grid_area_summary = (
+        tmp_path
+        / "reports/tables/binary_presence_calibrated_full_grid_area_summary.crm_stratified.csv"
+    )
+    sidecar_calibration_curve_figure = (
+        tmp_path / "reports/figures/binary_presence_calibration_curve.crm_stratified.png"
+    )
+    sidecar_calibrated_threshold_figure = (
+        tmp_path / "reports/figures/binary_presence_calibrated_thresholds.crm_stratified.png"
+    )
+    sidecar_calibration_manifest = (
+        tmp_path / "interim/binary_presence_calibration_manifest.crm_stratified.json"
+    )
     config_path = tmp_path / "config.yaml"
 
     write_binary_rows(sample, years=(2018, 2019, 2020, 2021, 2022), include_mask=True)
@@ -237,6 +282,17 @@ def write_binary_presence_fixture(
         precision_recall_figure: {sidecar_precision_recall_figure}
         map_figure: {sidecar_map_figure}
         comparison_table: {sidecar_comparison}
+        calibration:
+          input_sample_predictions: {sidecar_sample_predictions}
+          input_full_grid_predictions: {sidecar_full_grid_predictions}
+          model: {sidecar_calibration_model}
+          calibrated_sample_predictions: {sidecar_calibrated_sample_predictions}
+          metrics: {sidecar_calibration_metrics}
+          threshold_selection: {sidecar_calibrated_threshold_selection}
+          full_grid_area_summary: {sidecar_calibrated_full_grid_area_summary}
+          calibration_curve_figure: {sidecar_calibration_curve_figure}
+          threshold_figure: {sidecar_calibrated_threshold_figure}
+          manifest: {sidecar_calibration_manifest}
 """
         if include_sidecar
         else ""
@@ -335,6 +391,14 @@ reports:
         "sidecar_precision_recall_figure": sidecar_precision_recall_figure,
         "sidecar_map_figure": sidecar_map_figure,
         "sidecar_comparison": sidecar_comparison,
+        "sidecar_calibration_model": sidecar_calibration_model,
+        "sidecar_calibrated_sample_predictions": sidecar_calibrated_sample_predictions,
+        "sidecar_calibration_metrics": sidecar_calibration_metrics,
+        "sidecar_calibrated_threshold_selection": sidecar_calibrated_threshold_selection,
+        "sidecar_calibrated_full_grid_area_summary": sidecar_calibrated_full_grid_area_summary,
+        "sidecar_calibration_curve_figure": sidecar_calibration_curve_figure,
+        "sidecar_calibrated_threshold_figure": sidecar_calibrated_threshold_figure,
+        "sidecar_calibration_manifest": sidecar_calibration_manifest,
     }
 
 

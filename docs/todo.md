@@ -474,7 +474,7 @@ masking change should end with an updated model-analysis report.
     and
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`;
     full repo validation passed with `make check`.
-- [ ] P1-21a: Complete CRM-stratified background sampling across all model
+- [x] P1-21a: Complete CRM-stratified background sampling across all model
   families.
   - Goal: Make current versus CRM-stratified sample policy comparisons fair
     across continuous baselines, binary presence, calibration, conditional
@@ -482,9 +482,42 @@ masking change should end with an updated model-analysis report.
   - Plan: `tasks/31_crm_stratified_all_model_comparison.md`.
   - Output: sidecar model artifacts and a report-visible all-model comparison
     table keyed by `sample_policy`.
+  - Completed: added current and CRM-stratified `sample_policy` sidecars for
+    continuous baselines, binary calibration, conditional-canopy diagnostics,
+    and hurdle composition. Current default paths remain intact; CRM sidecars
+    are path-distinct.
+  - Output details: wrote
+    `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_crm_stratified_all_models_comparison.csv`
+    with 528 rows covering `current_masked_sample` and
+    `crm_stratified_background_sample` across continuous, binary, conditional,
+    and hurdle model families. Conditional canopy reused
+    `/Volumes/x10pro/kelp_aef/models/conditional_canopy/ridge_positive_annual_max.joblib`;
+    the reuse manifest confirms matching observed-positive support
+    (`41,824` rows) at
+    `/Volumes/x10pro/kelp_aef/interim/conditional_canopy_reuse_manifest.crm_stratified.json`.
+  - Result: in the 2022 retained-domain test/all scope, the CRM-stratified
+    ridge sidecar reduced continuous ridge predicted canopy area
+    (`10.31M m2` versus `12.12M m2` current) and improved ridge RMSE
+    (`0.0378` versus `0.0438`). The CRM calibrated binary sidecar selected
+    the validation-max-F1 threshold `0.35` and predicted `7.31M m2` positive
+    area versus `8.52M m2` current at the comparable policy. The CRM
+    expected-value hurdle predicted `3.98M m2` against `4.16M m2` observed;
+    the CRM hard-gated hurdle predicted `3.52M m2` with F1 `0.825`.
   - Validation: rerun the relevant model commands and the Phase 1 report, then
     compare pixel skill, assumed-background leakage, full-grid area behavior,
     and any Kelpwatch-station recall tradeoff under both sample policies.
+  - Validation passed:
+    focused `uv run ruff check` and `uv run mypy` for the touched evaluation
+    modules and tests,
+    `uv run pytest tests/test_baselines.py tests/test_binary_presence.py tests/test_conditional_canopy.py tests/test_hurdle.py tests/test_model_analysis.py -q`,
+    `uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef train-binary-presence --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef calibrate-binary-presence --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef train-conditional-canopy --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef compose-hurdle-model --config configs/monterey_smoke.yaml`,
+    `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
+    and `make check`.
   - Constraint: CRM depth/elevation context remains a sampling input only, not
     a model feature, and current default artifacts remain available until a
     later policy-selection decision.

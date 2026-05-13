@@ -35,9 +35,33 @@ def test_train_conditional_canopy_writes_artifacts(tmp_path: Path) -> None:
     assert manifest["row_counts"]["train_observed_positive_rows"] == 9
 
 
-def write_conditional_canopy_fixture(tmp_path: Path) -> dict[str, Path]:
+def test_train_conditional_canopy_writes_crm_stratified_reuse_manifest(
+    tmp_path: Path,
+) -> None:
+    """Verify CRM-stratified conditional sidecar reuses the observed-positive model."""
+    fixture = write_conditional_canopy_fixture(tmp_path, include_sidecar=True)
+
+    assert main(["train-conditional-canopy", "--config", str(fixture["config_path"])]) == 0
+
+    manifest = json.loads(fixture["sidecar_reuse_manifest"].read_text())
+    summary = pd.read_csv(fixture["sidecar_full_grid_likely_positive_summary"])
+
+    assert manifest["sample_policy"] == "crm_stratified_background_sample"
+    assert manifest["conditional_model_reused"]
+    assert manifest["support_sets_match"]
+    assert set(summary["likely_positive_threshold_policy"]) == {"validation_max_f1_calibrated"}
+
+
+def write_conditional_canopy_fixture(
+    tmp_path: Path,
+    *,
+    include_sidecar: bool = False,
+) -> dict[str, Path]:
     """Write synthetic conditional-canopy inputs and config."""
     sample = tmp_path / "interim/aligned_background_sample_training_table.masked.parquet"
+    sidecar_sample = (
+        tmp_path / "interim/aligned_background_sample_training_table.crm_stratified.masked.parquet"
+    )
     split_manifest = tmp_path / "interim/split_manifest.parquet"
     baseline_predictions = tmp_path / "processed/baseline_sample_predictions.parquet"
     calibrated_sample = tmp_path / "processed/binary_presence_calibrated_sample_predictions.parquet"
@@ -52,14 +76,38 @@ def write_conditional_canopy_fixture(tmp_path: Path) -> dict[str, Path]:
     full_grid_likely_positive_summary = (
         tmp_path / "reports/tables/conditional_canopy_full_grid_likely_positive_summary.csv"
     )
+    sidecar_full_grid_likely_positive_summary = (
+        tmp_path
+        / "reports/tables/conditional_canopy_full_grid_likely_positive_summary.crm_stratified.csv"
+    )
+    sidecar_reuse_manifest = (
+        tmp_path / "interim/conditional_canopy_reuse_manifest.crm_stratified.json"
+    )
     residual_figure = tmp_path / "reports/figures/conditional_canopy_positive_residuals.png"
     manifest = tmp_path / "interim/conditional_canopy_manifest.json"
     config_path = tmp_path / "config.yaml"
     write_conditional_rows(sample)
+    if include_sidecar:
+        write_conditional_rows(sidecar_sample)
     write_conditional_split_manifest(split_manifest)
     write_conditional_baseline_predictions(baseline_predictions)
     write_calibrated_sample_predictions(calibrated_sample)
     write_calibrated_full_grid_summary(calibrated_full_grid)
+    sidecar_config = (
+        f"""
+    sidecars:
+      crm_stratified:
+        sample_policy: crm_stratified_background_sample
+        reuse_model: true
+        input_table: {sidecar_sample}
+        calibrated_binary_sample_predictions: {calibrated_sample}
+        calibrated_binary_full_grid_area_summary: {calibrated_full_grid}
+        full_grid_likely_positive_summary: {sidecar_full_grid_likely_positive_summary}
+        reuse_manifest: {sidecar_reuse_manifest}
+"""
+        if include_sidecar
+        else ""
+    )
     config_path.write_text(
         f"""
 features:
@@ -98,6 +146,7 @@ models:
     full_grid_likely_positive_summary: {full_grid_likely_positive_summary}
     residual_figure: {residual_figure}
     manifest: {manifest}
+{sidecar_config}
 """.lstrip()
     )
     return {
@@ -110,6 +159,8 @@ models:
         "full_grid_likely_positive_summary": full_grid_likely_positive_summary,
         "residual_figure": residual_figure,
         "manifest": manifest,
+        "sidecar_full_grid_likely_positive_summary": sidecar_full_grid_likely_positive_summary,
+        "sidecar_reuse_manifest": sidecar_reuse_manifest,
     }
 
 

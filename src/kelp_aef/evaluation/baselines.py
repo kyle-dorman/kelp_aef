@@ -9,7 +9,7 @@ import math
 import operator
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, SupportsIndex, cast
 
@@ -142,6 +142,7 @@ class BaselineConfig:
     """Resolved config values for baseline training and evaluation."""
 
     config_path: Path
+    sample_policy: str
     aligned_table_path: Path
     split_manifest_path: Path
     model_output_path: Path
@@ -164,6 +165,14 @@ class BaselineConfig:
     use_sample_weight: bool
     sample_weight_column: str
     reporting_domain_mask: ReportingDomainMask | None
+
+
+@dataclass(frozen=True)
+class BaselineSidecarConfig:
+    """Resolved config values for an optional baseline sidecar run."""
+
+    name: str
+    baseline_config: BaselineConfig
 
 
 @dataclass(frozen=True)
@@ -207,6 +216,15 @@ class ReferenceLookupState:
 def train_baselines(config_path: Path) -> int:
     """Train and evaluate the first no-skill and ridge baselines."""
     baseline_config = load_baseline_config(config_path)
+    train_baselines_config(baseline_config)
+    for sidecar in load_baseline_sidecar_configs(config_path, baseline_config):
+        LOGGER.info("Training baseline sidecar: %s", sidecar.name)
+        train_baselines_config(sidecar.baseline_config)
+    return 0
+
+
+def train_baselines_config(baseline_config: BaselineConfig) -> None:
+    """Train and evaluate one resolved no-skill, ridge, and reference config."""
     LOGGER.info("Loading aligned table: %s", baseline_config.aligned_table_path)
     aligned = pd.read_parquet(baseline_config.aligned_table_path)
     validate_aligned_table(aligned, baseline_config)
@@ -254,6 +272,13 @@ def train_baselines(config_path: Path) -> int:
         train_mean=train_mean,
     )
     write_geographic_model(geographic_selection, baseline_config)
+    area_calibration_rows = build_reference_area_calibration_rows(baseline_config)
+    if area_calibration_rows:
+        write_csv(
+            area_calibration_rows,
+            baseline_config.area_calibration_path,
+            AREA_CALIBRATION_FIELDS,
+        )
     write_eval_manifest(
         baseline_config=baseline_config,
         prepared=prepared,
@@ -269,13 +294,23 @@ def train_baselines(config_path: Path) -> int:
     LOGGER.info("Wrote reference fallback summary: %s", baseline_config.fallback_summary_path)
     LOGGER.info("Wrote ridge model: %s", baseline_config.model_output_path)
     LOGGER.info("Wrote geographic model: %s", baseline_config.geographic_model_output_path)
+    if area_calibration_rows:
+        LOGGER.info("Wrote reference area calibration: %s", baseline_config.area_calibration_path)
     LOGGER.info("Wrote baseline evaluation manifest: %s", baseline_config.eval_manifest_path)
-    return 0
 
 
 def predict_full_grid(config_path: Path, *, fast: bool = False) -> int:
     """Apply the trained ridge model to the full-grid inference table in chunks."""
     baseline_config = load_baseline_config(config_path)
+    predict_full_grid_config(baseline_config, fast=fast)
+    for sidecar in load_baseline_sidecar_configs(config_path, baseline_config):
+        LOGGER.info("Streaming baseline full-grid sidecar predictions: %s", sidecar.name)
+        predict_full_grid_config(sidecar.baseline_config, fast=fast)
+    return 0
+
+
+def predict_full_grid_config(baseline_config: BaselineConfig, *, fast: bool = False) -> None:
+    """Apply one resolved baseline ridge model to the full-grid table in chunks."""
     if baseline_config.inference_table_path is None:
         msg = "models.baselines.inference_table is required for predict-full-grid"
         raise ValueError(msg)
@@ -337,7 +372,6 @@ def predict_full_grid(config_path: Path, *, fast: bool = False) -> int:
     )
     LOGGER.info("Wrote full-grid predictions: %s", output_path)
     LOGGER.info("Wrote full-grid prediction manifest: %s", manifest_path)
-    return 0
 
 
 def load_baseline_config(config_path: Path) -> BaselineConfig:
@@ -377,6 +411,7 @@ def load_baseline_config(config_path: Path) -> BaselineConfig:
     )
     return BaselineConfig(
         config_path=config_path,
+        sample_policy=str(baseline.get("sample_policy", "current_masked_sample")),
         aligned_table_path=Path(
             require_string(
                 baseline.get("input_table") or alignment.get("output_table"),
@@ -458,6 +493,77 @@ def load_baseline_config(config_path: Path) -> BaselineConfig:
         sample_weight_column=str(baseline.get("sample_weight_column", "sample_weight")),
         reporting_domain_mask=reporting_domain_mask,
     )
+
+
+def load_baseline_sidecar_configs(
+    config_path: Path,
+    base_config: BaselineConfig,
+) -> tuple[BaselineSidecarConfig, ...]:
+    """Load optional baseline sidecar configs from the workflow config."""
+    config = load_yaml_config(config_path)
+    models = require_mapping(config.get("models"), "models")
+    baseline = require_mapping(models.get("baselines"), "models.baselines")
+    sidecars = optional_mapping(baseline.get("sidecars"), "models.baselines.sidecars")
+    output: list[BaselineSidecarConfig] = []
+    for name, value in sidecars.items():
+        sidecar_name = str(name)
+        sidecar = require_mapping(value, f"models.baselines.sidecars.{sidecar_name}")
+        if not read_bool(
+            sidecar.get("enabled"),
+            f"models.baselines.sidecars.{sidecar_name}.enabled",
+            default=True,
+        ):
+            continue
+        output.append(
+            BaselineSidecarConfig(
+                name=sidecar_name,
+                baseline_config=replace(
+                    base_config,
+                    sample_policy=str(sidecar.get("sample_policy", sidecar_name)),
+                    aligned_table_path=baseline_sidecar_path(sidecar, sidecar_name, "input_table"),
+                    split_manifest_path=baseline_sidecar_path(
+                        sidecar, sidecar_name, "split_manifest"
+                    ),
+                    model_output_path=baseline_sidecar_path(sidecar, sidecar_name, "ridge_model"),
+                    geographic_model_output_path=baseline_sidecar_path(
+                        sidecar, sidecar_name, "geographic_model"
+                    ),
+                    sample_predictions_path=baseline_sidecar_path(
+                        sidecar, sidecar_name, "sample_predictions"
+                    ),
+                    predictions_path=baseline_sidecar_path(sidecar, sidecar_name, "predictions"),
+                    prediction_manifest_path=baseline_sidecar_path(
+                        sidecar, sidecar_name, "prediction_manifest"
+                    ),
+                    metrics_path=baseline_sidecar_path(sidecar, sidecar_name, "metrics"),
+                    eval_manifest_path=baseline_sidecar_path(sidecar, sidecar_name, "manifest"),
+                    fallback_summary_path=baseline_sidecar_path(
+                        sidecar, sidecar_name, "fallback_summary"
+                    ),
+                    area_calibration_path=baseline_sidecar_path(
+                        sidecar, sidecar_name, "area_calibration"
+                    ),
+                ),
+            )
+        )
+    return tuple(output)
+
+
+def baseline_sidecar_path(config: dict[str, Any], sidecar_name: str, key: str) -> Path:
+    """Read a required baseline sidecar path from config."""
+    return Path(
+        require_string(
+            config.get(key),
+            f"models.baselines.sidecars.{sidecar_name}.{key}",
+        )
+    )
+
+
+def optional_mapping(value: object, name: str) -> dict[str, Any]:
+    """Return an optional config mapping, treating a missing value as empty."""
+    if value is None:
+        return {}
+    return require_mapping(value, name)
 
 
 def read_year_list(config: dict[str, Any], key: str) -> tuple[int, ...]:
@@ -1522,6 +1628,7 @@ def write_ridge_model(
     payload = {
         "model": ridge_selection.model,
         "model_name": RIDGE_MODEL_NAME,
+        "sample_policy": baseline_config.sample_policy,
         "selected_alpha": ridge_selection.selected_alpha,
         "target_column": baseline_config.target_column,
         "feature_columns": list(baseline_config.feature_columns),
@@ -1539,6 +1646,7 @@ def write_geographic_model(
     payload = {
         "model": geographic_selection.model,
         "model_name": GEOGRAPHIC_MODEL_NAME,
+        "sample_policy": baseline_config.sample_policy,
         "selected_alpha": geographic_selection.selected_alpha,
         "target_column": baseline_config.target_column,
         "feature_columns": list(GEOGRAPHIC_FEATURE_COLUMNS),
@@ -1901,6 +2009,7 @@ def write_eval_manifest(
     payload = {
         "command": "train-baselines",
         "config_path": str(baseline_config.config_path),
+        "sample_policy": baseline_config.sample_policy,
         "aligned_table": str(baseline_config.aligned_table_path),
         "split_manifest": str(baseline_config.split_manifest_path),
         "model_output": str(baseline_config.model_output_path),
@@ -2048,6 +2157,7 @@ def write_prediction_manifest(
     payload = {
         "command": "predict-full-grid",
         "config_path": str(baseline_config.config_path),
+        "sample_policy": baseline_config.sample_policy,
         "fast": fast,
         "inference_table": str(inference_path),
         "predictions": str(output_path),

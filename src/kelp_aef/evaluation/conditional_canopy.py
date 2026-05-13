@@ -6,7 +6,7 @@ import csv
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, SupportsIndex, cast
 
@@ -280,6 +280,16 @@ class ConditionalCanopyConfig:
 
 
 @dataclass(frozen=True)
+class ConditionalCanopySidecarConfig:
+    """Resolved config for a conditional-canopy sidecar reuse decision."""
+
+    name: str
+    sample_policy: str
+    conditional_config: ConditionalCanopyConfig
+    reuse_manifest_path: Path
+
+
+@dataclass(frozen=True)
 class PreparedConditionalData:
     """Prepared sample rows plus split and support diagnostics."""
 
@@ -369,6 +379,13 @@ def train_conditional_canopy(config_path: Path) -> int:
         conditional_config.sample_predictions_path,
     )
     LOGGER.info("Wrote conditional metrics: %s", conditional_config.metrics_path)
+    for sidecar in load_conditional_canopy_sidecar_configs(config_path, conditional_config):
+        LOGGER.info("Writing conditional-canopy sidecar reuse decision: %s", sidecar.name)
+        write_conditional_sidecar_reuse_artifacts(
+            base_config=conditional_config,
+            sidecar=sidecar,
+            base_prepared=prepared,
+        )
     return 0
 
 
@@ -491,6 +508,103 @@ def load_conditional_canopy_config(config_path: Path) -> ConditionalCanopyConfig
             default=True,
         ),
         reporting_domain_mask=reporting_domain_mask,
+    )
+
+
+def load_conditional_canopy_sidecar_configs(
+    config_path: Path,
+    base_config: ConditionalCanopyConfig,
+) -> tuple[ConditionalCanopySidecarConfig, ...]:
+    """Load optional conditional sidecars that reuse the positive-only model."""
+    config = load_yaml_config(config_path)
+    models = require_mapping(config.get("models"), "models")
+    conditional = require_mapping(
+        models.get("conditional_canopy"),
+        "models.conditional_canopy",
+    )
+    sidecars = optional_mapping(
+        conditional.get("sidecars"),
+        "models.conditional_canopy.sidecars",
+    )
+    output: list[ConditionalCanopySidecarConfig] = []
+    for name, value in sidecars.items():
+        sidecar_name = str(name)
+        sidecar = require_mapping(value, f"models.conditional_canopy.sidecars.{sidecar_name}")
+        if not read_bool(
+            sidecar.get("enabled"),
+            f"models.conditional_canopy.sidecars.{sidecar_name}.enabled",
+            default=True,
+        ):
+            continue
+        if not read_bool(
+            sidecar.get("reuse_model"),
+            f"models.conditional_canopy.sidecars.{sidecar_name}.reuse_model",
+            default=True,
+        ):
+            msg = (
+                "conditional canopy sidecars currently support only reuse_model=true; "
+                f"got models.conditional_canopy.sidecars.{sidecar_name}.reuse_model=false"
+            )
+            raise ValueError(msg)
+        output.append(
+            ConditionalCanopySidecarConfig(
+                name=sidecar_name,
+                sample_policy=str(sidecar.get("sample_policy", sidecar_name)),
+                conditional_config=replace(
+                    base_config,
+                    input_table_path=conditional_sidecar_path(sidecar, sidecar_name, "input_table"),
+                    calibrated_sample_predictions_path=conditional_sidecar_optional_path(
+                        sidecar,
+                        sidecar_name,
+                        "calibrated_binary_sample_predictions",
+                        base_config.calibrated_sample_predictions_path,
+                    ),
+                    calibrated_full_grid_area_summary_path=conditional_sidecar_optional_path(
+                        sidecar,
+                        sidecar_name,
+                        "calibrated_binary_full_grid_area_summary",
+                        base_config.calibrated_full_grid_area_summary_path,
+                    ),
+                    full_grid_likely_positive_summary_path=conditional_sidecar_optional_path(
+                        sidecar,
+                        sidecar_name,
+                        "full_grid_likely_positive_summary",
+                        None,
+                    ),
+                ),
+                reuse_manifest_path=conditional_sidecar_path(
+                    sidecar, sidecar_name, "reuse_manifest"
+                ),
+            )
+        )
+    return tuple(output)
+
+
+def conditional_sidecar_path(config: dict[str, Any], sidecar_name: str, key: str) -> Path:
+    """Read a required conditional sidecar path from config."""
+    return Path(
+        require_string(
+            config.get(key),
+            f"models.conditional_canopy.sidecars.{sidecar_name}.{key}",
+        )
+    )
+
+
+def conditional_sidecar_optional_path(
+    config: dict[str, Any],
+    sidecar_name: str,
+    key: str,
+    default: Path | None,
+) -> Path | None:
+    """Read an optional conditional sidecar path with a configured default."""
+    value = config.get(key)
+    if value is None:
+        return default
+    return Path(
+        require_string(
+            value,
+            f"models.conditional_canopy.sidecars.{sidecar_name}.{key}",
+        )
     )
 
 
@@ -1532,6 +1646,126 @@ def build_full_grid_likely_positive_summary(
             }
         )
     return rows
+
+
+def write_conditional_sidecar_reuse_artifacts(
+    *,
+    base_config: ConditionalCanopyConfig,
+    sidecar: ConditionalCanopySidecarConfig,
+    base_prepared: PreparedConditionalData,
+) -> None:
+    """Write sidecar diagnostics proving the conditional model support is shared."""
+    sidecar_sample = pd.read_parquet(sidecar.conditional_config.input_table_path)
+    support = compare_observed_positive_support(
+        base_prepared.retained_rows,
+        sidecar_sample,
+        base_config,
+        sidecar.conditional_config,
+    )
+    full_grid_summary = build_full_grid_likely_positive_summary(sidecar.conditional_config)
+    if sidecar.conditional_config.full_grid_likely_positive_summary_path is not None:
+        write_csv_rows(
+            full_grid_summary,
+            sidecar.conditional_config.full_grid_likely_positive_summary_path,
+            CONDITIONAL_FULL_GRID_SUMMARY_FIELDS,
+        )
+    manifest = {
+        "command": "train-conditional-canopy",
+        "sidecar": sidecar.name,
+        "sample_policy": sidecar.sample_policy,
+        "conditional_model_reused": True,
+        "reuse_reason": (
+            "configured support policy trains only observed-positive rows, and the "
+            "sidecar sample has the same observed-positive support keys"
+        ),
+        "positive_support_policy": base_config.positive_support_policy,
+        "base_input_table": str(base_config.input_table_path),
+        "sidecar_input_table": str(sidecar.conditional_config.input_table_path),
+        "model": str(base_config.model_output_path),
+        "support_key_columns": support["key_columns"],
+        "base_observed_positive_support_count": support["base_count"],
+        "sidecar_observed_positive_support_count": support["sidecar_count"],
+        "support_sets_match": support["sets_match"],
+        "missing_sidecar_support_examples": support["missing_examples"],
+        "extra_sidecar_support_examples": support["extra_examples"],
+        "full_grid_likely_positive_summary_rows": len(full_grid_summary),
+        "outputs": {
+            "reuse_manifest": str(sidecar.reuse_manifest_path),
+            "full_grid_likely_positive_summary": (
+                str(sidecar.conditional_config.full_grid_likely_positive_summary_path)
+                if sidecar.conditional_config.full_grid_likely_positive_summary_path is not None
+                else None
+            ),
+        },
+    }
+    if not support["sets_match"]:
+        msg = (
+            "conditional sidecar cannot reuse the current model because observed-positive "
+            f"support differs for sidecar {sidecar.name}"
+        )
+        raise ValueError(msg)
+    sidecar.reuse_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    sidecar.reuse_manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+
+
+def compare_observed_positive_support(
+    base_rows: pd.DataFrame,
+    sidecar_rows: pd.DataFrame,
+    base_config: ConditionalCanopyConfig,
+    sidecar_config: ConditionalCanopyConfig,
+) -> dict[str, object]:
+    """Compare observed-positive support keys between current and sidecar samples."""
+    key_columns = conditional_support_key_columns(base_rows, sidecar_rows)
+    base_keys = observed_positive_support_keys(base_rows, base_config, key_columns)
+    sidecar_keys = observed_positive_support_keys(sidecar_rows, sidecar_config, key_columns)
+    missing = sorted(base_keys - sidecar_keys)
+    extra = sorted(sidecar_keys - base_keys)
+    return {
+        "key_columns": list(key_columns),
+        "base_count": len(base_keys),
+        "sidecar_count": len(sidecar_keys),
+        "sets_match": not missing and not extra,
+        "missing_examples": [list(item) for item in missing[:10]],
+        "extra_examples": [list(item) for item in extra[:10]],
+    }
+
+
+def conditional_support_key_columns(
+    base_rows: pd.DataFrame,
+    sidecar_rows: pd.DataFrame,
+) -> tuple[str, ...]:
+    """Return stable key columns available in both conditional samples."""
+    candidates = (
+        ("year", "aef_grid_cell_id"),
+        ("year", "aef_grid_row", "aef_grid_col"),
+        ("year", "kelpwatch_station_id", "longitude", "latitude"),
+    )
+    base_columns = set(base_rows.columns)
+    sidecar_columns = set(sidecar_rows.columns)
+    for candidate in candidates:
+        if set(candidate).issubset(base_columns) and set(candidate).issubset(sidecar_columns):
+            return candidate
+    msg = "conditional sidecar support comparison requires a shared row key"
+    raise ValueError(msg)
+
+
+def observed_positive_support_keys(
+    dataframe: pd.DataFrame,
+    conditional_config: ConditionalCanopyConfig,
+    key_columns: tuple[str, ...],
+) -> set[tuple[object, ...]]:
+    """Return observed-positive support keys after target and feature completeness checks."""
+    validate_input_columns(dataframe, conditional_config)
+    target = dataframe[conditional_config.target_column].astype(float)
+    feature_complete = (
+        dataframe.loc[:, list(conditional_config.feature_columns)].notna().all(axis=1)
+    )
+    support = dataframe.loc[
+        (target >= conditional_config.positive_target_threshold_fraction) & feature_complete,
+        list(key_columns),
+    ].copy()
+    support = support.sort_values(list(key_columns)).drop_duplicates()
+    return {tuple(row[column] for column in key_columns) for row in support.to_dict("records")}
 
 
 def object_to_int(value: object) -> int:

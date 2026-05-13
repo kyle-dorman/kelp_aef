@@ -641,6 +641,18 @@ def train_binary_presence_config(binary_config: BinaryPresenceConfig) -> None:
 def calibrate_binary_presence(config_path: Path) -> int:
     """Calibrate binary annual-max probabilities and write diagnostic artifacts."""
     calibration_config = load_binary_calibration_config(config_path)
+    calibrate_binary_presence_config(calibration_config)
+    for sidecar_config in load_binary_calibration_sidecar_configs(config_path, calibration_config):
+        LOGGER.info(
+            "Calibrating binary-presence sidecar: %s",
+            sidecar_config.binary_config.sample_policy,
+        )
+        calibrate_binary_presence_config(sidecar_config)
+    return 0
+
+
+def calibrate_binary_presence_config(calibration_config: BinaryCalibrationConfig) -> None:
+    """Calibrate one resolved binary annual-max probability config."""
     LOGGER.info(
         "Loading binary sample predictions for calibration: %s",
         calibration_config.input_sample_predictions_path,
@@ -706,7 +718,6 @@ def calibrate_binary_presence(config_path: Path) -> int:
         calibration_config.calibrated_sample_predictions_path,
     )
     LOGGER.info("Wrote binary calibration metrics: %s", calibration_config.metrics_path)
-    return 0
 
 
 def load_binary_presence_config(config_path: Path) -> BinaryPresenceConfig:
@@ -1024,6 +1035,139 @@ def load_binary_calibration_config(config_path: Path) -> BinaryCalibrationConfig
             "models.binary_presence.calibration.reliability_bin_count",
             DEFAULT_RELIABILITY_BIN_COUNT,
         ),
+    )
+
+
+def load_binary_calibration_sidecar_configs(
+    config_path: Path,
+    base_config: BinaryCalibrationConfig,
+) -> tuple[BinaryCalibrationConfig, ...]:
+    """Load optional binary calibration sidecars paired to binary sidecar models."""
+    config = load_yaml_config(config_path)
+    models = require_mapping(config.get("models"), "models")
+    binary = require_mapping(models.get("binary_presence"), "models.binary_presence")
+    sidecars = optional_mapping(binary.get("sidecars"), "models.binary_presence.sidecars")
+    binary_config = load_binary_presence_config(config_path)
+    binary_sidecars = {
+        sidecar.name: sidecar.binary_config
+        for sidecar in load_binary_presence_sidecar_configs(config_path, binary_config)
+    }
+    output: list[BinaryCalibrationConfig] = []
+    for sidecar_name, binary_sidecar_config in binary_sidecars.items():
+        sidecar = require_mapping(
+            sidecars.get(sidecar_name),
+            f"models.binary_presence.sidecars.{sidecar_name}",
+        )
+        calibration = optional_mapping(
+            sidecar.get("calibration"),
+            f"models.binary_presence.sidecars.{sidecar_name}.calibration",
+        )
+        if not read_bool(
+            calibration.get("enabled", sidecar.get("enabled")),
+            f"models.binary_presence.sidecars.{sidecar_name}.calibration.enabled",
+            default=True,
+        ):
+            continue
+        output.append(
+            replace(
+                base_config,
+                binary_config=binary_sidecar_config,
+                input_sample_predictions_path=sidecar_calibration_path(
+                    calibration,
+                    sidecar_name,
+                    "input_sample_predictions",
+                    binary_sidecar_config.sample_predictions_path,
+                ),
+                input_full_grid_predictions_path=sidecar_calibration_path(
+                    calibration,
+                    sidecar_name,
+                    "input_full_grid_predictions",
+                    binary_sidecar_config.full_grid_predictions_path,
+                ),
+                model_output_path=sidecar_calibration_path(
+                    calibration,
+                    sidecar_name,
+                    "model",
+                    binary_sidecar_config.model_output_path.with_name(
+                        f"{binary_sidecar_config.model_output_path.stem}_calibration.joblib"
+                    ),
+                ),
+                calibrated_sample_predictions_path=sidecar_calibration_path(
+                    calibration,
+                    sidecar_name,
+                    "calibrated_sample_predictions",
+                    binary_sidecar_config.sample_predictions_path.with_name(
+                        f"binary_presence_calibrated_sample_predictions.{sidecar_name}.parquet"
+                    ),
+                ),
+                metrics_path=sidecar_calibration_path(
+                    calibration,
+                    sidecar_name,
+                    "metrics",
+                    binary_sidecar_config.metrics_path.with_name(
+                        f"binary_presence_calibration_metrics.{sidecar_name}.csv"
+                    ),
+                ),
+                threshold_selection_path=sidecar_calibration_path(
+                    calibration,
+                    sidecar_name,
+                    "threshold_selection",
+                    binary_sidecar_config.threshold_selection_path.with_name(
+                        f"binary_presence_calibrated_threshold_selection.{sidecar_name}.csv"
+                    ),
+                ),
+                full_grid_area_summary_path=sidecar_calibration_path(
+                    calibration,
+                    sidecar_name,
+                    "full_grid_area_summary",
+                    binary_sidecar_config.full_grid_area_summary_path.with_name(
+                        f"binary_presence_calibrated_full_grid_area_summary.{sidecar_name}.csv"
+                    ),
+                ),
+                calibration_curve_figure_path=sidecar_calibration_path(
+                    calibration,
+                    sidecar_name,
+                    "calibration_curve_figure",
+                    binary_sidecar_config.precision_recall_figure_path.with_name(
+                        f"binary_presence_calibration_curve.{sidecar_name}.png"
+                    ),
+                ),
+                threshold_figure_path=sidecar_calibration_path(
+                    calibration,
+                    sidecar_name,
+                    "threshold_figure",
+                    binary_sidecar_config.precision_recall_figure_path.with_name(
+                        f"binary_presence_calibrated_thresholds.{sidecar_name}.png"
+                    ),
+                ),
+                manifest_path=sidecar_calibration_path(
+                    calibration,
+                    sidecar_name,
+                    "manifest",
+                    binary_sidecar_config.prediction_manifest_path.with_name(
+                        f"binary_presence_calibration_manifest.{sidecar_name}.json"
+                    ),
+                ),
+            )
+        )
+    return tuple(output)
+
+
+def sidecar_calibration_path(
+    config: dict[str, Any],
+    sidecar_name: str,
+    key: str,
+    default: Path,
+) -> Path:
+    """Read an optional binary calibration sidecar path."""
+    value = config.get(key)
+    if value is None:
+        return default
+    return Path(
+        require_string(
+            value,
+            f"models.binary_presence.sidecars.{sidecar_name}.calibration.{key}",
+        )
     )
 
 
@@ -3424,6 +3568,7 @@ def write_binary_calibration_model(
     payload = {
         "calibrator": calibrator.model,
         "model_name": BINARY_MODEL_NAME,
+        "sample_policy": calibration_config.binary_config.sample_policy,
         "calibration_method": calibration_config.method,
         "calibration_status": calibrator.status,
         "calibration_split": calibration_config.calibration_split,
@@ -3528,6 +3673,7 @@ def write_binary_calibration_manifest(
         "command": "calibrate-binary-presence",
         "config": str(calibration_config.config_path),
         "model_name": BINARY_MODEL_NAME,
+        "sample_policy": calibration_config.binary_config.sample_policy,
         "target_label": calibration_config.binary_config.target_label,
         "target_threshold_fraction": calibration_config.binary_config.target_threshold_fraction,
         "target_threshold_area": calibration_config.binary_config.target_threshold_area,
