@@ -429,6 +429,48 @@ reports:
     year: 2022
     latitude_band_count: 12
     top_residual_count: 50
+  results_visualizer:
+    split: test
+    year: 2022
+    robust_percentile: 99.0
+    max_inspection_points: 50000
+    basemap:
+      enabled: true
+      name: OpenStreetMap
+      url_template: https://tile.openstreetmap.org/{z}/{x}/{y}.png
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      max_zoom: 19
+    layers:
+      - id: expected_value_hurdle
+        display_name: Hurdle
+        type: continuous
+        path: /Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.parquet
+        model_name: calibrated_probability_x_conditional_canopy
+        prediction_column: pred_kelp_max_y
+        residual_column: residual_kelp_max_y
+        default_visible: true
+      - id: conditional_ridge
+        display_name: Conditional ridge
+        type: continuous_prediction
+        path: /Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.parquet
+        model_name: calibrated_probability_x_conditional_canopy
+        prediction_column: pred_conditional_area_m2
+        default_visible: false
+      - id: binary_presence
+        display_name: Binary presence
+        type: binary_probability
+        path: /Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.parquet
+        model_name: calibrated_probability_x_conditional_canopy
+        probability_column: calibrated_presence_probability
+        default_visible: false
+      - id: binary_outcome
+        display_name: Binary outcome
+        type: binary_outcome
+        path: /Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.parquet
+        model_name: calibrated_probability_x_conditional_canopy
+        prediction_column: pred_presence_class
+        probability_column: calibrated_presence_probability
+        default_visible: false
   model_analysis:
     model_name: ridge_regression
     split: test
@@ -448,6 +490,10 @@ reports:
     ridge_observed_vs_predicted_masked: /Volumes/x10pro/kelp_aef/reports/figures/ridge_observed_vs_predicted.masked.png
     ridge_residual_interactive: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.html
     ridge_residual_interactive_masked: /Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_residual_interactive.masked.html
+    results_visualizer_html: /Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer.html
+    results_visualizer_asset_dir: /Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer
+    results_visualizer_manifest: /Volumes/x10pro/kelp_aef/interim/results_visualizer_manifest.json
+    results_visualizer_inspection_points: /Volumes/x10pro/kelp_aef/reports/tables/results_visualizer_inspection_points.csv
     area_bias_by_year: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.csv
     area_bias_by_year_masked: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_year.masked.csv
     area_bias_by_latitude_band: /Volumes/x10pro/kelp_aef/reports/tables/area_bias_by_latitude_band.csv

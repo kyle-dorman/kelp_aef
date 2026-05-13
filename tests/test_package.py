@@ -37,6 +37,7 @@ def test_cli_imports() -> None:
         "train-conditional-canopy",
         "compose-hurdle-model",
         "map-residuals",
+        "visualize-results",
         "analyze-model",
     }
 

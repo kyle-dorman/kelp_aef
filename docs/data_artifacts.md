@@ -294,6 +294,20 @@ thresholds on the 2022 test split.
 | Hurdle assumed-background leakage | `/Volumes/x10pro/kelp_aef/reports/tables/hurdle_assumed_background_leakage.csv` | Assumed-background predicted area and predicted-positive leakage diagnostics for each composition policy. | Not tracked |
 | Hurdle 2022 map figure | `/Volumes/x10pro/kelp_aef/reports/figures/hurdle_2022_observed_predicted_residual.png` | Three-panel 2022 retained-domain expected-value map of observed, predicted, and residual area. | Not tracked |
 
+## Phase 1 Interactive Results Visualizer
+
+These outputs support local qualitative map review of retained-domain labels,
+predictions, residuals, binary outcomes, and selected inspection points. They
+are visual QA artifacts only; model comparison remains governed by the generated
+report tables.
+
+| Output | Path | Purpose | Git |
+| --- | --- | --- | --- |
+| Results visualizer HTML | `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer.html` | Leaflet-based local viewer with a runtime basemap, radio data-layer control, legend, and inspection popups. | Not tracked |
+| Results visualizer assets | `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer/` | Bounded coordinate-based inspection-point GeoJSON/JavaScript assets for hurdle, conditional ridge, binary probability, and binary TP/FP/FN/TN review. | Not tracked |
+| Results visualizer manifest | `/Volumes/x10pro/kelp_aef/interim/results_visualizer_manifest.json` | Input paths, row counts, point-layer color scales, basemap URL/attribution, and qualitative-review caveats. | Not tracked |
+| Results visualizer inspection points | `/Volumes/x10pro/kelp_aef/reports/tables/results_visualizer_inspection_points.csv` | Bounded set of high-residual and nonzero-support cells with coordinates and model/label values for manual Planet or Kelpwatch lookup. | Not tracked |
+
 ## Historical P1-22 Direct-Continuous Failure Artifacts
 
 These outputs are historical records from the failed P1-22 direct-continuous

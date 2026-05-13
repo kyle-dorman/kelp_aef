@@ -26,6 +26,7 @@ from kelp_aef.labels.kelpwatch import inspect_kelpwatch
 from kelp_aef.labels.kelpwatch_labels import build_annual_labels
 from kelp_aef.labels.kelpwatch_visualize import visualize_kelpwatch
 from kelp_aef.viz.residual_maps import map_residuals
+from kelp_aef.viz.results_visualizer import visualize_results
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = PROJECT_ROOT / "configs/monterey_smoke.yaml"
@@ -63,6 +64,7 @@ COMMANDS: dict[str, str] = {
     "train-conditional-canopy": "Train the positive-only conditional canopy amount model.",
     "compose-hurdle-model": "Compose calibrated presence and conditional canopy predictions.",
     "map-residuals": "Map baseline predictions, residuals, and area bias.",
+    "visualize-results": "Build a local interactive viewer for labels and model results.",
     "analyze-model": "Analyze model behavior and write the Phase 1 report.",
 }
 
@@ -793,6 +795,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_code = compose_hurdle_model(config_path)
         elif command == "map-residuals":
             exit_code = map_residuals(config_path)
+        elif command == "visualize-results":
+            exit_code = visualize_results(config_path)
         elif command == "analyze-model":
             exit_code = analyze_model(config_path)
         else:

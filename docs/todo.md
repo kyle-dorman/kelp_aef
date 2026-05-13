@@ -714,6 +714,36 @@ masking change should end with an updated model-analysis report.
     `uv run pytest tests/test_model_analysis.py tests/test_package.py`,
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`, and
     `make check`.
+- [x] P1-24: Create an interactive results visualizer.
+  - Plan: `tasks/40_interactive_results_visualizer.md`.
+  - Goal: Build a local zoomable map for inspecting Monterey retained-domain
+    labels, predictions, residuals, and binary outcomes against a background
+    map layer.
+  - Output: generated HTML viewer, layer assets, and manifest under
+    `/Volumes/x10pro/kelp_aef`.
+  - Validation: viewer opens locally, exposes one radio-selected data layer at
+    a time, exposes cell coordinates and values for Planet or Kelpwatch
+    comparison, and does not change model artifacts.
+  - Completed: added `kelp-aef visualize-results`, configured the Monterey
+    viewer, and wrote a Leaflet HTML artifact focused on expected-value hurdle
+    prediction/residual, conditional ridge, calibrated binary probability, and
+    binary TP/FP/FN/TN outcome layers.
+  - Output details: wrote
+    `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer.html`,
+    `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer/`,
+    `/Volumes/x10pro/kelp_aef/interim/results_visualizer_manifest.json`, and
+    `/Volumes/x10pro/kelp_aef/reports/tables/results_visualizer_inspection_points.csv`.
+  - Result: the viewer loaded 630,151 retained-domain 2022 rows for each
+    configured visualizer source layer and exported 50,000 bounded inspection
+    points for coordinate/value lookup. Browser layers are coordinate-based
+    point layers instead of image overlays, stale PNG/TIF assets are removed on
+    rerun, data-layer selection is radio-button exclusive, and popups use
+    compact labels without label-source or mask-reason rows.
+  - Validation passed:
+    `uv run pytest tests/test_results_visualizer.py -q`, focused
+    `ruff`/`mypy` checks,
+    `uv run kelp-aef visualize-results --config configs/monterey_smoke.yaml`,
+    generated asset/manifest inspection, and `make check`.
 
 ## Explicit Non-Goals
 
