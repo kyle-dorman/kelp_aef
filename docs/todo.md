@@ -686,10 +686,14 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`, and
     `make check`.
 - [ ] P1-23: Select the best Phase 1 model policy or document failure.
+  - Plan: `tasks/39_close_phase1_model_policy_and_report.md`.
   - Goal: Close Phase 1 with a defensible model/mask/calibration decision.
-  - Output: Phase 1 closeout section in the report and updated decision note.
+  - Output: final Phase 1 closeout report section, tracked report snapshot,
+    updated decision note, docs cleanup, and removal of unused active
+    config/code paths that are not part of the closeout state.
   - Validation: the selected policy beats meaningful reference baselines or the
-    report clearly explains why it does not.
+    report clearly explains why it does not; the final report does not include
+    post-Phase-1 next-step language.
 
 ## Explicit Non-Goals
 
