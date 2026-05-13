@@ -602,10 +602,20 @@ masking change should end with an updated model-analysis report.
     `uv run kelp-aef compose-hurdle-model --config configs/monterey_smoke.yaml`,
     `uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml`,
     manual report-heading and PNG-dimension checks, and `make check`.
-- [ ] P1-22: Test one capped-weight or stratified-background continuous model.
-  - Goal: Check whether a simpler continuous objective can compete with the
-    hurdle model without collapsing or leaking positives.
-  - Output: weighted or stratified model comparison row.
+- [ ] P1-22a: Test a capped-weight continuous model.
+  - Plan: `tasks/36_test_capped_weight_continuous_model.md`.
+  - Goal: Check whether capped retained-background fit weights let a simple
+    continuous model compete with the hurdle model without collapsing or leaking
+    positives.
+  - Output: capped-weight continuous model comparison row.
+  - Validation: report shows station skill, background leakage, and full-grid
+    area calibration.
+- [ ] P1-22b: Test a stratified-background continuous model.
+  - Plan: `tasks/37_test_stratified_background_continuous_model.md`.
+  - Goal: Check whether retained-domain stratum-balanced background weighting
+    lets a simple continuous model compete with the hurdle model without
+    collapsing or leaking positives.
+  - Output: stratified-background continuous model comparison row.
   - Validation: report shows station skill, background leakage, and full-grid
     area calibration.
 - [ ] P1-23: Select the best Phase 1 model policy or document failure.
