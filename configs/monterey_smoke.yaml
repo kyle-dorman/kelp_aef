@@ -71,16 +71,10 @@ alignment:
     summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table_summary.csv
     domain_mask:
       policy: plausible_kelp_domain
+      sampling_policy: crm_stratified_mask_first_sample
       output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
       output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked_manifest.json
       summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked_summary.csv
-      fail_on_dropped_positive: true
-    crm_stratified:
-      enabled: true
-      policy: plausible_kelp_domain
-      output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
-      output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked_manifest.json
-      summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.crm_stratified.masked_summary.csv
       random_seed: 31
       default_fraction: 0.0
       default_min_rows_per_year: 0
@@ -89,20 +83,22 @@ alignment:
           depth_bin: ambiguous_coast
           fraction: 0.12
           min_rows_per_year: 5000
-        - domain_mask_reason: retained_depth_0_100m
+        - domain_mask_reason: retained_depth_0_60m
           depth_bin: 0_40m
           fraction: 0.04
           min_rows_per_year: 8000
-        - domain_mask_reason: retained_depth_0_100m
-          depth_bin: 40_50m
+        - domain_mask_reason: retained_depth_0_60m
+          depth_bin: 40_60m
           fraction: 0.01
           min_rows_per_year: 500
-        - domain_mask_reason: retained_depth_0_100m
-          depth_bin: 50_100m
-          fraction: 0.003
-          min_rows_per_year: 500
+      fail_on_dropped_positive: true
+    crm_stratified:
+      enabled: false
+      output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
+      output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked_manifest.json
+      summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.crm_stratified.masked_summary.csv
     random_seed: 13
-    background_rows_per_year: 250000
+    legacy_background_rows_per_year: 250000
     include_all_kelpwatch_observed: true
   fast:
     years: [2022]
@@ -264,11 +260,11 @@ domain:
     kelpwatch_retention_table: /Volumes/x10pro/kelp_aef/reports/tables/plausible_kelp_domain_mask_kelpwatch_retention.csv
     depth_bin_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/plausible_kelp_domain_mask_depth_bins.csv
     visual_qa_figure: /Volumes/x10pro/kelp_aef/reports/figures/plausible_kelp_domain_mask_qa.png
-    max_depth_m: 100.0
+    max_depth_m: 60.0
     definite_land_elevation_m: 5.0
     ambiguous_coast_elevation_band_m: [-5.0, 5.0]
     nearshore_shallow_depth_m: 40.0
-    intermediate_depth_m: 50.0
+    intermediate_depth_m: 60.0
     row_chunk_size: 250000
     fast:
       aligned_crm_table: /Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm.fast.parquet
@@ -309,7 +305,7 @@ splits:
 
 models:
   baselines:
-    sample_policy: current_masked_sample
+    sample_policy: crm_stratified_mask_first_sample
     input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
     inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
     target: kelp_fraction_y
@@ -326,7 +322,7 @@ models:
     manifest: /Volumes/x10pro/kelp_aef/interim/baseline_eval_manifest.json
     sidecars:
       crm_stratified:
-        enabled: true
+        enabled: false
         sample_policy: crm_stratified_background_sample
         input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
         split_manifest: /Volumes/x10pro/kelp_aef/interim/split_manifest.crm_stratified.parquet
@@ -340,7 +336,7 @@ models:
         fallback_summary: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_fallback_summary.crm_stratified.csv
         area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/reference_baseline_area_calibration.crm_stratified.masked.csv
   binary_presence:
-    sample_policy: current_masked_sample
+    sample_policy: crm_stratified_mask_first_sample
     input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
     inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
     target_label: annual_max_ge_10pct
@@ -382,7 +378,7 @@ models:
       reliability_bin_count: 10
     sidecars:
       crm_stratified:
-        enabled: true
+        enabled: false
         sample_policy: crm_stratified_background_sample
         allow_missing_split_manifest_rows: true
         input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
@@ -435,7 +431,7 @@ models:
     manifest: /Volumes/x10pro/kelp_aef/interim/conditional_canopy_manifest.json
     sidecars:
       crm_stratified:
-        enabled: true
+        enabled: false
         sample_policy: crm_stratified_background_sample
         reuse_model: true
         input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet
@@ -444,7 +440,7 @@ models:
         full_grid_likely_positive_summary: /Volumes/x10pro/kelp_aef/reports/tables/conditional_canopy_full_grid_likely_positive_summary.crm_stratified.csv
         reuse_manifest: /Volumes/x10pro/kelp_aef/interim/conditional_canopy_reuse_manifest.crm_stratified.json
   hurdle:
-    sample_policy: current_masked_sample
+    sample_policy: crm_stratified_mask_first_sample
     inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
     binary_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.parquet
     binary_calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct_calibration.joblib
@@ -456,7 +452,7 @@ models:
     presence_model_name: logistic_annual_max_ge_10pct
     presence_probability_source: platt_calibrated
     presence_threshold_policy: validation_max_f1_calibrated
-    presence_threshold: 0.40
+    presence_threshold: 0.36
     presence_target_label: annual_max_ge_10pct
     presence_target_threshold_fraction: 0.10
     conditional_model_name: ridge_positive_annual_max
@@ -477,7 +473,7 @@ models:
     map_figure: /Volumes/x10pro/kelp_aef/reports/figures/hurdle_2022_observed_predicted_residual.png
     sidecars:
       crm_stratified:
-        enabled: true
+        enabled: false
         sample_policy: crm_stratified_background_sample
         binary_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.crm_stratified.parquet
         binary_calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct_calibration.crm_stratified.joblib

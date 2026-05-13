@@ -54,6 +54,8 @@ QA_MISSING_CRM = "qa_missing_crm"
 RETAINED_AMBIGUOUS_COAST = "retained_ambiguous_coast"
 DROPPED_DEFINITE_LAND = "dropped_definite_land"
 DROPPED_DEEP_WATER = "dropped_deep_water"
+RETAINED_DEPTH_REASON_PREFIX = "retained_depth_0_"
+RETAINED_DEPTH_0_60M = "retained_depth_0_60m"
 RETAINED_DEPTH_0_100M = "retained_depth_0_100m"
 MASK_MISSING = "mask_missing"
 
@@ -62,6 +64,7 @@ REASON_ORDER = (
     RETAINED_AMBIGUOUS_COAST,
     DROPPED_DEFINITE_LAND,
     DROPPED_DEEP_WATER,
+    RETAINED_DEPTH_0_60M,
     RETAINED_DEPTH_0_100M,
 )
 REASON_PLAUSIBLE = {
@@ -69,6 +72,7 @@ REASON_PLAUSIBLE = {
     RETAINED_AMBIGUOUS_COAST: True,
     DROPPED_DEFINITE_LAND: False,
     DROPPED_DEEP_WATER: False,
+    RETAINED_DEPTH_0_60M: True,
     RETAINED_DEPTH_0_100M: True,
     MASK_MISSING: False,
 }
@@ -77,8 +81,10 @@ DEPTH_BIN_ORDER = (
     "land_positive",
     "ambiguous_coast",
     "0_40m",
+    "40_60m",
     "40_50m",
     "50_100m",
+    "60m_plus",
     "100m_plus",
 )
 CRM_INPUT_COLUMNS = (
@@ -549,7 +555,7 @@ def classify_domain_mask_frame(
     reason[deep_water] = DROPPED_DEEP_WATER
     detail[deep_water] = "CRM depth exceeds configured broad maximum depth threshold"
     plausible[deep_water] = False
-    reason[retained_depth] = RETAINED_DEPTH_0_100M
+    reason[retained_depth] = retained_depth_reason(thresholds)
     detail[retained_depth] = "CRM-valid cell within configured broad depth threshold"
     result["is_plausible_kelp_domain"] = plausible
     result["domain_mask_reason"] = reason
@@ -575,17 +581,40 @@ def classify_depth_bins(
     bins[land] = "land_positive"
     bins[ambiguous] = "ambiguous_coast"
     ocean = valid & ~ambiguous & ~land
-    bins[ocean & (depth <= thresholds.nearshore_shallow_depth_m)] = "0_40m"
-    bins[
-        ocean
-        & (depth > thresholds.nearshore_shallow_depth_m)
-        & (depth <= thresholds.intermediate_depth_m)
-    ] = "40_50m"
-    bins[ocean & (depth > thresholds.intermediate_depth_m) & (depth <= thresholds.max_depth_m)] = (
-        "50_100m"
+    shallow_label = depth_range_label(0.0, thresholds.nearshore_shallow_depth_m)
+    retained_deep_label = depth_range_label(
+        thresholds.nearshore_shallow_depth_m,
+        thresholds.max_depth_m,
     )
-    bins[ocean & (depth > thresholds.max_depth_m)] = "100m_plus"
+    dropped_deep_label = depth_plus_label(thresholds.max_depth_m)
+    bins[ocean & (depth <= thresholds.nearshore_shallow_depth_m)] = shallow_label
+    bins[
+        ocean & (depth > thresholds.nearshore_shallow_depth_m) & (depth <= thresholds.max_depth_m)
+    ] = retained_deep_label
+    bins[ocean & (depth > thresholds.max_depth_m)] = dropped_deep_label
     return bins
+
+
+def retained_depth_reason(thresholds: DomainMaskThresholds) -> str:
+    """Return the retained-depth reason code for the configured maximum depth."""
+    return f"{RETAINED_DEPTH_REASON_PREFIX}{depth_label_value(thresholds.max_depth_m)}m"
+
+
+def depth_range_label(lower: float, upper: float) -> str:
+    """Return a stable label for a retained depth range."""
+    return f"{depth_label_value(lower)}_{depth_label_value(upper)}m"
+
+
+def depth_plus_label(lower: float) -> str:
+    """Return a stable label for depths beyond the configured maximum."""
+    return f"{depth_label_value(lower)}m_plus"
+
+
+def depth_label_value(value: float) -> str:
+    """Format configured depth thresholds as compact integer-like labels."""
+    if float(value).is_integer():
+        return str(int(value))
+    return str(value).replace(".", "p")
 
 
 def classify_elevation_bins(
@@ -673,7 +702,7 @@ def coverage_summary_rows(accumulator: DomainMaskAccumulator) -> list[dict[str, 
         coverage_row("overall", "all", "all", False, dropped_cells, total),
     ]
     for reason in sorted(accumulator.reason_counts, key=reason_sort_key):
-        plausible = REASON_PLAUSIBLE.get(reason, False)
+        plausible = reason_is_plausible(reason)
         rows.append(
             coverage_row(
                 "reason",
@@ -693,7 +722,16 @@ def reason_sort_key(reason: str) -> tuple[int, str]:
     """Return stable sort keys with configured reason precedence first."""
     if reason in REASON_ORDER:
         return REASON_ORDER.index(reason), reason
+    if reason.startswith(RETAINED_DEPTH_REASON_PREFIX):
+        return REASON_ORDER.index(RETAINED_DEPTH_0_60M), reason
     return len(REASON_ORDER), reason
+
+
+def reason_is_plausible(reason: str) -> bool:
+    """Return whether a dynamic mask reason belongs to the retained domain."""
+    if reason.startswith(RETAINED_DEPTH_REASON_PREFIX):
+        return True
+    return REASON_PLAUSIBLE.get(reason, False)
 
 
 def coverage_row(
@@ -1068,22 +1106,15 @@ def plot_reason_grid(axis: Any, mask_frame: pd.DataFrame) -> None:
     """Draw the categorical mask reason raster."""
     reason_labels = [
         "unfilled",
-        RETAINED_DEPTH_0_100M,
+        "retained_depth",
         RETAINED_AMBIGUOUS_COAST,
         DROPPED_DEEP_WATER,
         DROPPED_DEFINITE_LAND,
         QA_MISSING_CRM,
     ]
-    reason_values = {
-        RETAINED_DEPTH_0_100M: 1,
-        RETAINED_AMBIGUOUS_COAST: 2,
-        DROPPED_DEEP_WATER: 3,
-        DROPPED_DEFINITE_LAND: 4,
-        QA_MISSING_CRM: 5,
-    }
     grid, extent = grid_from_values(
         mask_frame,
-        mask_frame["domain_mask_reason"].map(reason_values).fillna(0).to_numpy(dtype=np.int16),
+        reason_category_values(mask_frame["domain_mask_reason"]),
         fill_value=0,
     )
     cmap = ListedColormap(["#f2f2f2", "#2a9d8f", "#f4a261", "#264653", "#8d99ae", "#d62828"])
@@ -1093,6 +1124,18 @@ def plot_reason_grid(axis: Any, mask_frame: pd.DataFrame) -> None:
     colorbar.ax.set_yticklabels(reason_labels)
     axis.set_title("Mask reason")
     format_grid_axis(axis, extent)
+
+
+def reason_category_values(reasons: pd.Series) -> np.ndarray:
+    """Map dynamic mask reasons to stable visual QA categories."""
+    values = np.zeros(len(reasons), dtype=np.int16)
+    text = reasons.fillna("").astype(str)
+    values[text.str.startswith(RETAINED_DEPTH_REASON_PREFIX).to_numpy(dtype=bool)] = 1
+    values[(text == RETAINED_AMBIGUOUS_COAST).to_numpy(dtype=bool)] = 2
+    values[(text == DROPPED_DEEP_WATER).to_numpy(dtype=bool)] = 3
+    values[(text == DROPPED_DEFINITE_LAND).to_numpy(dtype=bool)] = 4
+    values[(text == QA_MISSING_CRM).to_numpy(dtype=bool)] = 5
+    return values
 
 
 def plot_elevation_grid(axis: Any, mask_frame: pd.DataFrame) -> None:

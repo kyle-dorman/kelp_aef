@@ -222,17 +222,23 @@ objectives, model classes, sample weights, or label inputs.
 | Background rate summary | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_background_rate_summary.csv` | Compact assumed-background rate summary by data scope, split, year, mask status, and evaluation scope. | Not tracked |
 | Class balance figure | `/Volumes/x10pro/kelp_aef/reports/figures/model_analysis_class_balance.png` | Compact report figure comparing zero, positive, high-canopy, and saturated rates for primary analysis scopes. | Not tracked |
 
-## Phase 1 CRM-Stratified Background Sampling
+## Phase 1 CRM-Stratified Default Sampling
 
-These sidecar outputs test a CRM-stratified assumed-background sample without
-replacing the current masked binary model inputs.
+Task 33 promoted CRM-stratified, mask-first sampling to the Monterey Phase 1
+default masked model-input path. The sampler filters to the retained
+plausible-kelp domain before applying retained-background quotas, keeps all
+retained Kelpwatch-observed rows, and uses CRM mask reason and depth bin only as
+sampling and diagnostic context. Historical `.crm_stratified` sidecar outputs
+may remain on disk for audit, but they are not required by the default
+workflow.
 
 | Output | Path | Purpose | Git |
 | --- | --- | --- | --- |
-| CRM-stratified masked sample | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet` | Sidecar model-input sample that keeps all retained Kelpwatch rows and samples assumed-background rows by `domain_mask_reason` and `depth_bin`. | Not tracked |
-| CRM-stratified sample manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked_manifest.json` | Deterministic quota policy, row counts, selected counts, dropped counts, and sample-weight policy for the sidecar sample. | Not tracked |
-| CRM-stratified sample summary | `/Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.crm_stratified.masked_summary.csv` | Population counts, sampled counts, effective fractions, and weights by year, label source, mask reason, and depth bin. | Not tracked |
-| CRM-stratified binary comparison | `/Volumes/x10pro/kelp_aef/reports/tables/binary_presence_crm_stratified_comparison.csv` | Compact comparison of current masked-sample binary outputs versus the CRM-stratified sidecar, including assumed-background prediction rates by CRM stratum. | Not tracked |
+| Default CRM-stratified masked sample | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet` | Default model-input sample built from retained full-grid rows, all retained Kelpwatch-observed rows, and retained assumed-background rows sampled by `domain_mask_reason` and `depth_bin`. | Not tracked |
+| Default CRM-stratified sample manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked_manifest.json` | Active sample policy, mask-first flag, retained-domain population counts, sampled counts, quota-dropped counts, mask-dropped counts, deterministic seed, and feature-policy note. | Not tracked |
+| Default CRM-stratified sample summary | `/Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked_summary.csv` | Population counts, sampled counts, effective fractions, and weights by year, label source, mask reason, and retained depth bin. | Not tracked |
+| Historical CRM-stratified sidecar sample | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.crm_stratified.masked.parquet` | Disabled audit sample from the earlier sidecar experiment; retained temporarily for comparison provenance until the sidecar cleanup task. | Not tracked |
+| Historical CRM-stratified all-model comparison | `/Volumes/x10pro/kelp_aef/reports/tables/model_analysis_crm_stratified_all_models_comparison.csv` | Report comparison artifact now populated by the active default policy plus shared observed-positive support rows; Task 34 will retire the recurring sidecar framing. | Not tracked |
 
 ## Phase 1 Balanced Binary Presence Model
 

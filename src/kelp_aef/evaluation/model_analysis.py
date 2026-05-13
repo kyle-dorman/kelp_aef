@@ -1172,6 +1172,16 @@ def optional_path(value: object) -> Path | None:
     return Path(str(value))
 
 
+def optional_bool(value: object, name: str, default: bool) -> bool:
+    """Read an optional boolean config value."""
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        msg = f"config field must be a boolean: {name}"
+        raise ValueError(msg)
+    return value
+
+
 def output_path(outputs: dict[str, Any], key: str, default: Path) -> Path:
     """Read an optional report output path from config."""
     value = outputs.get(key)
@@ -3280,6 +3290,10 @@ def add_baseline_sidecar_specs(
     sidecars = optional_mapping(baselines.get("sidecars"), "models.baselines.sidecars")
     for name, value in sidecars.items():
         sidecar = require_mapping(value, f"models.baselines.sidecars.{name}")
+        if not optional_bool(
+            sidecar.get("enabled"), f"models.baselines.sidecars.{name}.enabled", True
+        ):
+            continue
         sample_policy = str(sidecar.get("sample_policy", name))
         spec = ensure_policy_spec(specs, sample_policy)
         spec["baseline_metrics_path"] = optional_path(sidecar.get("metrics"))
@@ -3294,6 +3308,12 @@ def add_binary_sidecar_specs(
     sidecars = optional_mapping(binary.get("sidecars"), "models.binary_presence.sidecars")
     for name, value in sidecars.items():
         sidecar = require_mapping(value, f"models.binary_presence.sidecars.{name}")
+        if not optional_bool(
+            sidecar.get("enabled"),
+            f"models.binary_presence.sidecars.{name}.enabled",
+            True,
+        ):
+            continue
         sample_policy = str(sidecar.get("sample_policy", name))
         calibration = optional_mapping(
             sidecar.get("calibration"),
@@ -3326,6 +3346,12 @@ def add_conditional_sidecar_specs(
     )
     for name, value in sidecars.items():
         sidecar = require_mapping(value, f"models.conditional_canopy.sidecars.{name}")
+        if not optional_bool(
+            sidecar.get("enabled"),
+            f"models.conditional_canopy.sidecars.{name}.enabled",
+            True,
+        ):
+            continue
         sample_policy = str(sidecar.get("sample_policy", name))
         spec = ensure_policy_spec(specs, sample_policy)
         spec["conditional_likely_positive_summary_path"] = optional_path(
@@ -3342,6 +3368,10 @@ def add_hurdle_sidecar_specs(
     sidecars = optional_mapping(hurdle.get("sidecars"), "models.hurdle.sidecars")
     for name, value in sidecars.items():
         sidecar = require_mapping(value, f"models.hurdle.sidecars.{name}")
+        if not optional_bool(
+            sidecar.get("enabled"), f"models.hurdle.sidecars.{name}.enabled", True
+        ):
+            continue
         sample_policy = str(sidecar.get("sample_policy", name))
         spec = ensure_policy_spec(specs, sample_policy)
         spec.update(
@@ -6192,7 +6222,11 @@ def sampling_policy_display_order(rows: list[dict[str, object]]) -> list[str]:
     policies = {str(row.get("sample_policy", "")) for row in rows if row.get("sample_policy")}
     ordered = [
         policy
-        for policy in ("current_masked_sample", "crm_stratified_background_sample")
+        for policy in (
+            "current_masked_sample",
+            "crm_stratified_background_sample",
+            "crm_stratified_mask_first_sample",
+        )
         if policy in policies
     ]
     ordered.extend(sorted(policies.difference(ordered)))
@@ -6204,6 +6238,7 @@ def sampling_policy_label(sample_policy: str) -> str:
     labels = {
         "current_masked_sample": "Current masked sample",
         "crm_stratified_background_sample": "CRM-stratified background",
+        "crm_stratified_mask_first_sample": "CRM-stratified mask-first default",
         "shared_observed_positive_support": "Shared observed-positive support",
     }
     return labels.get(sample_policy, sample_policy)

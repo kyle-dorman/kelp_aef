@@ -537,7 +537,7 @@ masking change should end with an updated model-analysis report.
     decision note. CRM-stratified, mask-first retained-domain sampling should
     become the default in P1-21c; executable config behavior was not changed in
     this docs-only task.
-- [ ] P1-21c: Promote CRM-stratified, mask-first sampling to the default
+- [x] P1-21c: Promote CRM-stratified, mask-first sampling to the default
   masked model-input policy.
   - Goal: Replace the sidecar sampling path with a default retained-domain
     sampler that filters to the plausible-kelp mask before applying background
@@ -551,6 +551,15 @@ masking change should end with an updated model-analysis report.
   - Constraint: remove the retained `50_100m` sampling stratum, replace the
     final retained depth bin with `40_60m`, and keep CRM depth/elevation out of
     the feature matrix.
+  - Completed: promoted `crm_stratified_mask_first_sample` to the default
+    masked sample path and regenerated the 60 m mask, alignment sample,
+    baseline, binary, calibration, conditional, hurdle, and model-analysis
+    artifacts. The default masked sample manifest records mask-first sampling,
+    3,150,755 retained-domain population rows, 311,475 sampled rows, zero
+    mask-dropped Kelpwatch-positive rows, and
+    `background_rows_per_year_controls_default_masked_workflow: false`.
+    Retained depth strata are now `0_40m` and `40_60m`; the historical
+    CRM sidecar paths remain disabled for audit until P1-21d.
 - [ ] P1-21d: Retire sidecar sampling-policy reporting after promotion.
   - Goal: Remove the temporary current-vs-CRM report section once the design
     decision is documented and the CRM-stratified policy is the default.

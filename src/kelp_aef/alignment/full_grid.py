@@ -50,6 +50,8 @@ DEFAULT_TARGET_ROW_CHUNK_SIZE = 128
 DEFAULT_BACKGROUND_ROWS_PER_YEAR = 250_000
 DEFAULT_RANDOM_SEED = 13
 DEFAULT_SAMPLE_WEIGHT_COLUMN = "sample_weight"
+POST_HOC_MASKED_SAMPLE_POLICY = "post_hoc_masked_background_sample"
+CRM_STRATIFIED_MASK_FIRST_SAMPLE_POLICY = "crm_stratified_mask_first_sample"
 DEFAULT_LABEL_CRS = "EPSG:4326"
 ASSUMED_BACKGROUND = "assumed_background"
 KELPWATCH_STATION = "kelpwatch_station"
@@ -121,9 +123,14 @@ class SampleDomainMaskConfig:
     table_path: Path
     manifest_path: Path | None
     policy: str
+    sampling_policy: str
     output_path: Path
     manifest_output_path: Path
     summary_path: Path
+    quotas: tuple[CrmStratifiedQuota, ...]
+    default_fraction: float
+    default_min_rows_per_year: int
+    random_seed: int
     fail_on_dropped_positive: bool
 
 
@@ -215,6 +222,17 @@ class CrmStratifiedSampleResult:
 
     sample: pd.DataFrame
     selection: CrmStratifiedSelection
+
+
+@dataclass(frozen=True)
+class MaskDroppedFullGridCounts:
+    """Dropped full-grid counts from applying the retained-domain mask first."""
+
+    row_count: int
+    observed_row_count: int
+    positive_observed_row_count: int
+    counts_by_year_label: dict[str, int]
+    counts_by_stratum: dict[str, int]
 
 
 @dataclass(frozen=True)
@@ -398,8 +416,12 @@ def load_full_grid_alignment_config(config_path: Path, *, fast: bool) -> FullGri
         sample_manifest_path=suffix_path(sample_manifest, ".fast") if fast else sample_manifest,
         sample_summary_path=suffix_path(sample_summary, ".fast") if fast else sample_summary,
         background_rows_per_year=optional_positive_int(
-            background_sample.get("background_rows_per_year"),
-            "alignment.background_sample.background_rows_per_year",
+            background_sample.get("legacy_background_rows_per_year")
+            or background_sample.get("background_rows_per_year"),
+            (
+                "alignment.background_sample.legacy_background_rows_per_year "
+                "or alignment.background_sample.background_rows_per_year"
+            ),
             DEFAULT_BACKGROUND_ROWS_PER_YEAR,
         ),
         include_all_kelpwatch_observed=optional_bool(
@@ -460,6 +482,13 @@ def load_sample_domain_mask_config(
     if reporting_mask is None:
         msg = "alignment.background_sample.domain_mask requires reports.domain_mask mask inputs"
         raise ValueError(msg)
+    sampling_policy = str(mask_config.get("sampling_policy", POST_HOC_MASKED_SAMPLE_POLICY))
+    if sampling_policy not in {
+        POST_HOC_MASKED_SAMPLE_POLICY,
+        CRM_STRATIFIED_MASK_FIRST_SAMPLE_POLICY,
+    }:
+        msg = f"unsupported masked sample policy: {sampling_policy}"
+        raise ValueError(msg)
     fast_config = optional_mapping(
         mask_config.get("fast"), "alignment.background_sample.domain_mask.fast"
     )
@@ -500,6 +529,7 @@ def load_sample_domain_mask_config(
         table_path=reporting_mask.table_path,
         manifest_path=reporting_mask.manifest_path,
         policy=policy,
+        sampling_policy=sampling_policy,
         output_path=fast_path(output_path, fast, fast_config, "output_table"),
         manifest_output_path=fast_path(
             manifest_output_path,
@@ -508,6 +538,27 @@ def load_sample_domain_mask_config(
             "output_manifest",
         ),
         summary_path=fast_path(summary_path, fast, fast_config, "summary_table"),
+        quotas=read_crm_stratified_quotas(
+            mask_config,
+            "alignment.background_sample.domain_mask.strata",
+        )
+        if sampling_policy == CRM_STRATIFIED_MASK_FIRST_SAMPLE_POLICY
+        else (),
+        default_fraction=optional_probability(
+            mask_config.get("default_fraction"),
+            "alignment.background_sample.domain_mask.default_fraction",
+            0.0,
+        ),
+        default_min_rows_per_year=optional_nonnegative_int(
+            mask_config.get("default_min_rows_per_year"),
+            "alignment.background_sample.domain_mask.default_min_rows_per_year",
+            0,
+        ),
+        random_seed=optional_int(
+            mask_config.get("random_seed"),
+            "alignment.background_sample.domain_mask.random_seed",
+            DEFAULT_RANDOM_SEED,
+        ),
         fail_on_dropped_positive=optional_bool(
             mask_config.get("fail_on_dropped_positive"),
             "alignment.background_sample.domain_mask.fail_on_dropped_positive",
@@ -573,7 +624,10 @@ def load_crm_stratified_sample_config(
         output_path=fast_path(output_path, fast, fast_config, "output_table"),
         manifest_output_path=fast_path(manifest_path, fast, fast_config, "output_manifest"),
         summary_path=fast_path(summary_path, fast, fast_config, "summary_table"),
-        quotas=read_crm_stratified_quotas(sidecar),
+        quotas=read_crm_stratified_quotas(
+            sidecar,
+            "alignment.background_sample.crm_stratified.strata",
+        ),
         default_fraction=optional_probability(
             sidecar.get("default_fraction"),
             "alignment.background_sample.crm_stratified.default_fraction",
@@ -600,15 +654,18 @@ def crm_stratified_path(config: dict[str, Any], key: str, default: Path) -> Path
     return Path(require_string(value, f"alignment.background_sample.crm_stratified.{key}"))
 
 
-def read_crm_stratified_quotas(config: dict[str, Any]) -> tuple[CrmStratifiedQuota, ...]:
+def read_crm_stratified_quotas(
+    config: dict[str, Any],
+    config_name: str,
+) -> tuple[CrmStratifiedQuota, ...]:
     """Read ordered CRM stratum quota rules from config."""
     values = config.get("strata")
     if not isinstance(values, list) or not values:
-        msg = "alignment.background_sample.crm_stratified.strata must be a non-empty list"
+        msg = f"{config_name} must be a non-empty list"
         raise ValueError(msg)
     quotas = []
     for index, value in enumerate(values):
-        item_name = f"alignment.background_sample.crm_stratified.strata[{index}]"
+        item_name = f"{config_name}[{index}]"
         item = require_mapping(value, item_name)
         quotas.append(
             CrmStratifiedQuota(
@@ -1114,6 +1171,8 @@ def write_masked_sample_artifacts(
     mask_config = grid_config.sample_domain_mask
     if mask_config is None:
         return None
+    if mask_config.sampling_policy == CRM_STRATIFIED_MASK_FIRST_SAMPLE_POLICY:
+        return write_mask_first_crm_stratified_sample_artifacts(grid_config, mask_config)
     LOGGER.info("Applying %s mask to background sample", mask_config.policy)
     joined = join_sample_to_domain_mask(sample, mask_config)
     retained_mask = joined[MASK_RETAIN_COLUMN].astype(bool)
@@ -1169,6 +1228,180 @@ def write_masked_sample_artifacts(
         len(joined),
     )
     return result
+
+
+def write_mask_first_crm_stratified_sample_artifacts(
+    grid_config: FullGridAlignmentConfig,
+    mask_config: SampleDomainMaskConfig,
+) -> MaskedSampleResult:
+    """Write the default mask-first CRM-stratified sample and audit manifest."""
+    LOGGER.info(
+        "Building default %s sample from retained full-grid rows",
+        CRM_STRATIFIED_MASK_FIRST_SAMPLE_POLICY,
+    )
+    sample_config = crm_stratified_config_from_mask_config(mask_config)
+    result = build_crm_stratified_sample_result(grid_config, sample_config)
+    if result.selection.selected_metadata.empty:
+        msg = "mask-first CRM-stratified sampling selected no rows"
+        raise ValueError(msg)
+    if result.sample.empty:
+        msg = "mask-first CRM-stratified selected keys produced no sample rows"
+        raise ValueError(msg)
+    mask_drops = mask_dropped_full_grid_counts(
+        full_grid_path=grid_config.full_grid_output_path,
+        sample_config=sample_config,
+    )
+    if mask_config.fail_on_dropped_positive and mask_drops.positive_observed_row_count:
+        msg = (
+            "domain mask dropped Kelpwatch-positive full-grid rows: "
+            f"{mask_drops.positive_observed_row_count} rows"
+        )
+        raise ValueError(msg)
+    reset_output_path(mask_config.output_path)
+    write_part(result.sample, mask_config.output_path, year=0, part_index=0)
+    write_csv(
+        result.selection.summary_rows,
+        mask_config.summary_path,
+        CRM_STRATIFIED_SAMPLE_SUMMARY_FIELDS,
+    )
+    write_mask_first_crm_stratified_sample_manifest(
+        result=result,
+        grid_config=grid_config,
+        sample_config=sample_config,
+        mask_drops=mask_drops,
+    )
+    LOGGER.info(
+        "Selected %s default mask-first rows from %s retained population rows",
+        result.selection.sampled_row_count,
+        result.selection.population_row_count,
+    )
+    return MaskedSampleResult(
+        sample=result.sample,
+        population_counts=year_label_counts_from_crm_counts(result.selection.population_counts),
+        retained_counts=year_label_flat_counts_from_crm_counts(result.selection.retained_counts),
+        dropped_counts=mask_drops.counts_by_year_label,
+        dropped_observed_row_count=mask_drops.observed_row_count,
+        dropped_positive_row_count=mask_drops.positive_observed_row_count,
+    )
+
+
+def crm_stratified_config_from_mask_config(
+    mask_config: SampleDomainMaskConfig,
+) -> CrmStratifiedSampleConfig:
+    """Adapt default masked-sample settings to the CRM-stratified sampler."""
+    return CrmStratifiedSampleConfig(
+        table_path=mask_config.table_path,
+        manifest_path=mask_config.manifest_path,
+        policy=mask_config.policy,
+        output_path=mask_config.output_path,
+        manifest_output_path=mask_config.manifest_output_path,
+        summary_path=mask_config.summary_path,
+        quotas=mask_config.quotas,
+        default_fraction=mask_config.default_fraction,
+        default_min_rows_per_year=mask_config.default_min_rows_per_year,
+        random_seed=mask_config.random_seed,
+    )
+
+
+def mask_dropped_full_grid_counts(
+    *,
+    full_grid_path: Path,
+    sample_config: CrmStratifiedSampleConfig,
+) -> MaskDroppedFullGridCounts:
+    """Count full-grid rows dropped by the retained-domain mask."""
+    validate_crm_stratified_mask_schema(sample_config)
+    full_grid = pl.scan_parquet(str(full_grid_path)).select(
+        [
+            "year",
+            "label_source",
+            MASK_KEY_COLUMN,
+            "kelp_max_y",
+            "is_kelpwatch_observed",
+        ]
+    )
+    mask = pl.scan_parquet(str(sample_config.table_path)).select(
+        list(CRM_STRATIFIED_REQUIRED_MASK_COLUMNS)
+    )
+    missing_count = crm_stratified_missing_mask_count(full_grid, mask)
+    if missing_count:
+        msg = f"domain mask is missing rows for {missing_count} full-grid cells"
+        raise ValueError(msg)
+    dropped = full_grid.join(mask, on=MASK_KEY_COLUMN, how="inner").filter(
+        ~pl.col(MASK_RETAIN_COLUMN)
+    )
+    row_count = int(dropped.select(pl.len().alias("row_count")).collect()["row_count"][0])
+    observed_row_count = int(
+        dropped.filter(pl.col("is_kelpwatch_observed"))
+        .select(pl.len().alias("row_count"))
+        .collect()["row_count"][0]
+    )
+    positive_observed_row_count = int(
+        dropped.filter(pl.col("is_kelpwatch_observed") & (pl.col("kelp_max_y") > 0))
+        .select(pl.len().alias("row_count"))
+        .collect()["row_count"][0]
+    )
+    return MaskDroppedFullGridCounts(
+        row_count=row_count,
+        observed_row_count=observed_row_count,
+        positive_observed_row_count=positive_observed_row_count,
+        counts_by_year_label=year_label_counts_from_polars(dropped),
+        counts_by_stratum=stratum_counts_from_polars(dropped),
+    )
+
+
+def year_label_counts_from_polars(frame: Any) -> dict[str, int]:
+    """Count lazy frame rows by year and label source."""
+    counts = (
+        frame.group_by(["year", "label_source"])
+        .agg(pl.len().alias("row_count"))
+        .collect()
+        .to_dicts()
+    )
+    return {
+        f"{int(cast(Any, row['year']))}:{row['label_source']}": int(cast(Any, row["row_count"]))
+        for row in counts
+    }
+
+
+def stratum_counts_from_polars(frame: Any) -> dict[str, int]:
+    """Count lazy frame rows by year, label source, mask reason, and depth bin."""
+    counts = (
+        frame.group_by(["year", "label_source", "domain_mask_reason", "depth_bin"])
+        .agg(pl.len().alias("row_count"))
+        .collect()
+        .to_dicts()
+    )
+    return {
+        (
+            f"{int(cast(Any, row['year']))}:{row['label_source']}:"
+            f"{row['domain_mask_reason']}:{row['depth_bin']}"
+        ): int(cast(Any, row["row_count"]))
+        for row in counts
+    }
+
+
+def year_label_counts_from_crm_counts(
+    counts: dict[str, int],
+) -> dict[int, dict[str, int]]:
+    """Collapse CRM-stratified manifest counts to nested year/label counts."""
+    nested: dict[int, dict[str, int]] = {}
+    for key, count in counts.items():
+        year_text, label_source, *_ = key.split(":")
+        year = int(year_text)
+        nested.setdefault(year, {})[label_source] = nested.setdefault(year, {}).get(
+            label_source, 0
+        ) + int(count)
+    return nested
+
+
+def year_label_flat_counts_from_crm_counts(counts: dict[str, int]) -> dict[str, int]:
+    """Collapse CRM-stratified manifest counts to stable year/label keys."""
+    nested = year_label_counts_from_crm_counts(counts)
+    return {
+        f"{year}:{label_source}": count
+        for year, label_counts in sorted(nested.items())
+        for label_source, count in sorted(label_counts.items())
+    }
 
 
 def join_sample_to_domain_mask(
@@ -1296,6 +1529,32 @@ def write_crm_stratified_sample_artifacts(
     if sample_config is None:
         return None
     LOGGER.info("Building CRM-stratified background sample from retained full-grid rows")
+    result = build_crm_stratified_sample_result(grid_config, sample_config)
+    reset_output_path(sample_config.output_path)
+    write_part(result.sample, sample_config.output_path, year=0, part_index=0)
+    write_csv(
+        result.selection.summary_rows,
+        sample_config.summary_path,
+        CRM_STRATIFIED_SAMPLE_SUMMARY_FIELDS,
+    )
+    write_crm_stratified_sample_manifest(
+        result=result,
+        grid_config=grid_config,
+        sample_config=sample_config,
+    )
+    LOGGER.info(
+        "Selected %s CRM-stratified rows from %s retained population rows",
+        result.selection.sampled_row_count,
+        result.selection.population_row_count,
+    )
+    return result
+
+
+def build_crm_stratified_sample_result(
+    grid_config: FullGridAlignmentConfig,
+    sample_config: CrmStratifiedSampleConfig,
+) -> CrmStratifiedSampleResult:
+    """Build a CRM-stratified sample result from retained full-grid rows."""
     population = read_crm_stratified_population_frame(
         full_grid_path=grid_config.full_grid_output_path,
         sample_config=sample_config,
@@ -1313,25 +1572,7 @@ def write_crm_stratified_sample_artifacts(
     if sample.empty:
         msg = "CRM-stratified selected keys produced no sample rows"
         raise ValueError(msg)
-    reset_output_path(sample_config.output_path)
-    write_part(sample, sample_config.output_path, year=0, part_index=0)
-    write_csv(
-        selection.summary_rows,
-        sample_config.summary_path,
-        CRM_STRATIFIED_SAMPLE_SUMMARY_FIELDS,
-    )
-    result = CrmStratifiedSampleResult(sample=sample, selection=selection)
-    write_crm_stratified_sample_manifest(
-        result=result,
-        grid_config=grid_config,
-        sample_config=sample_config,
-    )
-    LOGGER.info(
-        "Selected %s CRM-stratified rows from %s retained population rows",
-        selection.sampled_row_count,
-        selection.population_row_count,
-    )
-    return result
+    return CrmStratifiedSampleResult(sample=sample, selection=selection)
 
 
 def read_crm_stratified_population_frame(
@@ -1793,6 +2034,7 @@ def write_full_grid_manifest(
     }
     if masked_sample_result is not None and grid_config.sample_domain_mask is not None:
         full_payload["masked_sample_output"] = str(grid_config.sample_domain_mask.output_path)
+        full_payload["masked_sample_policy"] = grid_config.sample_domain_mask.sampling_policy
         full_payload["masked_sample_counts"] = masked_sample_result.retained_counts
         full_payload["masked_population_counts"] = masked_sample_result.population_counts
     if crm_stratified_sample_result is not None and grid_config.crm_stratified_sample is not None:
@@ -1811,7 +2053,12 @@ def write_full_grid_manifest(
         "sample_output": str(grid_config.sample_output_path),
         "sample_row_count": int(len(sample)),
         "sample_weight_column": grid_config.sample_weight_column,
-        "background_rows_per_year": grid_config.background_rows_per_year,
+        "legacy_background_rows_per_year": grid_config.background_rows_per_year,
+        "background_rows_per_year_controls_default_masked_workflow": False
+        if grid_config.sample_domain_mask is not None
+        and grid_config.sample_domain_mask.sampling_policy
+        == CRM_STRATIFIED_MASK_FIRST_SAMPLE_POLICY
+        else True,
         "include_all_kelpwatch_observed": grid_config.include_all_kelpwatch_observed,
         "random_seed": grid_config.random_seed,
         "schema": list(sample.columns),
@@ -1872,6 +2119,78 @@ def write_crm_stratified_sample_manifest(
     write_json(sample_config.manifest_output_path, payload)
 
 
+def write_mask_first_crm_stratified_sample_manifest(
+    *,
+    result: CrmStratifiedSampleResult,
+    grid_config: FullGridAlignmentConfig,
+    sample_config: CrmStratifiedSampleConfig,
+    mask_drops: MaskDroppedFullGridCounts,
+) -> None:
+    """Write the default mask-first CRM-stratified sample manifest."""
+    payload = {
+        "command": "align-full-grid",
+        "artifact": "background_sample_domain_mask",
+        "config_path": str(grid_config.config_path),
+        "fast": grid_config.fast,
+        "domain_policy": sample_config.policy,
+        "masked_sample_policy": CRM_STRATIFIED_MASK_FIRST_SAMPLE_POLICY,
+        "mask_first": True,
+        "mask_table": str(sample_config.table_path),
+        "mask_manifest": str(sample_config.manifest_path) if sample_config.manifest_path else None,
+        "source_full_grid_output": str(grid_config.full_grid_output_path),
+        "masked_sample_output": str(sample_config.output_path),
+        "masked_sample_summary": str(sample_config.summary_path),
+        "population_row_count": result.selection.population_row_count,
+        "sample_row_count": result.selection.sampled_row_count,
+        "retained_domain_population_counts": result.selection.population_counts,
+        "sampled_retained_counts": result.selection.retained_counts,
+        "retained_domain_quota_dropped_counts": result.selection.dropped_counts,
+        "mask_dropped_row_count": mask_drops.row_count,
+        "mask_dropped_counts": mask_drops.counts_by_year_label,
+        "mask_dropped_stratum_counts": mask_drops.counts_by_stratum,
+        "mask_dropped_observed_row_count": mask_drops.observed_row_count,
+        "mask_dropped_positive_row_count": mask_drops.positive_observed_row_count,
+        "sample_weight_column": grid_config.sample_weight_column,
+        "legacy_background_rows_per_year": grid_config.background_rows_per_year,
+        "background_rows_per_year_controls_default_masked_workflow": False,
+        "include_all_kelpwatch_observed": grid_config.include_all_kelpwatch_observed,
+        "fail_on_dropped_positive": grid_config.sample_domain_mask.fail_on_dropped_positive
+        if grid_config.sample_domain_mask is not None
+        else True,
+        "sampling_policy": {
+            "name": CRM_STRATIFIED_MASK_FIRST_SAMPLE_POLICY,
+            "quota_type": "per_year_crm_stratum_fraction_with_min_max_caps",
+            "sampling_population": "retained plausible-kelp domain full-grid rows",
+            "strata": [
+                {
+                    "domain_mask_reason": quota.domain_mask_reason,
+                    "depth_bin": quota.depth_bin,
+                    "fraction": quota.fraction,
+                    "min_rows_per_year": quota.min_rows_per_year,
+                    "max_rows_per_year": quota.max_rows_per_year,
+                }
+                for quota in sample_config.quotas
+            ],
+            "default_fraction": sample_config.default_fraction,
+            "default_min_rows_per_year": sample_config.default_min_rows_per_year,
+            "deterministic_key": ["aef_grid_cell_id", "year", "random_seed"],
+            "random_seed": sample_config.random_seed,
+            "all_retained_kelpwatch_rows_kept": True,
+            "sample_weight_policy": (
+                "assumed-background weights are retained stratum population divided "
+                "by sampled stratum rows; kelpwatch rows keep weight 1.0"
+            ),
+            "model_feature_policy": (
+                "CRM depth, elevation, depth_bin, and domain_mask_reason are sampling "
+                "and diagnostics context only, not model predictors"
+            ),
+        },
+        "summary_row_count": len(result.selection.summary_rows),
+        "schema": list(result.sample.columns),
+    }
+    write_json(sample_config.manifest_output_path, payload)
+
+
 def write_masked_sample_manifest(
     *,
     result: MaskedSampleResult,
@@ -1887,6 +2206,8 @@ def write_masked_sample_manifest(
         "config_path": str(grid_config.config_path),
         "fast": grid_config.fast,
         "domain_policy": mask_config.policy,
+        "masked_sample_policy": mask_config.sampling_policy,
+        "mask_first": False,
         "mask_table": str(mask_config.table_path),
         "mask_manifest": str(mask_config.manifest_path) if mask_config.manifest_path else None,
         "source_sample_output": str(grid_config.sample_output_path),
@@ -1901,7 +2222,8 @@ def write_masked_sample_manifest(
         "dropped_positive_row_count": result.dropped_positive_row_count,
         "population_counts": result.population_counts,
         "sample_weight_column": grid_config.sample_weight_column,
-        "background_rows_per_year": grid_config.background_rows_per_year,
+        "legacy_background_rows_per_year": grid_config.background_rows_per_year,
+        "background_rows_per_year_controls_default_masked_workflow": True,
         "include_all_kelpwatch_observed": grid_config.include_all_kelpwatch_observed,
         "random_seed": grid_config.random_seed,
         "fail_on_dropped_positive": mask_config.fail_on_dropped_positive,

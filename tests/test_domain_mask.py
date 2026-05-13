@@ -10,7 +10,7 @@ from kelp_aef.domain.domain_mask import (
     DROPPED_DEFINITE_LAND,
     QA_MISSING_CRM,
     RETAINED_AMBIGUOUS_COAST,
-    RETAINED_DEPTH_0_100M,
+    RETAINED_DEPTH_0_60M,
     DomainMaskThresholds,
     classify_domain_mask_frame,
     load_domain_mask_config,
@@ -25,7 +25,7 @@ def test_load_domain_mask_config_reads_fast_outputs(tmp_path: Path) -> None:
 
     assert config.aligned_crm_table == fixture["fast_crm"]
     assert config.output_table == fixture["fast_output"]
-    assert config.thresholds.max_depth_m == 100.0
+    assert config.thresholds.max_depth_m == 60.0
     assert config.row_window == (0, 4)
     assert config.col_window == (0, 4)
 
@@ -34,12 +34,12 @@ def test_classify_domain_mask_frame_uses_explicit_reason_precedence() -> None:
     """Classify missing CRM, ambiguous coast, land, deep water, and retained cells."""
     frame = domain_mask_input_frame()
     thresholds = DomainMaskThresholds(
-        max_depth_m=100.0,
+        max_depth_m=60.0,
         definite_land_elevation_m=5.0,
         ambiguous_coast_elevation_min_m=-5.0,
         ambiguous_coast_elevation_max_m=5.0,
         nearshore_shallow_depth_m=40.0,
-        intermediate_depth_m=50.0,
+        intermediate_depth_m=60.0,
     )
 
     classified = classify_domain_mask_frame(frame, thresholds)
@@ -49,8 +49,8 @@ def test_classify_domain_mask_frame_uses_explicit_reason_precedence() -> None:
         RETAINED_AMBIGUOUS_COAST,
         DROPPED_DEFINITE_LAND,
         DROPPED_DEEP_WATER,
-        RETAINED_DEPTH_0_100M,
-        RETAINED_DEPTH_0_100M,
+        RETAINED_DEPTH_0_60M,
+        RETAINED_DEPTH_0_60M,
     ]
     assert classified["is_plausible_kelp_domain"].to_list() == [
         True,
@@ -64,9 +64,9 @@ def test_classify_domain_mask_frame_uses_explicit_reason_precedence() -> None:
         QA_MISSING_CRM,
         "ambiguous_coast",
         "land_positive",
-        "100m_plus",
+        "60m_plus",
         "0_40m",
-        "40_50m",
+        "40_60m",
     ]
 
 
@@ -99,7 +99,7 @@ def test_build_domain_mask_fast_writes_mask_and_qa_outputs(tmp_path: Path) -> No
     all_retention = retention.query("year == 2018 and domain_mask_reason == 'all'")
     assert int(all_retention["positive_cell_year_rows"].iloc[0]) == 3
     assert int(all_retention["retained_positive_cell_year_rows"].iloc[0]) == 1
-    assert "100m_plus" in set(depth_bins["depth_bin"])
+    assert "60m_plus" in set(depth_bins["depth_bin"])
 
 
 def write_domain_mask_fixture(tmp_path: Path) -> dict[str, Path]:
@@ -265,11 +265,11 @@ domain:
     kelpwatch_retention_table: {retention_table}
     depth_bin_summary_table: {depth_bins_table}
     visual_qa_figure: {visual_figure}
-    max_depth_m: 100.0
+    max_depth_m: 60.0
     definite_land_elevation_m: 5.0
     ambiguous_coast_elevation_band_m: [-5.0, 5.0]
     nearshore_shallow_depth_m: 40.0
-    intermediate_depth_m: 50.0
+    intermediate_depth_m: 60.0
     row_chunk_size: 2
     fast:
       aligned_crm_table: {fast_crm}

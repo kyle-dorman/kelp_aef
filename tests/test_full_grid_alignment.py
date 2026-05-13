@@ -71,6 +71,32 @@ def test_align_full_grid_fast_writes_masked_background_sample(tmp_path: Path) ->
     assert manifest["population_counts"]["2018"]["assumed_background"] == 1
 
 
+def test_align_full_grid_fast_writes_mask_first_crm_default_sample(tmp_path: Path) -> None:
+    """Verify the promoted masked default samples retained full-grid strata first."""
+    fixture = write_full_grid_fixture(
+        tmp_path,
+        include_domain_mask=True,
+        mask_first_crm_stratified=True,
+    )
+
+    assert main(["align-full-grid", "--config", str(fixture["config_path"]), "--fast"]) == 0
+
+    masked_sample = pd.read_parquet(fixture["fast_masked_sample"])
+    summary = pd.read_csv(fixture["fast_masked_summary"])
+    manifest = json.loads(fixture["fast_masked_manifest"].read_text())
+
+    assert set(masked_sample["aef_grid_cell_id"]) == {0, 1}
+    assert set(masked_sample["domain_mask_reason"]) == {"retained"}
+    assert int((masked_sample["label_source"] == KELPWATCH_STATION).sum()) == 1
+    assert int((masked_sample["label_source"] == ASSUMED_BACKGROUND).sum()) == 1
+    assert int(summary["sampled_row_count"].sum()) == 2
+    assert manifest["masked_sample_policy"] == "crm_stratified_mask_first_sample"
+    assert manifest["mask_first"] is True
+    assert manifest["background_rows_per_year_controls_default_masked_workflow"] is False
+    assert manifest["sampling_policy"]["all_retained_kelpwatch_rows_kept"] is True
+    assert manifest["mask_dropped_positive_row_count"] == 0
+
+
 def test_crm_stratified_selection_keeps_observed_and_applies_quotas(tmp_path: Path) -> None:
     """Verify CRM-stratified quota selection and observed-row retention."""
     population = crm_stratified_population_fixture()
@@ -83,7 +109,7 @@ def test_crm_stratified_selection_keeps_observed_and_applies_quotas(tmp_path: Pa
         summary_path=tmp_path / "summary.csv",
         quotas=(
             CrmStratifiedQuota("retained_ambiguous_coast", "ambiguous_coast", 0.5, 0, None),
-            CrmStratifiedQuota("retained_depth_0_100m", "50_100m", 0.1, 0, None),
+            CrmStratifiedQuota("retained_depth_0_60m", "40_60m", 0.1, 0, None),
         ),
         default_fraction=0.0,
         default_min_rows_per_year=0,
@@ -112,7 +138,7 @@ def test_crm_stratified_selection_keeps_observed_and_applies_quotas(tmp_path: Pa
         len(
             selected.query(
                 "label_source == @ASSUMED_BACKGROUND "
-                "and domain_mask_reason == 'retained_depth_0_100m'"
+                "and domain_mask_reason == 'retained_depth_0_60m'"
             )
         )
         == 1
@@ -123,7 +149,7 @@ def test_crm_stratified_selection_keeps_observed_and_applies_quotas(tmp_path: Pa
         ]
         == 10
     )
-    assert selection.retained_counts["2018:assumed_background:retained_depth_0_100m:50_100m"] == 1
+    assert selection.retained_counts["2018:assumed_background:retained_depth_0_60m:40_60m"] == 1
 
 
 def test_align_full_grid_fast_writes_crm_stratified_sample(tmp_path: Path) -> None:
@@ -149,7 +175,11 @@ def test_align_full_grid_fast_writes_crm_stratified_sample(tmp_path: Path) -> No
 
 
 def write_full_grid_fixture(
-    tmp_path: Path, *, include_domain_mask: bool = False, include_crm_stratified: bool = False
+    tmp_path: Path,
+    *,
+    include_domain_mask: bool = False,
+    include_crm_stratified: bool = False,
+    mask_first_crm_stratified: bool = False,
 ) -> dict[str, Path]:
     """Write a tiny full-grid config, annual labels, manifest, and AEF raster."""
     labels_path = tmp_path / "interim/labels_annual.parquet"
@@ -199,6 +229,7 @@ reports:
         f"""
     domain_mask:
       policy: plausible_kelp_domain
+{mask_first_domain_policy_config() if mask_first_crm_stratified else ""}
       output_table: {masked_sample}
       output_manifest: {tmp_path / "interim/sample.masked_manifest.json"}
       summary_table: {tmp_path / "tables/sample.masked_summary.csv"}
@@ -326,11 +357,24 @@ def crm_stratified_population_fixture() -> pd.DataFrame:
                 "kelp_max_y": 0.0,
                 "is_kelpwatch_observed": False,
                 "is_plausible_kelp_domain": True,
-                "domain_mask_reason": "retained_depth_0_100m",
-                "depth_bin": "50_100m",
+                "domain_mask_reason": "retained_depth_0_60m",
+                "depth_bin": "40_60m",
             }
         )
     return pd.DataFrame(rows)
+
+
+def mask_first_domain_policy_config() -> str:
+    """Return YAML for the promoted mask-first default sampler."""
+    return """      sampling_policy: crm_stratified_mask_first_sample
+      random_seed: 7
+      default_fraction: 0.0
+      default_min_rows_per_year: 0
+      strata:
+        - domain_mask_reason: retained
+          depth_bin: 0_40m
+          fraction: 1.0
+"""
 
 
 def write_label_table(path: Path) -> None:
