@@ -1,0 +1,545 @@
+# Big Sur Phase 2 smoke-generalization config.
+#
+# Keep this config small. It is intended for agent-safe development and smoke
+# tests, not full West Coast processing.
+
+data_root: /Volumes/x10pro/kelp_aef
+
+region:
+  name: big_sur
+  crs: EPSG:4326
+  geometry:
+    path: /Volumes/x10pro/kelp_aef/geos/big_sur_aef_10n_0000_8192_footprint.geojson
+    source_stac_item_id: "8957"
+    source_crs: EPSG:32610
+    bbox: [-122.09641373617602, 35.51952415252234, -121.17627335446835, 36.26818075229042]
+    source_tile_uri: s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000000000-0000008192.tiff
+
+years:
+  smoke: [2018, 2019, 2020, 2021, 2022]
+
+labels:
+  target: kelp_max_y
+  aggregation: annual_max
+  native_resolution_m: 30
+  paths:
+    raw_dir: /Volumes/x10pro/kelp_aef/raw/kelpwatch
+    source_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_kelpwatch_source_manifest.json
+    annual_labels: /Volumes/x10pro/kelp_aef/interim/big_sur_labels_annual.parquet
+    annual_label_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_labels_annual_manifest.json
+
+features:
+  s3_prefix: tge-labs/aef/v1/annual
+  utm_grid: 10N
+  bands: A00-A63
+  native_resolution_m: 10
+  catalog:
+    url: https://data.source.coop/tge-labs/aef/v1/annual/aef_index_stac_geoparquet.parquet
+    layer_name: aef_index_stac_geoparquet
+    selection_policy: max_overlap_per_year
+    min_footprint_overlap_fraction: 0.5
+  paths:
+    local_mirror_root: /Volumes/x10pro/kelp_aef/raw/aef
+    catalog_query: /Volumes/x10pro/kelp_aef/interim/aef_big_sur_catalog_query.parquet
+    catalog_query_summary: /Volumes/x10pro/kelp_aef/interim/aef_big_sur_catalog_query_summary.json
+    tile_manifest: /Volumes/x10pro/kelp_aef/interim/aef_big_sur_tile_manifest.json
+  # Documentation-only examples from the first manual/source discovery pass.
+  known_tiles:
+    2022:
+      source_uri: s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000000000-0000008192.tiff
+
+alignment:
+  method: rasterio_average_10m_to_30m
+  target_row_chunk_size: 256
+  output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_training_table.parquet
+  output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_training_table_manifest.json
+  summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_training_table_summary.csv
+  full_grid:
+    output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table.parquet
+    output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table_manifest.json
+    summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_full_grid_training_table_summary.csv
+    target_row_chunk_size: 128
+    fast:
+      years: [2022]
+      row_window: [2560, 2688]
+      col_window: [512, 640]
+      output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table.fast.parquet
+      output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table.fast_manifest.json
+      summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_full_grid_training_table.fast_summary.csv
+  background_sample:
+    output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_background_sample_training_table.parquet
+    output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_background_sample_training_table_manifest.json
+    summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_background_sample_training_table_summary.csv
+    domain_mask:
+      policy: plausible_kelp_domain
+      sampling_policy: crm_stratified_mask_first_sample
+      output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_background_sample_training_table.masked.parquet
+      output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_background_sample_training_table.masked_manifest.json
+      summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_background_sample_training_table.masked_summary.csv
+      random_seed: 31
+      default_fraction: 0.0
+      default_min_rows_per_year: 0
+      strata:
+        - domain_mask_reason: retained_ambiguous_coast
+          depth_bin: ambiguous_coast
+          fraction: 0.12
+          min_rows_per_year: 5000
+        - domain_mask_reason: retained_depth_0_60m
+          depth_bin: 0_40m
+          fraction: 0.04
+          min_rows_per_year: 8000
+        - domain_mask_reason: retained_depth_0_60m
+          depth_bin: 40_60m
+          fraction: 0.01
+          min_rows_per_year: 500
+      fail_on_dropped_positive: true
+    random_seed: 13
+    legacy_background_rows_per_year: 250000
+    include_all_kelpwatch_observed: true
+  fast:
+    years: [2022]
+    max_stations: 500
+    output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_training_table.fast.parquet
+    output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_training_table.fast_manifest.json
+    summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_training_table.fast_summary.csv
+    comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_training_table.fast_method_comparison.csv
+
+domain:
+  noaa_cudem:
+    source_name: NOAA NCEI Continuously Updated DEM 1/9 Arc-Second Topobathy Tiles
+    source_role: higher_resolution_topo_bathy_qa
+    product_id: gov.noaa.ngdc.mgg.dem:199919
+    metadata_url: https://www.ncei.noaa.gov/access/metadata/landing-page/bin/iso?id=gov.noaa.ngdc.mgg.dem%3A199919
+    bulk_url: https://coast.noaa.gov/htdata/raster2/elevation/NCEI_ninth_Topobathy_2014_8483/
+    tile_index_url: https://noaa-nos-coastal-lidar-pds.s3.amazonaws.com/dem/NCEI_ninth_Topobathy_2014_8483/tileindex_NCEI_ninth_Topobathy_2014.zip
+    url_list_url: https://noaa-nos-coastal-lidar-pds.s3.amazonaws.com/dem/NCEI_ninth_Topobathy_2014_8483/urllist8483.txt
+    tile_index_path: /Volumes/x10pro/kelp_aef/raw/domain/noaa_cudem/tileindex_NCEI_ninth_Topobathy_2014.zip
+    local_tile_root: /Volumes/x10pro/kelp_aef/raw/domain/noaa_cudem/tiles
+    query_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cudem_tile_query_manifest.json
+    tile_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cudem_tile_manifest.json
+    horizontal_crs: EPSG:4269
+    vertical_datum: NAVD88
+    units: meters
+    resolution: 1/9 arc-second
+    grid_spacing_arc_seconds: 0.1111111111
+    elevation_sign_convention: positive land elevation and negative ocean depth
+  noaa_crm:
+    source_name: NOAA Coastal Relief Model California Mosaic
+    source_role: primary_broad_topo_bathy
+    source_page_url: https://www.ncei.noaa.gov/products/coastal-relief-model
+    local_source_root: /Volumes/x10pro/kelp_aef/raw/domain/noaa_crm
+    query_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_crm_query_manifest.json
+    source_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_crm_source_manifest.json
+    download_mode: full_product_after_manifest_review
+    query_padding_degrees: 0.02
+    alignment:
+      source_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_crm_source_manifest.json
+      query_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_crm_query_manifest.json
+      cudem_tile_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cudem_tile_manifest.json
+      usgs_3dep_source_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_usgs_3dep_source_manifest.json
+      cusp_source_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cusp_source_manifest.json
+      target_grid_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table.parquet
+      target_grid_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table_manifest.json
+      output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_noaa_crm.parquet
+      output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_noaa_crm_manifest.json
+      qa_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_noaa_crm_summary.csv
+      comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_domain_source_comparison.csv
+      resampling_method: nearest_center_sample
+      row_chunk_size: 100000
+      product_boundary:
+        latitude: 37.0
+        south_product_id: crm_socal_v2_1as
+        north_product_id: crm_vol7_2025
+      fast:
+        output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_noaa_crm.fast.parquet
+        output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_noaa_crm.fast_manifest.json
+        qa_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_noaa_crm.fast_summary.csv
+        comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_domain_source_comparison.fast.csv
+    products:
+      - product_id: crm_socal_v2_1as
+        product_name: NOAA Coastal Relief Model Southern California Version 2
+        product_version: "2"
+        source_role: primary_broad_topo_bathy
+        metadata_url: https://www.ncei.noaa.gov/access/metadata/landing-page/bin/iso?id=gov.noaa.ngdc.mgg.dem%3A4970
+        thredds_catalog_url: https://www.ngdc.noaa.gov/thredds/catalog/crm/catalog.html?dataset=crmDatasetScan/crm_socal_1as_vers2.nc
+        source_uri: https://www.ngdc.noaa.gov/thredds/fileServer/crm/crm_socal_1as_vers2.nc
+        opendap_url: https://www.ngdc.noaa.gov/thredds/dodsC/crm/crm_socal_1as_vers2.nc
+        local_filename: crm_socal_1as_vers2.nc
+        data_variable: Band1
+        bounds:
+          west: -123.00013888889
+          south: 30.999861071109994
+          east: -116.00013883288999
+          north: 36.99986111911
+        horizontal_crs: EPSG:4326
+        vertical_datum: mean sea level
+        units: meters
+        resolution: 1 arc-second
+        grid_spacing_arc_seconds: 1.0
+        elevation_sign_convention: positive land elevation and negative ocean depth
+        data_format: NetCDF
+      - product_id: crm_vol7_2025
+        product_name: NOAA Coastal Relief Model Volume 7 Central Pacific 2025
+        product_version: "2025"
+        source_role: primary_broad_topo_bathy
+        metadata_url: https://www.ngdc.noaa.gov/thredds/catalog/crm/cudem/catalog.html?dataset=crmDatasetScan/cudem/crm_vol7_2025.nc
+        thredds_catalog_url: https://www.ngdc.noaa.gov/thredds/catalog/crm/cudem/catalog.html?dataset=crmDatasetScan/cudem/crm_vol7_2025.nc
+        source_uri: https://www.ngdc.noaa.gov/thredds/fileServer/crm/cudem/crm_vol7_2025.nc
+        opendap_url: https://www.ngdc.noaa.gov/thredds/dodsC/crm/cudem/crm_vol7_2025.nc
+        local_filename: crm_vol7_2025.nc
+        data_variable: z
+        bounds:
+          west: -127.0
+          south: 37.0
+          east: -120.75
+          north: 44.0
+        horizontal_crs: EPSG:4326
+        vertical_datum: EGM2008
+        units: meters
+        resolution: 1 arc-second
+        grid_spacing_arc_seconds: 1.0
+        elevation_sign_convention: positive land elevation and negative ocean depth
+        data_format: NetCDF
+      - product_id: crm_vol8_2025
+        product_name: NOAA Coastal Relief Model Volume 8 Northwest Pacific 2025
+        product_version: "2025"
+        source_role: future_scaleup_topo_bathy
+        metadata_url: https://www.ngdc.noaa.gov/thredds/catalog/crm/cudem/catalog.html?dataset=crmDatasetScan/cudem/crm_vol8_2025.nc
+        thredds_catalog_url: https://www.ngdc.noaa.gov/thredds/catalog/crm/cudem/catalog.html?dataset=crmDatasetScan/cudem/crm_vol8_2025.nc
+        source_uri: https://www.ngdc.noaa.gov/thredds/fileServer/crm/cudem/crm_vol8_2025.nc
+        opendap_url: https://www.ngdc.noaa.gov/thredds/dodsC/crm/cudem/crm_vol8_2025.nc
+        local_filename: crm_vol8_2025.nc
+        data_variable: z
+        bounds:
+          west: -127.0
+          south: 44.0
+          east: -121.75
+          north: 49.0
+        horizontal_crs: EPSG:4326
+        vertical_datum: EGM2008
+        units: meters
+        resolution: 1 arc-second
+        grid_spacing_arc_seconds: 1.0
+        elevation_sign_convention: positive land elevation and negative ocean depth
+        data_format: NetCDF
+  noaa_cusp:
+    source_name: NOAA NGS Continually Updated Shoreline Product
+    source_role: shoreline_side_source
+    product_id: gov.noaa.nmfs.inport:60812
+    metadata_url: https://www.fisheries.noaa.gov/inport/item/60812
+    source_page_url: https://coast.noaa.gov/digitalcoast/data/cusp.html
+    viewer_url: https://nsde.ngs.noaa.gov/
+    package_region: West
+    source_uri: https://geodesy.noaa.gov/dist_shoreline/West.zip
+    local_source_root: /Volumes/x10pro/kelp_aef/raw/domain/noaa_cusp
+    query_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cusp_query_manifest.json
+    source_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cusp_source_manifest.json
+    horizontal_crs: EPSG:4269
+    data_format: ESRI shapefile ZIP
+    shoreline_reference: proxy mean high water
+    scale: variable; 1:1,000-1:24,000
+    geometry_type: line shoreline vectors
+    package_bounds:
+      west: -125.0
+      south: 32.0
+      east: -114.0
+      north: 49.5
+  plausible_kelp_mask:
+    aligned_crm_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_noaa_crm.parquet
+    aligned_crm_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_noaa_crm_manifest.json
+    full_grid_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table.parquet
+    full_grid_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table_manifest.json
+    cusp_source_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cusp_source_manifest.json
+    output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_plausible_kelp_domain_mask.parquet
+    output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_plausible_kelp_domain_mask_manifest.json
+    coverage_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_plausible_kelp_domain_mask_summary.csv
+    kelpwatch_retention_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_plausible_kelp_domain_mask_kelpwatch_retention.csv
+    depth_bin_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_plausible_kelp_domain_mask_depth_bins.csv
+    visual_qa_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_plausible_kelp_domain_mask_qa.png
+    max_depth_m: 60.0
+    definite_land_elevation_m: 5.0
+    ambiguous_coast_elevation_band_m: [-5.0, 5.0]
+    nearshore_shallow_depth_m: 40.0
+    intermediate_depth_m: 60.0
+    row_chunk_size: 250000
+    fast:
+      aligned_crm_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_noaa_crm.fast.parquet
+      aligned_crm_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_noaa_crm.fast_manifest.json
+      output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_plausible_kelp_domain_mask.fast.parquet
+      output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_plausible_kelp_domain_mask.fast_manifest.json
+      coverage_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_plausible_kelp_domain_mask.fast_summary.csv
+      kelpwatch_retention_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_plausible_kelp_domain_mask_kelpwatch_retention.fast.csv
+      depth_bin_summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_plausible_kelp_domain_mask_depth_bins.fast.csv
+      visual_qa_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_plausible_kelp_domain_mask.fast_qa.png
+  usgs_3dep:
+    source_name: USGS 3DEP 1/3 Arc-Second Digital Elevation Model
+    source_role: land_dem_fallback
+    product_id: USGS:3a81321b-c153-416f-98b7-cc8e5f0e17c3
+    metadata_url: https://data.usgs.gov/datacatalog/data/USGS%3A3a81321b-c153-416f-98b7-cc8e5f0e17c3
+    data_catalog_url: https://apps.nationalmap.gov/downloader/
+    tnm_api_url: https://tnmaccess.nationalmap.gov/api/v1/products
+    dataset_name: National Elevation Dataset (NED) 1/3 arc-second
+    product_extent: 1 x 1 degree
+    product_format: GeoTIFF
+    selection_policy: latest_publication_per_1x1_tile
+    local_source_root: /Volumes/x10pro/kelp_aef/raw/domain/usgs_3dep
+    query_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_usgs_3dep_query_manifest.json
+    source_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_usgs_3dep_source_manifest.json
+    horizontal_crs: EPSG:4269
+    vertical_datum: NAVD88
+    units: meters
+    resolution: 1/3 arc-second
+    grid_spacing_arc_seconds: 0.3333333333
+    elevation_sign_convention: positive land elevation; land-side topographic DEM fallback only
+    data_format: Cloud Optimized GeoTIFF
+
+splits:
+  train_years: [2018, 2019, 2020]
+  validation_years: [2021]
+  test_years: [2022]
+  output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_split_manifest.parquet
+
+models:
+  baselines:
+    sample_policy: crm_stratified_mask_first_sample
+    input_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_background_sample_training_table.masked.parquet
+    inference_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table.parquet
+    target: kelp_fraction_y
+    features: A00-A63
+    alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
+    drop_missing_features: true
+    use_sample_weight: false
+    ridge_model: /Volumes/x10pro/kelp_aef/models/baselines/big_sur_ridge_kelp_fraction.joblib
+    geographic_model: /Volumes/x10pro/kelp_aef/models/baselines/big_sur_geographic_ridge_lon_lat_year.joblib
+    sample_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_baseline_sample_predictions.parquet
+    predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_baseline_full_grid_predictions.parquet
+    prediction_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_baseline_full_grid_prediction_manifest.json
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_baseline_metrics.csv
+    manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_baseline_eval_manifest.json
+  binary_presence:
+    sample_policy: crm_stratified_mask_first_sample
+    input_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_background_sample_training_table.masked.parquet
+    inference_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table.parquet
+    target_label: annual_max_ge_10pct
+    target_column: kelp_fraction_y
+    target_threshold_fraction: 0.10
+    target_threshold_area: 90.0
+    features: A00-A63
+    class_weight: balanced
+    c_grid: [1.0]
+    max_iter: 1000
+    drop_missing_features: true
+    model: /Volumes/x10pro/kelp_aef/models/binary_presence/big_sur_logistic_annual_max_ge_10pct.joblib
+    sample_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_binary_presence_sample_predictions.parquet
+    full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_binary_presence_full_grid_predictions.parquet
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_binary_presence_metrics.csv
+    threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_binary_presence_threshold_selection.csv
+    full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_binary_presence_full_grid_area_summary.csv
+    thresholded_model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_binary_presence_thresholded_model_comparison.csv
+    prediction_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_binary_presence_prediction_manifest.json
+    precision_recall_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_binary_presence_precision_recall.png
+    map_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_binary_presence_2022_map.png
+    calibration:
+      method: platt
+      calibration_split: validation
+      calibration_year: 2021
+      evaluation_split: test
+      evaluation_year: 2022
+      input_sample_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_binary_presence_sample_predictions.parquet
+      input_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_binary_presence_full_grid_predictions.parquet
+      model: /Volumes/x10pro/kelp_aef/models/binary_presence/big_sur_logistic_annual_max_ge_10pct_calibration.joblib
+      calibrated_sample_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_binary_presence_calibrated_sample_predictions.parquet
+      metrics: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_binary_presence_calibration_metrics.csv
+      threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_binary_presence_calibrated_threshold_selection.csv
+      full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_binary_presence_calibrated_full_grid_area_summary.csv
+      calibration_curve_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_binary_presence_calibration_curve.png
+      threshold_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_binary_presence_calibrated_thresholds.png
+      manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_binary_presence_calibration_manifest.json
+      include_prevalence_match: true
+      reliability_bin_count: 10
+  conditional_canopy:
+    input_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_background_sample_training_table.masked.parquet
+    target: kelp_fraction_y
+    target_area_column: kelp_max_y
+    positive_target_label: annual_max_ge_10pct
+    positive_target_threshold_fraction: 0.10
+    positive_target_threshold_area: 90.0
+    positive_support_policy: observed_positive_train_validation_test
+    likely_positive_policy: calibrated_probability_ge_validation_max_f1
+    likely_positive_threshold_policy: validation_max_f1_calibrated
+    features: A00-A63
+    alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
+    drop_missing_features: true
+    baseline_sample_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_baseline_sample_predictions.parquet
+    calibrated_binary_sample_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_binary_presence_calibrated_sample_predictions.parquet
+    calibrated_binary_full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_binary_presence_calibrated_full_grid_area_summary.csv
+    model: /Volumes/x10pro/kelp_aef/models/conditional_canopy/big_sur_ridge_positive_annual_max.joblib
+    sample_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_conditional_canopy_sample_predictions.parquet
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_conditional_canopy_metrics.csv
+    positive_residuals: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_conditional_canopy_positive_residuals.csv
+    model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_conditional_canopy_model_comparison.csv
+    full_grid_likely_positive_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_conditional_canopy_full_grid_likely_positive_summary.csv
+    residual_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_conditional_canopy_positive_residuals.png
+    manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_conditional_canopy_manifest.json
+  hurdle:
+    sample_policy: crm_stratified_mask_first_sample
+    inference_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table.parquet
+    binary_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_binary_presence_full_grid_predictions.parquet
+    binary_calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/big_sur_logistic_annual_max_ge_10pct_calibration.joblib
+    binary_calibrated_threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_binary_presence_calibrated_threshold_selection.csv
+    conditional_model: /Volumes/x10pro/kelp_aef/models/conditional_canopy/big_sur_ridge_positive_annual_max.joblib
+    reference_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_reference_baseline_area_calibration.masked.csv
+    model_name: calibrated_probability_x_conditional_canopy
+    hard_gate_model_name: calibrated_hard_gate_conditional_canopy
+    presence_model_name: logistic_annual_max_ge_10pct
+    presence_probability_source: platt_calibrated
+    presence_threshold_policy: validation_max_f1_calibrated
+    presence_threshold: 0.36
+    presence_target_label: annual_max_ge_10pct
+    presence_target_threshold_fraction: 0.10
+    conditional_model_name: ridge_positive_annual_max
+    target: kelp_fraction_y
+    target_area_column: kelp_max_y
+    cell_area_m2: 900.0
+    composition_policies: [expected_value, hard_gate]
+    features: A00-A63
+    drop_missing_features: true
+    batch_size: 100000
+    predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_hurdle_full_grid_predictions.parquet
+    prediction_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_hurdle_prediction_manifest.json
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_hurdle_metrics.csv
+    area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_hurdle_area_calibration.csv
+    model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_hurdle_model_comparison.csv
+    residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_hurdle_residual_by_observed_bin.csv
+    assumed_background_leakage: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_hurdle_assumed_background_leakage.csv
+    map_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_hurdle_2022_observed_predicted_residual.png
+
+reports:
+  figures_dir: /Volumes/x10pro/kelp_aef/reports/figures
+  tables_dir: /Volumes/x10pro/kelp_aef/reports/tables
+  domain_mask:
+    primary_full_grid_domain: plausible_kelp_domain
+    mask_status: plausible_kelp_domain
+    evaluation_scope: full_grid_masked
+    mask_table: /Volumes/x10pro/kelp_aef/interim/big_sur_plausible_kelp_domain_mask.parquet
+    mask_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_plausible_kelp_domain_mask_manifest.json
+    off_domain_audit_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_off_domain_prediction_leakage_audit.csv
+  map_residuals:
+    model_name: ridge_regression
+    split: test
+    year: 2022
+    latitude_band_count: 12
+    top_residual_count: 50
+  results_visualizer:
+    split: test
+    year: 2022
+    robust_percentile: 99.0
+    max_inspection_points: 50000
+    basemap:
+      enabled: true
+      name: OpenStreetMap
+      url_template: https://tile.openstreetmap.org/{z}/{x}/{y}.png
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      max_zoom: 19
+    layers:
+      - id: expected_value_hurdle
+        display_name: Hurdle
+        type: continuous
+        path: /Volumes/x10pro/kelp_aef/processed/big_sur_hurdle_full_grid_predictions.parquet
+        model_name: calibrated_probability_x_conditional_canopy
+        prediction_column: pred_kelp_max_y
+        residual_column: residual_kelp_max_y
+        default_visible: true
+      - id: conditional_ridge
+        display_name: Conditional ridge
+        type: continuous_prediction
+        path: /Volumes/x10pro/kelp_aef/processed/big_sur_hurdle_full_grid_predictions.parquet
+        model_name: calibrated_probability_x_conditional_canopy
+        prediction_column: pred_conditional_area_m2
+        default_visible: false
+      - id: binary_presence
+        display_name: Binary presence
+        type: binary_probability
+        path: /Volumes/x10pro/kelp_aef/processed/big_sur_hurdle_full_grid_predictions.parquet
+        model_name: calibrated_probability_x_conditional_canopy
+        probability_column: calibrated_presence_probability
+        default_visible: false
+      - id: binary_outcome
+        display_name: Binary outcome
+        type: binary_outcome
+        path: /Volumes/x10pro/kelp_aef/processed/big_sur_hurdle_full_grid_predictions.parquet
+        model_name: calibrated_probability_x_conditional_canopy
+        prediction_column: pred_presence_class
+        probability_column: calibrated_presence_probability
+        default_visible: false
+  model_analysis:
+    model_name: ridge_regression
+    split: test
+    year: 2022
+    report_dir: /Volumes/x10pro/kelp_aef/reports/model_analysis
+    observed_area_bins: [0, 1, 90, 225, 450, 810, 900]
+    threshold_fractions: [0, 0.01, 0.05, 0.10, 0.50, 0.90]
+    latitude_band_count: 12
+    max_projection_rows: 50000
+    fall_quarter: 4
+    winter_quarter: 1
+  outputs:
+    metadata_summary: /Volumes/x10pro/kelp_aef/interim/big_sur_metadata_summary.json
+    ridge_observed_predicted_residual_map: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_ridge_2022_observed_predicted_residual.png
+    ridge_observed_predicted_residual_map_masked: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_ridge_2022_observed_predicted_residual.masked.png
+    ridge_observed_vs_predicted: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_ridge_observed_vs_predicted.png
+    ridge_observed_vs_predicted_masked: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_ridge_observed_vs_predicted.masked.png
+    ridge_residual_interactive: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_ridge_2022_residual_interactive.html
+    ridge_residual_interactive_masked: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_ridge_2022_residual_interactive.masked.html
+    results_visualizer_html: /Volumes/x10pro/kelp_aef/reports/interactive/big_sur_results_visualizer.html
+    results_visualizer_asset_dir: /Volumes/x10pro/kelp_aef/reports/interactive/big_sur_results_visualizer
+    results_visualizer_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_results_visualizer_manifest.json
+    results_visualizer_inspection_points: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_results_visualizer_inspection_points.csv
+    area_bias_by_year: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_area_bias_by_year.csv
+    area_bias_by_year_masked: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_area_bias_by_year.masked.csv
+    area_bias_by_latitude_band: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_area_bias_by_latitude_band.csv
+    area_bias_by_latitude_band_masked: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_area_bias_by_latitude_band.masked.csv
+    reference_baseline_fallback_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_reference_baseline_fallback_summary.csv
+    reference_baseline_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_reference_baseline_area_calibration.csv
+    reference_baseline_area_calibration_masked: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_reference_baseline_area_calibration.masked.csv
+    top_residual_stations: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_top_residual_stations.csv
+    map_residuals_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_map_residuals_manifest.json
+    model_analysis_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.md
+    model_analysis_html_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.html
+    model_analysis_pdf_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.pdf
+    model_analysis_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_model_analysis_manifest.json
+    model_analysis_label_distribution_by_stage: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_label_distribution_by_stage.csv
+    model_analysis_target_framing_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_target_framing_summary.csv
+    model_analysis_residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_residual_by_observed_bin.csv
+    model_analysis_residual_by_persistence: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_residual_by_persistence.csv
+    model_analysis_prediction_distribution: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_prediction_distribution.csv
+    model_analysis_threshold_sensitivity: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_threshold_sensitivity.csv
+    model_analysis_spatial_holdout_readiness: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_spatial_holdout_readiness.csv
+    model_analysis_feature_separability: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_feature_separability.csv
+    model_analysis_phase1_decision_matrix: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_phase1_decision_matrix.csv
+    model_analysis_phase1_model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_phase1_model_comparison.csv
+    model_analysis_crm_stratified_all_models_comparison: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_crm_stratified_all_models_comparison.csv
+    model_analysis_data_health: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_data_health.csv
+    model_analysis_class_balance_by_split: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_class_balance_by_split.csv
+    model_analysis_target_balance_by_label_source: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_target_balance_by_label_source.csv
+    model_analysis_background_rate_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_background_rate_summary.csv
+    model_analysis_binary_threshold_prevalence: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_binary_threshold_prevalence.csv
+    model_analysis_binary_threshold_comparison: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_binary_threshold_comparison.csv
+    model_analysis_binary_threshold_recommendation: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_binary_threshold_recommendation.csv
+    model_analysis_quarter_mapping: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_quarter_mapping.csv
+    model_analysis_residual_by_domain_context: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_residual_by_domain_context.csv
+    model_analysis_residual_by_mask_reason: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_residual_by_mask_reason.csv
+    model_analysis_residual_by_depth_bin: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_residual_by_depth_bin.csv
+    top_residual_stations_domain_context: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_top_residual_stations.domain_context.csv
+    model_analysis_label_distribution_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_label_distribution_by_stage.png
+    model_analysis_observed_predicted_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_observed_vs_predicted_distribution.png
+    model_analysis_pixel_skill_area_calibration_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_pixel_skill_area_calibration.png
+    model_analysis_residual_by_bin_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_residual_by_observed_bin.png
+    model_analysis_observed_900_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_observed_900_predictions.png
+    model_analysis_residual_by_persistence_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_residual_by_persistence.png
+    model_analysis_residual_by_domain_context_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_residual_by_domain_context.png
+    model_analysis_class_balance_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_class_balance.png
+    model_analysis_binary_threshold_comparison_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_binary_threshold_comparison.png
+    model_analysis_alternative_targets_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_alternative_target_framings.png
+    model_analysis_feature_projection_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_feature_projection.png
+    model_analysis_spatial_readiness_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_spatial_holdout_readiness.png

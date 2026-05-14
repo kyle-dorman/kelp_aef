@@ -119,6 +119,88 @@ and `docs/data_artifacts.md` in the same task.
 8. Update `docs/todo.md` so P2-01 points to this task plan.
 9. Run docs-only validation and inspect the diff.
 
+## Implementation Outcome
+
+Chosen config strategy:
+
+- Add `configs/big_sur_smoke.yaml`.
+- Do not refactor the config loader or introduce a multi-region config schema
+  in P2-01.
+- Keep `configs/monterey_smoke.yaml` unchanged.
+
+Chosen path policy:
+
+- Use flat `big_sur_` filenames under the existing artifact roots.
+- Keep shared raw source mirrors such as `/Volumes/x10pro/kelp_aef/raw/aef`,
+  `/Volumes/x10pro/kelp_aef/raw/kelpwatch`, and
+  `/Volumes/x10pro/kelp_aef/raw/domain/` available for source reuse, but write
+  all Big Sur manifests, derived tables, model outputs, figures, report tables,
+  reports, and visualizer outputs with `big_sur` in the artifact name.
+
+Big Sur region metadata in `configs/big_sur_smoke.yaml`:
+
+- Region shorthand: `big_sur`.
+- Planned footprint:
+  `/Volumes/x10pro/kelp_aef/geos/big_sur_aef_10n_0000_8192_footprint.geojson`.
+- STAC item id: `8957`.
+- STAC source CRS: `EPSG:32610`.
+- WGS84 bbox:
+  `[-122.09641373617602, 35.51952415252234, -121.17627335446835, 36.26818075229042]`.
+- Example 2022 AEF asset:
+  `s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000000000-0000008192.tiff`.
+
+Primary source manifest paths:
+
+- AEF catalog query:
+  `/Volumes/x10pro/kelp_aef/interim/aef_big_sur_catalog_query.parquet`.
+- AEF catalog query summary:
+  `/Volumes/x10pro/kelp_aef/interim/aef_big_sur_catalog_query_summary.json`.
+- AEF tile manifest:
+  `/Volumes/x10pro/kelp_aef/interim/aef_big_sur_tile_manifest.json`.
+- Kelpwatch source manifest:
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_kelpwatch_source_manifest.json`.
+- NOAA CRM query/source manifests:
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_noaa_crm_query_manifest.json` and
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_noaa_crm_source_manifest.json`.
+- NOAA CUDEM query/source manifests:
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cudem_tile_query_manifest.json` and
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cudem_tile_manifest.json`.
+- NOAA CUSP query/source manifests:
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cusp_query_manifest.json` and
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_noaa_cusp_source_manifest.json`.
+- USGS 3DEP query/source manifests:
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_usgs_3dep_query_manifest.json` and
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_usgs_3dep_source_manifest.json`.
+
+Primary downstream path families reserved for P2-03 and later:
+
+- Labels: `/Volumes/x10pro/kelp_aef/interim/big_sur_labels_annual.parquet`.
+- Full-grid alignment:
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table.parquet`.
+- Plausible-kelp domain mask:
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_plausible_kelp_domain_mask.parquet`.
+- CRM-stratified mask-first sample:
+  `/Volumes/x10pro/kelp_aef/interim/big_sur_aligned_background_sample_training_table.masked.parquet`.
+- Baseline, binary, conditional, and hurdle model families use `big_sur_`
+  prefixes under `/Volumes/x10pro/kelp_aef/models/`,
+  `/Volumes/x10pro/kelp_aef/processed/`, and
+  `/Volumes/x10pro/kelp_aef/reports/tables/`.
+- Model-analysis report:
+  `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.md`.
+- Results visualizer:
+  `/Volumes/x10pro/kelp_aef/reports/interactive/big_sur_results_visualizer.html`.
+
+Source-review gate for P2-02:
+
+- Materialize or verify the planned Big Sur footprint before running source
+  query commands.
+- Run source query and dry-run inspection commands first, including AEF,
+  Kelpwatch, CRM, CUDEM, CUSP, and 3DEP coverage where relevant.
+- Visually QA Big Sur labels, AEF coverage, and CRM/domain context before any
+  model training, metric interpretation, or threshold/quantity comparison.
+- Do not train Big Sur models or interpret Big Sur performance until P2-02
+  records source coverage and visual coherence outcomes.
+
 ## Validation Command
 
 Docs-only validation:
@@ -165,4 +247,3 @@ downloads in P2-01.
 - Do not start full West Coast scale-up.
 - Do not change the Phase 2 annual-max label target.
 - Do not add bathymetry/DEM as model predictors.
-

@@ -56,13 +56,17 @@ Phase 2 non-goals:
 
 ## Phase 2 Checklist
 
-- [ ] P2-01: Add Big Sur config and source-manifest plan.
+- [x] P2-01: Add Big Sur config and source-manifest plan.
   - Goal: Introduce `big_sur` as a second small region without breaking the
     closed Monterey config.
   - Outputs: region-scoped config paths, Big Sur footprint path, and reviewable
     AEF/Kelpwatch/domain-source manifest expectations.
   - Acceptance: the planned artifact names cannot overwrite Monterey outputs.
   - Plan: `tasks/41_big_sur_config_source_manifest_plan.md`.
+  - Completed: added `configs/big_sur_smoke.yaml` with flat `big_sur_`
+    artifact names, reviewable source-manifest paths, the user-provided AEF
+    STAC metadata, and a P2-02 source-review gate. No source data was
+    downloaded.
 - [ ] P2-02: Verify Big Sur source coverage and early visual QA.
   - Goal: Confirm Big Sur AEF, Kelpwatch, CRM/domain, and shoreline support
     before interpreting any model results, and visually check labels, AEF, and
