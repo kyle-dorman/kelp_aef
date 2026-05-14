@@ -67,7 +67,7 @@ Phase 2 non-goals:
     artifact names, reviewable source-manifest paths, the user-provided AEF
     STAC metadata, and a P2-02 source-review gate. No source data was
     downloaded.
-- [ ] P2-02: Verify Big Sur source coverage and early visual QA.
+- [x] P2-02: Verify Big Sur source coverage and early visual QA.
   - Goal: Confirm Big Sur AEF, Kelpwatch, CRM/domain, and shoreline support
     before interpreting any model results, and visually check labels, AEF, and
     domain context before training.
@@ -77,6 +77,13 @@ Phase 2 non-goals:
     are explicit, and obvious visual source/alignment problems have been ruled
     out or recorded.
   - Plan: `tasks/42_verify_big_sur_source_coverage_visual_qa.md`.
+  - Completed: Big Sur AEF selected and downloaded valid 2018-2022 `10N`
+    assets; Kelpwatch QA found 32,927 valid stations per year and 78,759
+    nonzero annual-max station-years inside the footprint; CRM/CUSP/3DEP
+    support was verified with local source manifests; CUDEM selected zero tiles
+    from the configured index and is recorded as a caveat, not a blocker.
+    Comparable Big Sur and Monterey source-coverage CSV/PNG/HTML QA artifacts
+    were written.
 - [ ] P2-03: Build Big Sur alignment, mask, and model-input artifacts.
   - Goal: Recreate the Phase 1 retained-domain annual-max data path for Big
     Sur.

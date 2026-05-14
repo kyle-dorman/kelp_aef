@@ -32,12 +32,12 @@ def test_visualize_kelpwatch_cli_writes_qa_artifacts(tmp_path: Path) -> None:
         == 0
     )
 
-    assert (tmp_path / "figures/kelpwatch_monterey_annual_max_qa.png").is_file()
-    assert (tmp_path / "figures/kelpwatch_monterey_quarterly_timeseries_qa.png").is_file()
-    assert (tmp_path / "figures/kelpwatch_monterey_interactive_qa.html").is_file()
-    assert (tmp_path / "interim/kelpwatch_monterey_source_qa.json").is_file()
+    assert (tmp_path / "figures/kelpwatch_test_monterey_annual_max_qa.png").is_file()
+    assert (tmp_path / "figures/kelpwatch_test_monterey_quarterly_timeseries_qa.png").is_file()
+    assert (tmp_path / "figures/kelpwatch_test_monterey_interactive_qa.html").is_file()
+    assert (tmp_path / "interim/kelpwatch_test_monterey_source_qa.json").is_file()
 
-    csv_path = tmp_path / "tables/kelpwatch_monterey_source_qa.csv"
+    csv_path = tmp_path / "tables/kelpwatch_test_monterey_source_qa.csv"
     with csv_path.open(newline="") as file:
         rows = list(csv.DictReader(file))
     assert [row["year"] for row in rows] == ["2018", "2019"]
@@ -45,11 +45,13 @@ def test_visualize_kelpwatch_cli_writes_qa_artifacts(tmp_path: Path) -> None:
     assert rows[0]["valid_count"] == "4"
     assert rows[0]["nonzero_count"] == "4"
 
-    html = (tmp_path / "figures/kelpwatch_monterey_interactive_qa.html").read_text()
+    html = (tmp_path / "figures/kelpwatch_test_monterey_interactive_qa.html").read_text()
     assert 'data-year="2018"' in html
     assert 'data-year="2019"' in html
 
-    with rasterio.open(tmp_path / "interim/kelpwatch_monterey_annual_max_2018_2022.tif") as dataset:
+    with rasterio.open(
+        tmp_path / "interim/kelpwatch_test_monterey_annual_max_2018_2019.tif"
+    ) as dataset:
         assert dataset.count == 2
         assert dataset.crs.to_string() == "EPSG:4326"
         assert dataset.descriptions == ("2018", "2019")

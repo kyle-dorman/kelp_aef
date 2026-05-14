@@ -25,6 +25,7 @@ from shapely.geometry.base import BaseGeometry
 
 from kelp_aef.config import load_yaml_config, require_mapping, require_string
 from kelp_aef.labels.kelpwatch import NETCDF_ENGINE, identify_label_source_variable
+from kelp_aef.regions import region_display_name, region_output_slug
 
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt  # noqa: E402
@@ -58,6 +59,9 @@ class KelpwatchVisualizeConfig:
     """Resolved config values needed by the Kelpwatch visualization step."""
 
     config_path: Path
+    region_name: str
+    region_slug: str
+    region_display_name: str
     years: tuple[int, ...]
     target: str
     aggregation: str
@@ -110,6 +114,8 @@ def load_kelpwatch_visualize_config(config_path: Path) -> KelpwatchVisualizeConf
         msg = "config field must be a list of years: years.smoke"
         raise ValueError(msg)
     years = tuple(require_int_value(year, "years.smoke[]") for year in raw_years)
+    region_name = require_string(region.get("name"), "region.name")
+    slug = region_output_slug(region_name)
 
     figures_dir = Path(require_string(reports.get("figures_dir"), "reports.figures_dir"))
     tables_dir = Path(require_string(reports.get("tables_dir"), "reports.tables_dir"))
@@ -120,6 +126,9 @@ def load_kelpwatch_visualize_config(config_path: Path) -> KelpwatchVisualizeConf
 
     return KelpwatchVisualizeConfig(
         config_path=config_path,
+        region_name=region_name,
+        region_slug=slug,
+        region_display_name=region_display_name(region_name),
         years=years,
         target=require_string(labels.get("target"), "labels.target"),
         aggregation=require_string(labels.get("aggregation"), "labels.aggregation"),
@@ -129,12 +138,12 @@ def load_kelpwatch_visualize_config(config_path: Path) -> KelpwatchVisualizeConf
         figures_dir=figures_dir,
         tables_dir=tables_dir,
         interim_dir=interim_dir,
-        contact_sheet_path=figures_dir / "kelpwatch_monterey_annual_max_qa.png",
-        time_series_path=figures_dir / "kelpwatch_monterey_quarterly_timeseries_qa.png",
-        summary_table_path=tables_dir / "kelpwatch_monterey_source_qa.csv",
-        geotiff_path=interim_dir / "kelpwatch_monterey_annual_max_2018_2022.tif",
-        html_path=figures_dir / "kelpwatch_monterey_interactive_qa.html",
-        qa_json_path=interim_dir / "kelpwatch_monterey_source_qa.json",
+        contact_sheet_path=figures_dir / f"kelpwatch_{slug}_annual_max_qa.png",
+        time_series_path=figures_dir / f"kelpwatch_{slug}_quarterly_timeseries_qa.png",
+        summary_table_path=tables_dir / f"kelpwatch_{slug}_source_qa.csv",
+        geotiff_path=interim_dir / f"kelpwatch_{slug}_annual_max_{years[0]}_{years[-1]}.tif",
+        html_path=figures_dir / f"kelpwatch_{slug}_interactive_qa.html",
+        qa_json_path=interim_dir / f"kelpwatch_{slug}_source_qa.json",
     )
 
 
@@ -172,14 +181,20 @@ def visualize_kelpwatch(
             spatial_context=spatial_context,
             output_path=qa_config.contact_sheet_path,
             color_scale=color_scale,
+            region_display=qa_config.region_display_name,
         )
-        write_time_series_figure(time_series_rows, qa_config.time_series_path)
+        write_time_series_figure(
+            time_series_rows,
+            qa_config.time_series_path,
+            region_display=qa_config.region_display_name,
+        )
         write_interactive_html(
             annual_max=annual_max,
             spatial_context=spatial_context,
             output_path=qa_config.html_path,
             color_scale=color_scale,
             preview_max_pixels=preview_max_pixels,
+            region_display=qa_config.region_display_name,
         )
         write_qa_json(
             qa_config=qa_config,
@@ -878,6 +893,7 @@ def write_contact_sheet(
     spatial_context: SpatialContext,
     output_path: Path,
     color_scale: dict[str, float],
+    region_display: str,
 ) -> None:
     """Write a static annual maximum map contact sheet."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -905,12 +921,14 @@ def write_contact_sheet(
         axis.axis("off")
     if image is not None:
         fig.colorbar(image, ax=axes_array[: len(years)].tolist(), shrink=0.85, label="Canopy area")
-    fig.suptitle("Kelpwatch Monterey Annual Maximum QA")
+    fig.suptitle(f"Kelpwatch {region_display} Annual Maximum QA")
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
 
 
-def write_time_series_figure(rows: list[dict[str, object]], output_path: Path) -> None:
+def write_time_series_figure(
+    rows: list[dict[str, object]], output_path: Path, *, region_display: str
+) -> None:
     """Write the quarterly aggregate canopy time-series QA figure."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     labels = [str(row["label"]) for row in rows]
@@ -920,7 +938,7 @@ def write_time_series_figure(rows: list[dict[str, object]], output_path: Path) -
     axis.set_xticks(range(len(labels)))
     axis.set_xticklabels(labels, rotation=45, ha="right")
     axis.set_ylabel("Aggregate canopy area")
-    axis.set_title("Kelpwatch Monterey Quarterly Aggregate QA")
+    axis.set_title(f"Kelpwatch {region_display} Quarterly Aggregate QA")
     axis.grid(True, alpha=0.25)
     fig.savefig(output_path, dpi=160, bbox_inches="tight")
     plt.close(fig)
@@ -933,6 +951,7 @@ def write_interactive_html(
     output_path: Path,
     color_scale: dict[str, float],
     preview_max_pixels: int,
+    region_display: str,
 ) -> None:
     """Write a self-contained HTML viewer with annual map toggles."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -947,7 +966,7 @@ def write_interactive_html(
                 "data_uri": render_year_data_uri(preview, year, color_scale),
             }
         )
-    output_path.write_text(build_interactive_html(image_records, color_scale))
+    output_path.write_text(build_interactive_html(image_records, color_scale, region_display))
 
 
 def preview_grid_array(data: np.ndarray, preview_max_pixels: int) -> np.ndarray:
@@ -979,7 +998,9 @@ def render_year_data_uri(data: np.ndarray, year: int, color_scale: dict[str, flo
 
 
 def build_interactive_html(
-    image_records: list[dict[str, object]], color_scale: dict[str, float]
+    image_records: list[dict[str, object]],
+    color_scale: dict[str, float],
+    region_display: str,
 ) -> str:
     """Build a small self-contained HTML viewer for annual QA layers."""
     buttons = "\n".join(
@@ -998,7 +1019,7 @@ def build_interactive_html(
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Kelpwatch Monterey QA</title>
+  <title>Kelpwatch {html.escape(region_display)} QA</title>
   <style>
     body {{ font-family: system-ui, sans-serif; margin: 24px; }}
     button {{ margin-right: 8px; padding: 6px 10px; }}
@@ -1008,7 +1029,7 @@ def build_interactive_html(
   </style>
 </head>
 <body>
-  <h1>Kelpwatch Monterey Annual Maximum QA</h1>
+  <h1>Kelpwatch {html.escape(region_display)} Annual Maximum QA</h1>
   <p class="meta">Color scale: {color_scale["vmin"]:.3g} to {color_scale["vmax"]:.3g}</p>
   <div>{buttons}</div>
   <div>{images}</div>
@@ -1069,6 +1090,9 @@ def write_qa_json(
     payload = {
         "command": "visualize-kelpwatch",
         "config_path": str(qa_config.config_path),
+        "region_name": qa_config.region_name,
+        "region_slug": qa_config.region_slug,
+        "region_display_name": qa_config.region_display_name,
         "source_manifest": str(qa_config.source_manifest),
         "netcdf_path": str(netcdf_path),
         "variable": variable,

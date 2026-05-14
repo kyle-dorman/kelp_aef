@@ -280,3 +280,55 @@ source modules.
   predictors.
 - Do not overwrite Monterey artifacts; create region-scoped contrast outputs
   where needed.
+
+## Outcome
+
+### Pre-Edit Artifact State
+
+- Big Sur footprint, AEF catalog query, AEF tile manifest, Kelpwatch source
+  manifest, domain-source manifests, coverage summary, and early visual QA
+  artifacts were missing at the start of P2-02.
+- The selected Big Sur AEF TIFF paths for 2018-2022 were not already present
+  under `/Volumes/x10pro/kelp_aef/raw/aef/v1/annual/*/10N/`.
+- Monterey already had Phase 1 Kelpwatch/domain/model QA artifacts, but the
+  P2-02-specific Monterey source coverage contrast table, static figure, and
+  interactive HTML counterpart were missing and need to be created without
+  overwriting existing Monterey outputs.
+- Source commands will run query-first where supported. AEF is in scope for
+  real download after catalog review; CRM, CUDEM, CUSP, and 3DEP may use
+  existing local source files or dry-run/manifest-only checks when enough for
+  early coverage QA.
+
+### Completed Outcome
+
+- Big Sur AEF catalog verification selected one `10N` asset for each smoke
+  year, 2018-2022. All five selected assets had full footprint overlap and
+  `EPSG:32610` projection metadata in
+  `/Volumes/x10pro/kelp_aef/interim/aef_big_sur_catalog_query_summary.json`.
+- Big Sur AEF download completed for all five selected assets. The tile
+  manifest records five valid local TIFF/VRT sets with no missing years:
+  `/Volumes/x10pro/kelp_aef/interim/aef_big_sur_tile_manifest.json`.
+- Big Sur Kelpwatch source inspection and visual QA completed. The annual-max
+  source QA table covers 2018-2022, with 32,927 valid stations per year and
+  78,759 nonzero annual-max station-years inside the configured footprint:
+  `/Volumes/x10pro/kelp_aef/reports/tables/kelpwatch_big_sur_source_qa.csv`.
+- Big Sur domain-source checks completed. CRM selected and reused the existing
+  valid `crm_socal_v2_1as` source; CUSP selected and reused the existing valid
+  `West.zip` shoreline package; USGS 3DEP selected three rasters, downloading
+  the one missing Big Sur tile and reusing two existing local rasters. NOAA
+  CUDEM selected zero tiles from the configured `NCEI_ninth_Topobathy_2014_8483`
+  index for this footprint, so CUDEM is recorded as a coverage caveat, not a
+  P2-03 blocker because CRM remains the primary broad topo-bathy source.
+- Big Sur and Monterey now have comparable early source-coverage QA artifacts:
+  `/Volumes/x10pro/kelp_aef/reports/tables/big_sur_source_coverage_summary.csv`,
+  `/Volumes/x10pro/kelp_aef/reports/figures/big_sur_source_coverage_qa.png`,
+  `/Volumes/x10pro/kelp_aef/reports/figures/big_sur_source_coverage_interactive_qa.html`,
+  `/Volumes/x10pro/kelp_aef/reports/tables/monterey_source_coverage_summary.csv`,
+  `/Volumes/x10pro/kelp_aef/reports/figures/monterey_source_coverage_qa.png`,
+  and
+  `/Volumes/x10pro/kelp_aef/reports/figures/monterey_source_coverage_interactive_qa.html`.
+- Static QA images were rendered and checked as nonblank. The Big Sur
+  Kelpwatch contact sheet shows the expected narrow coastal source signal for
+  all five years; no obvious source-coverage or source-alignment issue blocks
+  P2-03. No model-input tables, model training, model evaluation, or threshold
+  tuning were run in this task.

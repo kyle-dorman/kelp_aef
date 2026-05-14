@@ -26,6 +26,7 @@ def test_cli_imports() -> None:
         "download-usgs-3dep",
         "inspect-kelpwatch",
         "visualize-kelpwatch",
+        "visualize-source-coverage",
         "fetch-aef-chip",
         "build-labels",
         "align",

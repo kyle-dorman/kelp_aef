@@ -27,6 +27,7 @@ from kelp_aef.labels.kelpwatch_labels import build_annual_labels
 from kelp_aef.labels.kelpwatch_visualize import visualize_kelpwatch
 from kelp_aef.viz.residual_maps import map_residuals
 from kelp_aef.viz.results_visualizer import visualize_results
+from kelp_aef.viz.source_coverage import visualize_source_coverage
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = PROJECT_ROOT / "configs/monterey_smoke.yaml"
@@ -53,6 +54,7 @@ COMMANDS: dict[str, str] = {
     "download-usgs-3dep": "Download selected USGS 3DEP DEM sources from the query manifest.",
     "inspect-kelpwatch": "Inspect Kelpwatch metadata for the configured region.",
     "visualize-kelpwatch": "Visualize downloaded Kelpwatch source data for QA.",
+    "visualize-source-coverage": "Summarize and visualize configured source coverage for QA.",
     "fetch-aef-chip": "Fetch or stage AlphaEarth embedding samples for the configured region.",
     "build-labels": "Build derived Kelpwatch labels for the configured target.",
     "align": "Align AlphaEarth features and Kelpwatch labels into a training table.",
@@ -766,6 +768,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 variable=args.variable,
                 preview_max_pixels=int(args.preview_max_pixels),
             )
+        elif command == "visualize-source-coverage":
+            exit_code = visualize_source_coverage(config_path)
         elif command == "build-labels":
             exit_code = build_annual_labels(config_path)
         elif command == "align":
