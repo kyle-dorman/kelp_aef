@@ -146,28 +146,47 @@ Phase 2 non-goals:
     Kelpwatch-positive rows. The masked sample has `231,345` rows from
     `1,360,150` retained-domain population rows; the split manifest has no
     dropped-feature rows. No Big Sur models or predictions were trained.
-- [ ] P2-04: Evaluate Monterey-trained transfer on Big Sur.
+- [ ] P2-04: Improve results visualizer review layers.
+  - Goal: Make the Monterey visualizer focus on Kelpwatch-observed canopy
+    points, binary FNs, and high hurdle/conditional values instead of letting
+    deep-water TNs dominate the default binary outcome view.
+  - Outputs: revised visualizer point-selection and binary-outcome layer
+    behavior, refreshed Monterey visualizer artifacts, and manifest bucket
+    counts.
+  - Acceptance: the existing 50k cap is tested first, any cap increase is
+    recorded, and Kelpwatch positives/FNs remain visible for manual QA.
+  - Plan: `tasks/46_improve_results_visualizer_review_layers.md`.
+- [ ] P2-05: Add results visualizer layer filters and legends.
+  - Goal: Let reviewers hide noisy binary outcome classes and low-scoring
+    continuous/probability values per data type or layer, while replacing
+    text-only legend guidance with visual swatches and ramps.
+  - Outputs: active-layer filter controls, per-data-type legends, filter defaults
+    in config/manifest, and refreshed Monterey visualizer artifacts.
+  - Acceptance: filters are optional, layer-aware, and do not change model
+    artifacts or tune thresholds from held-out rows.
+  - Plan: `tasks/47_add_visualizer_layer_filters_and_legends.md`.
+- [ ] P2-06: Evaluate Monterey-trained transfer on Big Sur.
   - Goal: Apply the closed Monterey Phase 1 policy to Big Sur as the transfer
     baseline.
   - Outputs: Big Sur metrics for AEF ridge, expected-value hurdle, hard-gated
     hurdle, calibrated binary support, and reference baselines.
   - Acceptance: Big Sur held-out performance is reported without Big Sur
     training-driven policy changes.
-- [ ] P2-05: Train and evaluate Big Sur-only models.
+- [ ] P2-07: Train and evaluate Big Sur-only models.
   - Goal: Test whether training on Big Sur improves held-out Big Sur
     performance relative to Monterey transfer.
   - Outputs: Big Sur-only baseline, binary, calibration, conditional, and
     hurdle artifacts.
   - Acceptance: thresholds and calibration use validation rows, and held-out
     Big Sur test rows remain final evaluation.
-- [ ] P2-06: Train and evaluate pooled Monterey+Big Sur models.
+- [ ] P2-08: Train and evaluate pooled Monterey+Big Sur models.
   - Goal: Test whether pooled neighboring-region training improves held-out Big
     Sur performance.
   - Outputs: pooled training artifacts and comparison rows keyed by training
     regime.
   - Acceptance: the report can compare Monterey-transfer, Big Sur-only, and
     pooled training on the same Big Sur evaluation scope.
-- [ ] P2-07: Update the model-analysis report for region and training-regime
+- [ ] P2-09: Update the model-analysis report for region and training-regime
       comparison.
   - Goal: Make Phase 2 outcomes visible without turning the report into a long
     chronology.
@@ -175,14 +194,14 @@ Phase 2 non-goals:
     sections.
   - Acceptance: the report answers whether Big Sur-only or pooled training
     improves Big Sur performance.
-- [ ] P2-08: Generate or extend the results visualizer for Big Sur.
+- [ ] P2-10: Generate or extend the results visualizer for Big Sur.
   - Goal: Make Big Sur labels, predictions, residuals, and binary outcomes
     inspectable.
   - Outputs: Big Sur visualizer or a multi-region visualizer with region/year
     selection.
   - Acceptance: Big Sur can be selected or opened without confusing it with
     Monterey rows.
-- [ ] P2-09: Close Phase 2 and recommend Phase 3.
+- [ ] P2-11: Close Phase 2 and recommend Phase 3.
   - Goal: Decide whether Phase 3 should broaden geography, test simple
     non-linear tabular models such as random forest or gradient boosting,
     explore deferred temporal labels, harden ingestion/domain coverage, or
