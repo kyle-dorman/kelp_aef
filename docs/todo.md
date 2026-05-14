@@ -2,8 +2,9 @@
 
 ## Active Phase 2 Plan
 
-Status: Phase 2 selected on 2026-05-14. P2-01 has a task plan; later checklist
-items are still planning stubs until their `tasks/` files are written.
+Status: Phase 2 selected on 2026-05-14. P2-01 through P2-10 have task plans;
+later checklist items are still planning stubs until their `tasks/` files are
+written.
 
 Phase 2 theme: test whether the closed Monterey Phase 1 annual-max policy
 generalizes to neighboring Big Sur before choosing a broader Phase 3 direction.
@@ -284,14 +285,19 @@ Phase 2 non-goals:
     and the manifest records the training-regime inputs, binary prediction
     inputs, calibration payloads, primary filters, and output report paths.
 - [ ] P2-10: Generate or extend the results visualizer for Big Sur.
-  - Goal: Make Big Sur labels, predictions, residuals, and binary outcomes
-    inspectable.
-  - Outputs: Big Sur visualizer or a multi-region visualizer with region/year
-    selection.
+  - Goal: Make the current Phase 2 visual QA contexts inspectable without
+    mixing region rows: Big Sur dataset with the Big Sur-only model, Monterey
+    dataset with the Monterey-only model, and pooled Monterey+Big Sur model
+    outputs with region-specific evaluation rows still separated or explicitly
+    selectable.
+  - Outputs: Big Sur local visualizer, Monterey local visualizer, and a pooled
+    Monterey+Big Sur visualizer or multi-context entry point with explicit
+    region/training-regime labels.
   - Acceptance: Big Sur can be selected or opened without confusing it with
     Monterey rows. Use the P2-09 split explicitly: binary support is relatively
     transferable, while canopy amount calibration and residual structure need
     Big Sur visual QA.
+  - Plan: `tasks/52_generate_big_sur_results_visualizer.md`.
 - [ ] P2-11: Close Phase 2 and recommend Phase 3.
   - Goal: Decide whether Phase 3 should broaden geography, test simple
     non-linear tabular models such as random forest or gradient boosting,
