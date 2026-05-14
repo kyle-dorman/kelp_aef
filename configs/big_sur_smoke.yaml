@@ -572,6 +572,18 @@ reports:
     year: 2022
     robust_percentile: 99.0
     max_inspection_points: 50000
+    collection_display_name: Monterey And Big Sur Results Visualizers
+    context_index_html: /Volumes/x10pro/kelp_aef/reports/interactive/monterey_big_sur_pooled_results_visualizer.html
+    context_manifest: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_results_visualizer_manifest.json
+    filter_defaults:
+      continuous_min_area_m2: 90.0
+      label_min_area_m2: 1.0
+      residual_min_abs_area_m2: 90.0
+      probability_min: 0.10
+      binary_outcomes_visible: [TP, FP, FN]
+    layer_filter_defaults:
+      conditional_ridge:
+        continuous_min_area_m2: 450.0
     basemap:
       enabled: true
       name: OpenStreetMap
@@ -609,6 +621,121 @@ reports:
         prediction_column: pred_presence_class
         probability_column: calibrated_presence_probability
         default_visible: false
+    contexts:
+      - context_id: big_sur_local
+        display_name: Big Sur Local Results Visualizer
+        evaluation_region: big_sur
+        training_regime: big_sur_only
+        model_origin_region: big_sur
+        config_path: configs/big_sur_smoke.yaml
+        full_grid_prediction_path: /Volumes/x10pro/kelp_aef/processed/big_sur_hurdle_full_grid_predictions.parquet
+        binary_prediction_path: /Volumes/x10pro/kelp_aef/processed/big_sur_hurdle_full_grid_predictions.parquet
+        outputs:
+          html: /Volumes/x10pro/kelp_aef/reports/interactive/big_sur_results_visualizer.html
+          asset_dir: /Volumes/x10pro/kelp_aef/reports/interactive/big_sur_results_visualizer
+          manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_results_visualizer_manifest.json
+          inspection_points: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_results_visualizer_inspection_points.csv
+      - context_id: monterey_local
+        display_name: Monterey Local Results Visualizer
+        evaluation_region: monterey
+        training_regime: monterey_only
+        model_origin_region: monterey
+        config_path: configs/monterey_smoke.yaml
+        full_grid_prediction_path: /Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.parquet
+        binary_prediction_path: /Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.parquet
+        outputs:
+          html: /Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer.html
+          asset_dir: /Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer
+          manifest: /Volumes/x10pro/kelp_aef/interim/monterey_results_visualizer_manifest.json
+          inspection_points: /Volumes/x10pro/kelp_aef/reports/tables/monterey_results_visualizer_inspection_points.csv
+      - context_id: pooled_monterey_big_sur_on_big_sur
+        display_name: Pooled Monterey+Big Sur On Big Sur Results Visualizer
+        evaluation_region: big_sur
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        config_path: configs/big_sur_smoke.yaml
+        full_grid_prediction_path: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+        binary_prediction_path: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+        outputs:
+          html: /Volumes/x10pro/kelp_aef/reports/interactive/big_sur_pooled_monterey_big_sur_results_visualizer.html
+          asset_dir: /Volumes/x10pro/kelp_aef/reports/interactive/big_sur_pooled_monterey_big_sur_results_visualizer
+          manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_pooled_monterey_big_sur_results_visualizer_manifest.json
+          inspection_points: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_pooled_monterey_big_sur_results_visualizer_inspection_points.csv
+        layers:
+          - id: expected_value_hurdle
+            display_name: Hurdle
+            type: continuous
+            path: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+            model_name: calibrated_probability_x_conditional_canopy
+            prediction_column: pred_kelp_max_y
+            residual_column: residual_kelp_max_y
+            default_visible: true
+          - id: conditional_ridge
+            display_name: Conditional ridge
+            type: continuous_prediction
+            path: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+            model_name: calibrated_probability_x_conditional_canopy
+            prediction_column: pred_conditional_area_m2
+            default_visible: false
+          - id: binary_presence
+            display_name: Binary presence
+            type: binary_probability
+            path: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+            model_name: calibrated_probability_x_conditional_canopy
+            probability_column: calibrated_presence_probability
+            default_visible: false
+          - id: binary_outcome
+            display_name: Binary outcome
+            type: binary_outcome
+            path: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+            model_name: calibrated_probability_x_conditional_canopy
+            prediction_column: pred_presence_class
+            probability_column: calibrated_presence_probability
+            default_visible: false
+      - context_id: pooled_monterey_big_sur_on_monterey
+        display_name: Pooled Monterey+Big Sur On Monterey Results Visualizer
+        evaluation_region: monterey
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        config_path: configs/monterey_smoke.yaml
+        full_grid_prediction_path: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+        binary_prediction_path: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+        outputs:
+          html: /Volumes/x10pro/kelp_aef/reports/interactive/monterey_pooled_monterey_big_sur_results_visualizer.html
+          asset_dir: /Volumes/x10pro/kelp_aef/reports/interactive/monterey_pooled_monterey_big_sur_results_visualizer
+          manifest: /Volumes/x10pro/kelp_aef/interim/monterey_pooled_monterey_big_sur_results_visualizer_manifest.json
+          inspection_points: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_results_visualizer_inspection_points.csv
+        layers:
+          - id: expected_value_hurdle
+            display_name: Hurdle
+            type: continuous
+            path: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+            model_name: calibrated_probability_x_conditional_canopy
+            prediction_column: pred_kelp_max_y
+            residual_column: residual_kelp_max_y
+            default_visible: true
+          - id: conditional_ridge
+            display_name: Conditional ridge
+            type: continuous_prediction
+            path: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+            model_name: calibrated_probability_x_conditional_canopy
+            prediction_column: pred_conditional_area_m2
+            default_visible: false
+          - id: binary_presence
+            display_name: Binary presence
+            type: binary_probability
+            path: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+            model_name: calibrated_probability_x_conditional_canopy
+            probability_column: calibrated_presence_probability
+            default_visible: false
+          - id: binary_outcome
+            display_name: Binary outcome
+            type: binary_outcome
+            path: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+            model_name: calibrated_probability_x_conditional_canopy
+            prediction_column: pred_presence_class
+            probability_column: calibrated_presence_probability
+            default_visible: false
   model_analysis:
     model_name: ridge_regression
     split: test

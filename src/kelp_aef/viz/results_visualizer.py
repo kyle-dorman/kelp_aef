@@ -138,6 +138,12 @@ class ResultsVisualizerConfig:
 
     config_path: Path
     data_root: Path
+    context_id: str
+    display_name: str
+    evaluation_region: str
+    training_regime: str
+    model_origin_region: str
+    context_inputs: dict[str, Path]
     split: str
     year: int
     robust_percentile: float
@@ -153,6 +159,17 @@ class ResultsVisualizerConfig:
     domain_mask: ReportingDomainMask | None
     layers: tuple[ResultsLayerConfig, ...]
     filters: VisualizerFilterConfig
+
+
+@dataclass(frozen=True)
+class ResultsVisualizerCollectionConfig:
+    """Resolved settings for a single viewer or a multi-context viewer run."""
+
+    config_path: Path
+    display_name: str
+    contexts: tuple[ResultsVisualizerConfig, ...]
+    index_html_path: Path | None
+    manifest_path: Path | None
 
 
 @dataclass(frozen=True)
@@ -241,9 +258,27 @@ class InspectionSelection:
 
 def visualize_results(config_path: Path) -> int:
     """Write a Leaflet-based local results visualizer and supporting assets."""
-    viewer_config = load_results_visualizer_config(config_path)
+    collection_config = load_results_visualizer_collection_config(config_path)
     LOGGER.info(
-        "Building results visualizer for split=%s year=%s", viewer_config.split, viewer_config.year
+        "Building %s results visualizer context(s) from %s",
+        len(collection_config.contexts),
+        config_path,
+    )
+    for viewer_config in collection_config.contexts:
+        write_results_visualizer_context(viewer_config)
+    if len(collection_config.contexts) > 1:
+        write_context_index_html(collection_config)
+        write_collection_manifest(collection_config)
+    return 0
+
+
+def write_results_visualizer_context(viewer_config: ResultsVisualizerConfig) -> None:
+    """Write one context-specific Leaflet viewer and supporting assets."""
+    LOGGER.info(
+        "Building results visualizer context=%s split=%s year=%s",
+        viewer_config.context_id,
+        viewer_config.split,
+        viewer_config.year,
     )
     layer_frames = read_visualizer_layers(viewer_config)
     if not layer_frames:
@@ -303,7 +338,6 @@ def visualize_results(config_path: Path) -> int:
     LOGGER.info("Wrote results visualizer HTML: %s", viewer_config.html_path)
     LOGGER.info("Wrote results visualizer assets: %s", viewer_config.asset_dir)
     LOGGER.info("Wrote results visualizer manifest: %s", viewer_config.manifest_path)
-    return 0
 
 
 def prepare_asset_dir(asset_dir: Path) -> None:
@@ -315,25 +349,87 @@ def prepare_asset_dir(asset_dir: Path) -> None:
                 path.unlink()
 
 
-def load_results_visualizer_config(config_path: Path) -> ResultsVisualizerConfig:
-    """Load interactive results visualizer settings from the workflow config."""
+def load_results_visualizer_collection_config(
+    config_path: Path,
+) -> ResultsVisualizerCollectionConfig:
+    """Load either a legacy single visualizer or configured visualizer contexts."""
     config = load_yaml_config(config_path)
-    data_root = Path(require_string(config.get("data_root"), "data_root"))
-    region = require_mapping(config.get("region"), "region")
-    geometry = require_mapping(region.get("geometry"), "region.geometry")
     reports = require_mapping(config.get("reports"), "reports")
-    outputs = require_mapping(reports.get("outputs"), "reports.outputs")
     settings = optional_mapping(
         reports.get("results_visualizer"),
         "reports.results_visualizer",
     )
+    context_values = settings.get("contexts")
+    if context_values is None:
+        return ResultsVisualizerCollectionConfig(
+            config_path=config_path,
+            display_name=str(settings.get("collection_display_name", "Results Visualizer")),
+            contexts=(load_results_visualizer_config_from_mapping(config_path, config, settings),),
+            index_html_path=None,
+            manifest_path=None,
+        )
+    if not isinstance(context_values, list):
+        msg = "config field must be a list: reports.results_visualizer.contexts"
+        raise ValueError(msg)
+    contexts = tuple(
+        load_context_results_visualizer_config(config_path, settings, value, index)
+        for index, value in enumerate(context_values)
+    )
+    if not contexts:
+        msg = "reports.results_visualizer.contexts must declare at least one context"
+        raise ValueError(msg)
+    return ResultsVisualizerCollectionConfig(
+        config_path=config_path,
+        display_name=str(
+            settings.get("collection_display_name", "Monterey And Big Sur Results Visualizers")
+        ),
+        contexts=contexts,
+        index_html_path=optional_path(
+            settings.get("context_index_html"),
+            "reports.results_visualizer.context_index_html",
+        ),
+        manifest_path=optional_path(
+            settings.get("context_manifest"),
+            "reports.results_visualizer.context_manifest",
+        ),
+    )
+
+
+def load_results_visualizer_config(config_path: Path) -> ResultsVisualizerConfig:
+    """Load the first visualizer context from a workflow config."""
+    return load_results_visualizer_collection_config(config_path).contexts[0]
+
+
+def load_results_visualizer_config_from_mapping(
+    config_path: Path,
+    config: dict[str, Any],
+    settings: dict[str, Any],
+    *,
+    context_outputs: dict[str, Any] | None = None,
+    context_required: bool = False,
+) -> ResultsVisualizerConfig:
+    """Resolve one visualizer context from a loaded config and settings mapping."""
+    data_root = Path(require_string(config.get("data_root"), "data_root"))
+    region = require_mapping(config.get("region"), "region")
+    geometry = require_mapping(region.get("geometry"), "region.geometry")
+    reports = require_mapping(config.get("reports"), "reports")
+    outputs = dict(require_mapping(reports.get("outputs"), "reports.outputs"))
+    if context_outputs is not None:
+        outputs.update(canonical_context_outputs(context_outputs))
     output_defaults = visualizer_output_defaults(data_root)
     basemap = load_basemap_config(settings.get("basemap"))
     layers = load_layer_configs(config, settings)
     filters = load_visualizer_filter_config(settings)
+    context = load_context_metadata(settings, config, context_required=context_required)
     return ResultsVisualizerConfig(
         config_path=config_path,
         data_root=data_root,
+        context_id=context["context_id"],
+        display_name=context["display_name"],
+        evaluation_region=context["evaluation_region"],
+        training_regime=context["training_regime"],
+        model_origin_region=context["model_origin_region"],
+        context_inputs=context_input_paths(settings, layers),
         split=str(settings.get("split", DEFAULT_SPLIT)),
         year=optional_int(settings.get("year"), "reports.results_visualizer.year", DEFAULT_YEAR),
         robust_percentile=optional_float(
@@ -374,6 +470,180 @@ def load_results_visualizer_config(config_path: Path) -> ResultsVisualizerConfig
         layers=layers,
         filters=filters,
     )
+
+
+def load_context_results_visualizer_config(
+    parent_config_path: Path,
+    parent_settings: dict[str, Any],
+    value: object,
+    index: int,
+) -> ResultsVisualizerConfig:
+    """Resolve a context entry from a multi-context visualizer config."""
+    context = require_mapping(value, f"reports.results_visualizer.contexts[{index}]")
+    base_config_path = context_base_config_path(parent_config_path, context, index)
+    base_config = load_yaml_config(base_config_path)
+    base_reports = require_mapping(base_config.get("reports"), "reports")
+    base_settings = optional_mapping(
+        base_reports.get("results_visualizer"),
+        "reports.results_visualizer",
+    )
+    settings = merged_context_settings(parent_settings, base_settings, context)
+    outputs = optional_mapping(
+        context.get("outputs"),
+        f"reports.results_visualizer.contexts[{index}].outputs",
+    )
+    return load_results_visualizer_config_from_mapping(
+        base_config_path,
+        base_config,
+        settings,
+        context_outputs=outputs,
+        context_required=True,
+    )
+
+
+def context_base_config_path(
+    parent_config_path: Path,
+    context: dict[str, Any],
+    index: int,
+) -> Path:
+    """Return the config path that supplies a visualizer context's region contract."""
+    raw_path = require_string(
+        context.get("config_path", str(parent_config_path)),
+        f"reports.results_visualizer.contexts[{index}].config_path",
+    )
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path
+    if path.exists():
+        return path
+    return parent_config_path.parent / path
+
+
+def merged_context_settings(
+    parent_settings: dict[str, Any],
+    base_settings: dict[str, Any],
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge global, region-base, and context-specific visualizer settings."""
+    inherited_keys = {
+        "split",
+        "year",
+        "robust_percentile",
+        "max_inspection_points",
+        "leaflet_css_url",
+        "leaflet_js_url",
+        "basemap",
+        "filter_defaults",
+        "layer_filter_defaults",
+    }
+    merged = {key: parent_settings[key] for key in inherited_keys if key in parent_settings}
+    merged.update({key: value for key, value in base_settings.items() if key != "contexts"})
+    merged.update(
+        {key: value for key, value in context.items() if key not in {"config_path", "outputs"}}
+    )
+    return merged
+
+
+def canonical_context_outputs(outputs: dict[str, Any]) -> dict[str, Any]:
+    """Map context output aliases to the legacy reports.outputs keys."""
+    aliases = {
+        "html": "results_visualizer_html",
+        "asset_dir": "results_visualizer_asset_dir",
+        "manifest": "results_visualizer_manifest",
+        "inspection_points": "results_visualizer_inspection_points",
+    }
+    return {aliases.get(key, key): value for key, value in outputs.items()}
+
+
+def optional_path(value: object, name: str) -> Path | None:
+    """Validate an optional path-like config field."""
+    if value is None:
+        return None
+    return Path(require_string(value, name))
+
+
+def load_context_metadata(
+    settings: dict[str, Any],
+    config: dict[str, Any],
+    *,
+    context_required: bool,
+) -> dict[str, str]:
+    """Load context labels that keep visualizer outputs traceable by regime."""
+    region = optional_mapping(config.get("region"), "region")
+    evaluation_region = str(
+        settings.get("evaluation_region", default_evaluation_region(region.get("name")))
+    )
+    if context_required:
+        context_id = require_string(
+            settings.get("context_id"), "reports.results_visualizer.context_id"
+        )
+        display_name = require_string(
+            settings.get("display_name"),
+            "reports.results_visualizer.display_name",
+        )
+        training_regime = require_string(
+            settings.get("training_regime"),
+            "reports.results_visualizer.training_regime",
+        )
+        model_origin_region = require_string(
+            settings.get("model_origin_region"),
+            "reports.results_visualizer.model_origin_region",
+        )
+    else:
+        context_id = str(settings.get("context_id", f"{evaluation_region}_local"))
+        display_name = str(settings.get("display_name", "Monterey Results Visualizer"))
+        training_regime = str(settings.get("training_regime", f"{evaluation_region}_only"))
+        model_origin_region = str(settings.get("model_origin_region", evaluation_region))
+    return {
+        "context_id": slugify(context_id),
+        "display_name": display_name,
+        "evaluation_region": evaluation_region,
+        "training_regime": training_regime,
+        "model_origin_region": model_origin_region,
+    }
+
+
+def default_evaluation_region(region_name: object) -> str:
+    """Return a compact default evaluation-region label from config region metadata."""
+    value = str(region_name or "monterey").strip().lower()
+    if value in {"monterey_peninsula", "monterey"}:
+        return "monterey"
+    return slugify(value)
+
+
+def context_input_paths(
+    settings: dict[str, Any],
+    layers: tuple[ResultsLayerConfig, ...],
+) -> dict[str, Path]:
+    """Return declared or layer-derived model input paths for manifest traceability."""
+    inputs: dict[str, Path] = {}
+    if settings.get("full_grid_prediction_path") is not None:
+        inputs["full_grid_prediction_path"] = Path(
+            require_string(
+                settings.get("full_grid_prediction_path"),
+                "reports.results_visualizer.full_grid_prediction_path",
+            )
+        )
+    if settings.get("binary_prediction_path") is not None:
+        inputs["binary_prediction_path"] = Path(
+            require_string(
+                settings.get("binary_prediction_path"),
+                "reports.results_visualizer.binary_prediction_path",
+            )
+        )
+    if "full_grid_prediction_path" not in inputs:
+        area_layers = [layer for layer in layers if layer.layer_type == CONTINUOUS_LAYER_TYPE]
+        if area_layers:
+            inputs["full_grid_prediction_path"] = area_layers[0].path
+    if "binary_prediction_path" not in inputs:
+        binary_layers = [
+            layer
+            for layer in layers
+            if layer.layer_type in {BINARY_PROBABILITY_LAYER_TYPE, BINARY_OUTCOME_LAYER_TYPE}
+        ]
+        if binary_layers:
+            inputs["binary_prediction_path"] = binary_layers[0].path
+    return inputs
 
 
 def visualizer_output_defaults(data_root: Path) -> dict[str, Path]:
@@ -708,7 +978,9 @@ def read_layer_frame(
     if frame.empty:
         return frame
     frame = apply_viewer_domain_mask(frame, viewer_config.domain_mask)
-    return normalize_layer_frame(frame, layer)
+    normalized = normalize_layer_frame(frame, layer)
+    add_viewer_context_columns(normalized, viewer_config)
+    return normalized
 
 
 def dataset_field(name: str) -> Any:
@@ -835,6 +1107,18 @@ def add_default_context_columns(frame: pd.DataFrame) -> None:
     for column, value in defaults.items():
         if column not in frame:
             frame[column] = value
+
+
+def add_viewer_context_columns(
+    frame: pd.DataFrame,
+    viewer_config: ResultsVisualizerConfig,
+) -> None:
+    """Attach region and training-regime labels to a normalized layer frame."""
+    frame["context_id"] = viewer_config.context_id
+    frame["display_name"] = viewer_config.display_name
+    frame["evaluation_region"] = viewer_config.evaluation_region
+    frame["training_regime"] = viewer_config.training_regime
+    frame["model_origin_region"] = viewer_config.model_origin_region
 
 
 def primary_observed_frame(
@@ -1181,6 +1465,11 @@ def build_inspection_selection(
 def base_inspection_columns(frame: pd.DataFrame) -> pd.DataFrame:
     """Return common cell-inspection columns from the primary display frame."""
     columns = [
+        "context_id",
+        "display_name",
+        "evaluation_region",
+        "training_regime",
+        "model_origin_region",
         "aef_grid_cell_id",
         "aef_grid_row",
         "aef_grid_col",
@@ -1512,6 +1801,11 @@ def html_payload(
     point_layers_payload = [point_layer_payload(layer) for layer in point_layers]
     inspection_js = relative_asset_path(viewer_config.html_path, inspection_js_path)
     payload = {
+        "contextId": viewer_config.context_id,
+        "displayName": viewer_config.display_name,
+        "evaluationRegion": viewer_config.evaluation_region,
+        "trainingRegime": viewer_config.training_regime,
+        "modelOriginRegion": viewer_config.model_origin_region,
         "split": viewer_config.split,
         "year": viewer_config.year,
         "bounds": grid.leaflet_bounds,
@@ -1532,7 +1826,7 @@ def html_payload(
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Monterey Results Visualizer</title>
+<title>{html.escape(viewer_config.display_name)}</title>
 <link rel="stylesheet" href="{html.escape(viewer_config.leaflet_css_url, quote=True)}" />
 <style>
 html, body, #map {{ height: 100%; margin: 0; }}
@@ -1572,7 +1866,8 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
 <div id="map"></div>
 <aside class="panel">
   <header>
-    <h1>Monterey Results Visualizer</h1>
+    <h1>{html.escape(viewer_config.display_name)}</h1>
+    <div class="meta">Region {html.escape(viewer_config.evaluation_region)} | Training {html.escape(viewer_config.training_regime)} | Origin {html.escape(viewer_config.model_origin_region)}</div>
     <div class="meta">Split {html.escape(viewer_config.split)} | {viewer_config.year} | {html.escape(mask_status(viewer_config.domain_mask))}</div>
   </header>
   <div class="legend">
@@ -1896,6 +2191,123 @@ function escapeHtml(value) {{
 """
 
 
+def write_context_index_html(collection_config: ResultsVisualizerCollectionConfig) -> None:
+    """Write a small HTML entry point for context-specific visualizer files."""
+    if collection_config.index_html_path is None:
+        return
+    collection_config.index_html_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for context in collection_config.contexts:
+        link = relative_asset_path(collection_config.index_html_path, context.html_path)
+        rows.append(
+            "<tr>"
+            f'<td><a href="{html.escape(link, quote=True)}">{html.escape(context.display_name)}</a></td>'
+            f"<td>{html.escape(context.evaluation_region)}</td>"
+            f"<td>{html.escape(context.training_regime)}</td>"
+            f"<td>{html.escape(context.model_origin_region)}</td>"
+            f"<td>{html.escape(context.split)}</td>"
+            f"<td>{context.year}</td>"
+            "</tr>"
+        )
+    payload = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{html.escape(collection_config.display_name)}</title>
+<style>
+body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #172026; }}
+h1 {{ font-size: 22px; margin: 0 0 8px; }}
+p {{ color: #52616b; line-height: 1.45; max-width: 860px; }}
+table {{ border-collapse: collapse; min-width: 860px; }}
+th, td {{ border-bottom: 1px solid #dbe1e4; padding: 9px 10px; text-align: left; }}
+th {{ color: #52616b; font-size: 12px; text-transform: uppercase; }}
+a {{ color: #08519c; font-weight: 650; text-decoration: none; }}
+</style>
+</head>
+<body>
+<h1>{html.escape(collection_config.display_name)}</h1>
+<p>Open a context-specific map so Monterey and Big Sur rows stay separated. These visualizers are for qualitative QA only and should not be used to tune held-out 2022 thresholds, masks, samples, or model policy.</p>
+<table>
+<thead><tr><th>Visualizer</th><th>Evaluation region</th><th>Training regime</th><th>Model origin</th><th>Split</th><th>Year</th></tr></thead>
+<tbody>
+{"".join(rows)}
+</tbody>
+</table>
+</body>
+</html>
+"""
+    collection_config.index_html_path.write_text(payload)
+    LOGGER.info("Wrote results visualizer context index: %s", collection_config.index_html_path)
+
+
+def write_collection_manifest(collection_config: ResultsVisualizerCollectionConfig) -> None:
+    """Write an aggregate manifest for a multi-context visualizer run."""
+    if collection_config.manifest_path is None:
+        return
+    context_rows = [
+        collection_manifest_context_row(context) for context in collection_config.contexts
+    ]
+    payload = {
+        "command": "visualize-results",
+        "mode": "multi_context",
+        "config_path": str(collection_config.config_path),
+        "display_name": collection_config.display_name,
+        "context_count": len(collection_config.contexts),
+        "contexts": context_rows,
+        "outputs": {
+            "index_html": str(collection_config.index_html_path)
+            if collection_config.index_html_path is not None
+            else None,
+            "manifest": str(collection_config.manifest_path),
+        },
+        "review_semantics": (
+            "Qualitative visual QA only; context labels are carried into HTML, manifests, "
+            "and inspection CSVs so pooled Monterey+Big Sur rows are not interpreted as "
+            "one unlabeled point cloud."
+        ),
+    }
+    write_json(collection_config.manifest_path, payload)
+    LOGGER.info("Wrote results visualizer collection manifest: %s", collection_config.manifest_path)
+
+
+def collection_manifest_context_row(
+    context: ResultsVisualizerConfig,
+) -> dict[str, object]:
+    """Build one aggregate manifest row from a generated context manifest."""
+    manifest_payload: dict[str, Any] = {}
+    if context.manifest_path.exists():
+        manifest_payload = json.loads(context.manifest_path.read_text())
+    layer_counts = {
+        str(row.get("layer_id")): int(row.get("row_count", 0))
+        for row in manifest_payload.get("layers", [])
+        if isinstance(row, dict)
+    }
+    inspection = manifest_payload.get("inspection", {})
+    return {
+        "context_id": context.context_id,
+        "display_name": context.display_name,
+        "evaluation_region": context.evaluation_region,
+        "training_regime": context.training_regime,
+        "model_origin_region": context.model_origin_region,
+        "split": context.split,
+        "year": context.year,
+        "input_paths": {key: str(path) for key, path in context.context_inputs.items()},
+        "outputs": {
+            "html": str(context.html_path),
+            "asset_dir": str(context.asset_dir),
+            "manifest": str(context.manifest_path),
+            "inspection_points": str(context.inspection_points_path),
+        },
+        "row_counts": {
+            "layers": layer_counts,
+            "inspection": int(inspection.get("row_count", 0))
+            if isinstance(inspection, dict)
+            else 0,
+        },
+    }
+
+
 def point_layer_payload(layer: PointLayer) -> dict[str, object]:
     """Return JSON-friendly metadata for one coordinate-based point layer."""
     return {
@@ -1988,6 +2400,14 @@ def write_manifest(
     payload = {
         "command": "visualize-results",
         "config_path": str(viewer_config.config_path),
+        "context": {
+            "context_id": viewer_config.context_id,
+            "display_name": viewer_config.display_name,
+            "evaluation_region": viewer_config.evaluation_region,
+            "training_regime": viewer_config.training_regime,
+            "model_origin_region": viewer_config.model_origin_region,
+            "input_paths": {key: str(path) for key, path in viewer_config.context_inputs.items()},
+        },
         "split": viewer_config.split,
         "year": viewer_config.year,
         "mask_status": mask_status(viewer_config.domain_mask),

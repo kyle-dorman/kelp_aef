@@ -158,6 +158,51 @@ def test_visualize_results_writes_leaflet_viewer_assets(tmp_path: Path) -> None:
     assert all(row["coordinate_based"] for row in manifest["point_layers"])
 
 
+def test_visualize_results_writes_configured_contexts(tmp_path: Path) -> None:
+    """Verify multi-context visualizers keep region and regime labels attached."""
+    base_fixture = write_results_visualizer_fixture(tmp_path)
+    coordinator = write_results_visualizer_context_fixture(tmp_path, base_fixture["config_path"])
+
+    assert main(["visualize-results", "--config", str(coordinator["config_path"])]) == 0
+
+    assert coordinator["index_html"].is_file()
+    assert coordinator["collection_manifest"].is_file()
+    for context_id, paths in coordinator["contexts"].items():
+        assert paths["html"].is_file()
+        assert paths["manifest"].is_file()
+        assert paths["inspection_csv"].is_file()
+        html = paths["html"].read_text()
+        assert paths["display_name"] in html
+        assert paths["evaluation_region"] in html
+        assert paths["training_regime"] in html
+        assert "Data layer" in html
+        assert "Binary outcome TP/FP/FN/TN" in html
+        manifest = json.loads(paths["manifest"].read_text())
+        assert manifest["context"]["context_id"] == context_id
+        assert manifest["context"]["display_name"] == paths["display_name"]
+        assert manifest["context"]["evaluation_region"] == paths["evaluation_region"]
+        assert manifest["context"]["training_regime"] == paths["training_regime"]
+        assert manifest["context"]["model_origin_region"] == paths["model_origin_region"]
+        assert "full_grid_prediction_path" in manifest["context"]["input_paths"]
+        inspection = pd.read_csv(paths["inspection_csv"])
+        assert set(inspection["context_id"]) == {context_id}
+        assert set(inspection["display_name"]) == {paths["display_name"]}
+        assert set(inspection["evaluation_region"]) == {paths["evaluation_region"]}
+        assert set(inspection["training_regime"]) == {paths["training_regime"]}
+        assert set(inspection["model_origin_region"]) == {paths["model_origin_region"]}
+
+    index_html = coordinator["index_html"].read_text()
+    assert "Big Sur Local Results Visualizer" in index_html
+    assert "Pooled Monterey+Big Sur On Monterey Results Visualizer" in index_html
+    collection_manifest = json.loads(coordinator["collection_manifest"].read_text())
+    assert collection_manifest["mode"] == "multi_context"
+    assert collection_manifest["context_count"] == 2
+    assert {row["context_id"] for row in collection_manifest["contexts"]} == {
+        "big_sur_local",
+        "pooled_monterey_big_sur_on_monterey",
+    }
+
+
 def write_results_visualizer_fixture(tmp_path: Path) -> dict[str, Path]:
     """Write tiny synthetic visualizer inputs and return expected artifact paths."""
     hurdle_predictions = tmp_path / "processed/hurdle_full_grid_predictions.parquet"
@@ -255,6 +300,89 @@ reports:
         "asset_dir": asset_dir,
         "manifest": manifest_path,
         "inspection_csv": inspection_csv,
+    }
+
+
+def write_results_visualizer_context_fixture(
+    tmp_path: Path,
+    base_config_path: Path,
+) -> dict[str, object]:
+    """Write a coordinator config for multi-context visualizer tests."""
+    config_path = tmp_path / "context_config.yaml"
+    index_html = tmp_path / "reports/interactive/monterey_big_sur_pooled_results_visualizer.html"
+    collection_manifest = tmp_path / "interim/monterey_big_sur_results_visualizer_manifest.json"
+    hurdle_predictions = tmp_path / "processed/hurdle_full_grid_predictions.parquet"
+    context_paths = {
+        "big_sur_local": {
+            "display_name": "Big Sur Local Results Visualizer",
+            "evaluation_region": "big_sur",
+            "training_regime": "big_sur_only",
+            "model_origin_region": "big_sur",
+            "html": tmp_path / "reports/interactive/big_sur_results_visualizer.html",
+            "asset_dir": tmp_path / "reports/interactive/big_sur_results_visualizer",
+            "manifest": tmp_path / "interim/big_sur_results_visualizer_manifest.json",
+            "inspection_csv": tmp_path
+            / "reports/tables/big_sur_results_visualizer_inspection_points.csv",
+        },
+        "pooled_monterey_big_sur_on_monterey": {
+            "display_name": "Pooled Monterey+Big Sur On Monterey Results Visualizer",
+            "evaluation_region": "monterey",
+            "training_regime": "pooled_monterey_big_sur",
+            "model_origin_region": "monterey_big_sur",
+            "html": tmp_path
+            / "reports/interactive/monterey_pooled_monterey_big_sur_results_visualizer.html",
+            "asset_dir": tmp_path
+            / "reports/interactive/monterey_pooled_monterey_big_sur_results_visualizer",
+            "manifest": tmp_path
+            / "interim/monterey_pooled_monterey_big_sur_results_visualizer_manifest.json",
+            "inspection_csv": tmp_path
+            / "reports/tables"
+            / "monterey_pooled_monterey_big_sur_results_visualizer_inspection_points.csv",
+        },
+    }
+    big_sur_context = context_paths["big_sur_local"]
+    pooled_context = context_paths["pooled_monterey_big_sur_on_monterey"]
+    config_path.write_text(
+        f"""
+reports:
+  results_visualizer:
+    collection_display_name: Monterey And Big Sur Results Visualizers
+    context_index_html: {index_html}
+    context_manifest: {collection_manifest}
+    contexts:
+      - context_id: big_sur_local
+        display_name: Big Sur Local Results Visualizer
+        evaluation_region: big_sur
+        training_regime: big_sur_only
+        model_origin_region: big_sur
+        config_path: {base_config_path}
+        full_grid_prediction_path: {hurdle_predictions}
+        binary_prediction_path: {hurdle_predictions}
+        outputs:
+          html: {big_sur_context["html"]}
+          asset_dir: {big_sur_context["asset_dir"]}
+          manifest: {big_sur_context["manifest"]}
+          inspection_points: {big_sur_context["inspection_csv"]}
+      - context_id: pooled_monterey_big_sur_on_monterey
+        display_name: Pooled Monterey+Big Sur On Monterey Results Visualizer
+        evaluation_region: monterey
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        config_path: {base_config_path}
+        full_grid_prediction_path: {hurdle_predictions}
+        binary_prediction_path: {hurdle_predictions}
+        outputs:
+          html: {pooled_context["html"]}
+          asset_dir: {pooled_context["asset_dir"]}
+          manifest: {pooled_context["manifest"]}
+          inspection_points: {pooled_context["inspection_csv"]}
+""".lstrip()
+    )
+    return {
+        "config_path": config_path,
+        "index_html": index_html,
+        "collection_manifest": collection_manifest,
+        "contexts": context_paths,
     }
 
 

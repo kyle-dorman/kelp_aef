@@ -284,7 +284,7 @@ Phase 2 non-goals:
     `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_binary_support_primary_summary.csv`,
     and the manifest records the training-regime inputs, binary prediction
     inputs, calibration payloads, primary filters, and output report paths.
-- [ ] P2-10: Generate or extend the results visualizer for Big Sur.
+- [x] P2-10: Generate or extend the results visualizer for Big Sur.
   - Goal: Make the current Phase 2 visual QA contexts inspectable without
     mixing region rows: Big Sur dataset with the Big Sur-only model, Monterey
     dataset with the Monterey-only model, and pooled Monterey+Big Sur model
@@ -298,6 +298,16 @@ Phase 2 non-goals:
     transferable, while canopy amount calibration and residual structure need
     Big Sur visual QA.
   - Plan: `tasks/52_generate_big_sur_results_visualizer.md`.
+  - Completed: extended `visualize-results` with a `reports.results_visualizer`
+    context mode while preserving the single-config Monterey path. The Big Sur
+    coordinating config now writes separate Big Sur local, Monterey local,
+    pooled-on-Big-Sur, and pooled-on-Monterey HTML viewers, plus
+    `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_big_sur_pooled_results_visualizer.html`
+    as the context entry point and
+    `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_results_visualizer_manifest.json`
+    as the aggregate manifest. Context labels are carried into each HTML file,
+    manifest, and inspection CSV; pooled Monterey and Big Sur evaluation rows
+    remain separated rather than forming one unlabeled point cloud.
 - [ ] P2-11: Close Phase 2 and recommend Phase 3.
   - Goal: Decide whether Phase 3 should broaden geography, test simple
     non-linear tabular models such as random forest or gradient boosting,

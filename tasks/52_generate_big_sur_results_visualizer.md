@@ -163,6 +163,69 @@ Write a brief implementation plan before editing code. The plan should confirm:
    that support P2-09's split between transferable binary support and
    region-specific canopy amount calibration.
 
+## Outcome
+
+Completed on 2026-05-14 with a multi-context extension to the existing
+`visualize-results` command. The legacy single-config path remains intact, and
+`configs/big_sur_smoke.yaml` now coordinates four context-specific HTML
+visualizers plus an index page:
+
+- Big Sur local:
+  `/Volumes/x10pro/kelp_aef/reports/interactive/big_sur_results_visualizer.html`
+- Monterey local:
+  `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer.html`
+- Pooled Monterey+Big Sur evaluated on Big Sur:
+  `/Volumes/x10pro/kelp_aef/reports/interactive/big_sur_pooled_monterey_big_sur_results_visualizer.html`
+- Pooled Monterey+Big Sur evaluated on Monterey:
+  `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_pooled_monterey_big_sur_results_visualizer.html`
+- Multi-context entry point:
+  `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_big_sur_pooled_results_visualizer.html`
+
+The aggregate manifest is:
+`/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_results_visualizer_manifest.json`.
+
+Each context manifest and inspection CSV carries `context_id`,
+`evaluation_region`, `training_regime`, and `model_origin_region`. The pooled
+Big Sur and pooled Monterey outputs are separate context files, so the browser,
+manifest, and inspection CSV never collapse the two evaluation regions into one
+unlabeled point cloud.
+
+Generated context row counts:
+
+| Context | Evaluation region | Training regime | Layer rows | Inspection rows |
+| --- | --- | --- | ---: | ---: |
+| `big_sur_local` | `big_sur` | `big_sur_only` | `272,030` | `13,951` |
+| `monterey_local` | `monterey` | `monterey_only` | `426,640` | `9,467` |
+| `pooled_monterey_big_sur_on_big_sur` | `big_sur` | `pooled_monterey_big_sur` | `272,030` | `13,554` |
+| `pooled_monterey_big_sur_on_monterey` | `monterey` | `pooled_monterey_big_sur` | `426,640` | `9,208` |
+
+Inspection bucket checks show binary TP/FP/FN rows remain explicit while true
+negatives stay optional or low-priority. Big Sur local exported `1,957` binary
+FNs and `7,849` large-residual rows; pooled-on-Big-Sur exported `2,152` binary
+FNs and `9,173` large-residual rows. This reinforces the P2-09 review framing:
+binary support is directly inspectable, while canopy amount residual structure
+still needs region-specific visual QA. No model artifacts, thresholds, masks,
+labels, or training samples were changed.
+
+Validation run:
+
+```bash
+uv run pytest tests/test_results_visualizer.py
+uv run kelp-aef visualize-results --config configs/big_sur_smoke.yaml
+uv run kelp-aef visualize-results --config configs/monterey_smoke.yaml
+rg -n "Big Sur|Monterey|pooled|Pooled|TP|FP|FN|TN|Observed|Residual" \
+  /Volumes/x10pro/kelp_aef/reports/interactive/*.html
+uv run ruff check .
+uv run mypy src
+uv run pytest
+```
+
+`make check` was also attempted after formatting the touched visualizer file,
+but it is currently blocked by pre-existing Ruff format drift in unrelated
+files: `src/kelp_aef/alignment/full_grid.py`,
+`src/kelp_aef/evaluation/pooled_regions.py`, and
+`src/kelp_aef/viz/source_coverage.py`.
+
 ## Validation Command
 
 Focused validation:
