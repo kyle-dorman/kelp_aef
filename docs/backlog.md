@@ -26,7 +26,7 @@ start.
     annual-max policy.
   - Plan: `docs/phase2_big_sur_generalization.md`.
   - Selected on 2026-05-14.
-  - Numbered implementation tasks have not been written yet.
+  - First task plan: `tasks/41_big_sur_config_source_manifest_plan.md`.
 
 ## Closed Phase 1 Work
 
@@ -100,7 +100,7 @@ Phase 2 non-goals:
   held-out Big Sur test rows. Validation-driven Big Sur-only and pooled
   training comparisons are in scope.
 - Do not add bathymetry/DEM as model predictors.
-- Do not write numbered implementation tasks in this planning pass.
+- Do not write implementation code in task-plan-only passes.
 
 ## Candidate Future Pipeline Milestones
 

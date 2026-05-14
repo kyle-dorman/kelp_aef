@@ -2,8 +2,8 @@
 
 ## Active Phase 2 Plan
 
-Status: Phase 2 selected on 2026-05-14. Checklist items below are planning
-stubs only; no `tasks/` files have been written for them yet.
+Status: Phase 2 selected on 2026-05-14. P2-01 has a task plan; later checklist
+items are still planning stubs until their `tasks/` files are written.
 
 Phase 2 theme: test whether the closed Monterey Phase 1 annual-max policy
 generalizes to neighboring Big Sur before choosing a broader Phase 3 direction.
@@ -52,7 +52,7 @@ Phase 2 non-goals:
   held-out Big Sur test rows. Validation-driven Big Sur-only and pooled
   training comparisons are in scope.
 - Do not add bathymetry/DEM as predictors without a later decision.
-- Do not write numbered implementation task files in this planning pass.
+- Do not write implementation code in task-plan-only passes.
 
 ## Phase 2 Checklist
 
@@ -62,6 +62,7 @@ Phase 2 non-goals:
   - Outputs: region-scoped config paths, Big Sur footprint path, and reviewable
     AEF/Kelpwatch/domain-source manifest expectations.
   - Acceptance: the planned artifact names cannot overwrite Monterey outputs.
+  - Plan: `tasks/41_big_sur_config_source_manifest_plan.md`.
 - [ ] P2-02: Verify Big Sur source coverage and early visual QA.
   - Goal: Confirm Big Sur AEF, Kelpwatch, CRM/domain, and shoreline support
     before interpreting any model results, and visually check labels, AEF, and

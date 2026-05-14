@@ -1,7 +1,7 @@
 # Phase 2 Big Sur Generalization
 
-Status: selected on 2026-05-14; planning only. Numbered implementation tasks
-have not been written yet.
+Status: selected on 2026-05-14; planning only. P2-01 has a numbered task plan;
+later implementation task plans are still pending.
 
 ## Goal
 
