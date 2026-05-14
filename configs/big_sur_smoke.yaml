@@ -400,7 +400,7 @@ models:
     presence_model_name: logistic_annual_max_ge_10pct
     presence_probability_source: platt_calibrated
     presence_threshold_policy: validation_max_f1_calibrated
-    presence_threshold: 0.36
+    presence_threshold: 0.41
     presence_target_label: annual_max_ge_10pct
     presence_target_threshold_fraction: 0.10
     conditional_model_name: ridge_positive_annual_max
@@ -441,6 +441,13 @@ models:
       model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_monterey_transfer_model_comparison.csv
       primary_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_monterey_transfer_primary_summary.csv
       manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_monterey_transfer_eval_manifest.json
+  evaluation_summary:
+    training_regime: big_sur_only
+    model_origin_region: big_sur
+    evaluation_region: big_sur
+    model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_only_model_comparison.csv
+    primary_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_only_primary_summary.csv
+    manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_only_eval_manifest.json
 
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures

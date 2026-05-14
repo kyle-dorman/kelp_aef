@@ -208,7 +208,7 @@ Phase 2 non-goals:
     `0.897458`, precision `0.829083`, recall `0.864566`, and F1 `0.846453`.
     The transfer manifest records no Big Sur model, calibrator, threshold, or
     conditional-model refit.
-- [ ] P2-07: Train and evaluate Big Sur-only models.
+- [x] P2-07: Train and evaluate Big Sur-only models.
   - Goal: Test whether training on Big Sur improves held-out Big Sur
     performance relative to Monterey transfer.
   - Outputs: Big Sur-only baseline, binary, calibration, conditional, and
@@ -216,6 +216,23 @@ Phase 2 non-goals:
   - Acceptance: thresholds and calibration use validation rows, and held-out
     Big Sur test rows remain final evaluation.
   - Plan: `tasks/49_train_evaluate_big_sur_only_models.md`.
+  - Completed: reran `train-baselines`, `predict-full-grid`,
+    `train-binary-presence`, `calibrate-binary-presence`,
+    `train-conditional-canopy`, and `compose-hurdle-model` against
+    `configs/big_sur_smoke.yaml`. Big Sur-only fitting used 2018-2020 rows,
+    Platt calibration and threshold selection used 46,269 validation rows from
+    2021, and held-out 2022 rows remained evaluation-only. The calibrated
+    threshold selected from validation was `0.41`. New comparison sidecars were
+    written to `big_sur_only_model_comparison.csv`,
+    `big_sur_only_primary_summary.csv`, and
+    `big_sur_only_eval_manifest.json` with `training_regime = big_sur_only`,
+    `model_origin_region = big_sur`, and `evaluation_region = big_sur`.
+    Primary 2022 retained-domain Big Sur results: AEF ridge F1 `0.649054` with
+    `+73.7367%` area bias; expected-value hurdle F1 `0.859563` with
+    `-2.8414%` area bias; hard-gated hurdle F1 `0.857286` with `-0.4462%`
+    area bias. Relative to Monterey transfer, Big Sur-only training improved
+    the expected-value hurdle F1 from `0.849834` to `0.859563` and area bias
+    from `-22.1124%` to `-2.8414%`; the ridge-only baseline got worse.
 - [ ] P2-08: Train and evaluate pooled Monterey+Big Sur models.
   - Goal: Test whether pooled neighboring-region training improves held-out Big
     Sur performance.

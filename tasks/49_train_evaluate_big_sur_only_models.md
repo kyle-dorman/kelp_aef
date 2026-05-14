@@ -76,6 +76,10 @@ test rows:
   - `training_regime = big_sur_only`
   - `model_origin_region = big_sur`
   - `evaluation_region = big_sur`
+- Big Sur-only training-regime comparison sidecars for P2-09:
+  - `/Volumes/x10pro/kelp_aef/reports/tables/big_sur_only_model_comparison.csv`
+  - `/Volumes/x10pro/kelp_aef/reports/tables/big_sur_only_primary_summary.csv`
+  - `/Volumes/x10pro/kelp_aef/interim/big_sur_only_eval_manifest.json`
 
 ## Config File
 
@@ -140,6 +144,45 @@ During implementation:
    `label_source = all`, and `mask_status = plausible_kelp_domain`.
 10. Record the completed outcome and primary Big Sur-only metrics in
     `docs/todo.md`.
+
+## Outcome
+
+Completed on 2026-05-14 with the configured Big Sur-only chain:
+
+```bash
+uv run kelp-aef train-baselines --config configs/big_sur_smoke.yaml
+uv run kelp-aef predict-full-grid --config configs/big_sur_smoke.yaml
+uv run kelp-aef train-binary-presence --config configs/big_sur_smoke.yaml
+uv run kelp-aef calibrate-binary-presence --config configs/big_sur_smoke.yaml
+uv run kelp-aef train-conditional-canopy --config configs/big_sur_smoke.yaml
+uv run kelp-aef compose-hurdle-model --config configs/big_sur_smoke.yaml
+```
+
+The chain used Big Sur training rows from 2018-2020, Big Sur validation rows
+from 2021, and held-out Big Sur test rows from 2022. The Platt calibrator was
+fit on 46,269 validation rows, and validation-only calibrated threshold
+selection chose `0.41` for `validation_max_f1_calibrated`.
+
+Primary held-out Big Sur 2022 `full_grid_masked` / `all` outcomes:
+
+- Big Sur-only AEF ridge: F1 `0.649054`, RMSE `0.068505`, R2 `0.746215`,
+  area bias `+73.7367%`.
+- Big Sur-only expected-value hurdle:
+  F1 `0.859563`, RMSE `0.044095`, R2 `0.894855`, area bias `-2.8414%`.
+- Big Sur-only hard-gated hurdle:
+  F1 `0.857286`, RMSE `0.048916`, R2 `0.870606`, area bias `-0.4462%`.
+- Big Sur-only calibrated binary support on held-out test rows:
+  AUROC `0.980687`, AUPRC `0.955301`, precision `0.909196`,
+  recall `0.839853`, F1 `0.873150`.
+
+Compared with the Task 48 Monterey-transfer primary rows, Big Sur-only training
+improved the expected-value hurdle from F1 `0.849834` to `0.859563` and reduced
+area bias from `-22.1124%` to `-2.8414%`. It also improved the hard-gated
+hurdle from F1 `0.849308` to `0.857286` and reduced area bias from
+`-19.2801%` to `-0.4462%`. The Big Sur-only AEF ridge underperformed the
+Monterey-transfer ridge on F1 and area calibration, so the local-training gain
+is concentrated in the calibrated binary + conditional hurdle chain rather than
+the ridge-only baseline.
 
 ## Validation Command
 

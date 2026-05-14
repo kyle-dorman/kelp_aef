@@ -22,9 +22,12 @@ def test_compose_hurdle_model_writes_predictions_and_diagnostics(tmp_path: Path)
     metrics = pd.read_csv(fixture["metrics"])
     area = pd.read_csv(fixture["area_calibration"])
     comparison = pd.read_csv(fixture["model_comparison"])
+    regime_comparison = pd.read_csv(fixture["training_regime_model_comparison"])
+    regime_primary = pd.read_csv(fixture["training_regime_primary_summary"])
     leakage = pd.read_csv(fixture["assumed_background_leakage"])
     residuals = pd.read_csv(fixture["residual_by_observed_bin"])
     manifest = json.loads(fixture["manifest"].read_text())
+    regime_manifest = json.loads(fixture["training_regime_manifest"].read_text())
 
     assert fixture["map_figure"].is_file()
     height, width = png_dimensions(fixture["map_figure"])
@@ -57,6 +60,10 @@ def test_compose_hurdle_model_writes_predictions_and_diagnostics(tmp_path: Path)
     assert {"ridge_regression", "calibrated_probability_x_conditional_canopy"} <= set(
         comparison["model_name"]
     )
+    assert set(regime_comparison["training_regime"]) == {"big_sur_only"}
+    assert set(regime_comparison["model_origin_region"]) == {"big_sur"}
+    assert set(regime_comparison["evaluation_region"]) == {"big_sur"}
+    assert {"aef_ridge", "hurdle"} <= set(regime_primary["model_family"])
     assert set(leakage["label_source"]) == {"assumed_background"}
     assert {"000_zero", "(90, 225]", "(810, 900]"} <= set(residuals["observed_bin"])
     assert manifest["command"] == "compose-hurdle-model"
@@ -64,6 +71,9 @@ def test_compose_hurdle_model_writes_predictions_and_diagnostics(tmp_path: Path)
     assert not manifest["refit_binary_calibrator"]
     assert not manifest["refit_conditional_canopy_model"]
     assert manifest["row_counts"]["prediction_rows"] == 40
+    assert regime_manifest["training_regime"] == "big_sur_only"
+    assert regime_manifest["refit_binary_presence_model"]
+    assert not regime_manifest["test_rows_used_for_training_calibration_or_threshold_selection"]
 
 
 def test_compose_hurdle_model_writes_crm_stratified_sidecar(tmp_path: Path) -> None:
@@ -139,6 +149,9 @@ def write_hurdle_fixture(tmp_path: Path, *, include_sidecar: bool = False) -> di
     sidecar_assumed_background_leakage = (
         tmp_path / "reports/tables/hurdle_assumed_background_leakage.crm_stratified.csv"
     )
+    training_regime_model_comparison = tmp_path / "reports/tables/big_sur_only_model_comparison.csv"
+    training_regime_primary_summary = tmp_path / "reports/tables/big_sur_only_primary_summary.csv"
+    training_regime_manifest = tmp_path / "interim/big_sur_only_eval_manifest.json"
     map_figure = tmp_path / "reports/figures/hurdle_2022_observed_predicted_residual.png"
     sidecar_map_figure = (
         tmp_path / "reports/figures/hurdle_2022_observed_predicted_residual.crm_stratified.png"
@@ -221,6 +234,13 @@ models:
     assumed_background_leakage: {assumed_background_leakage}
     map_figure: {map_figure}
 {sidecar_config}
+  evaluation_summary:
+    training_regime: big_sur_only
+    model_origin_region: big_sur
+    evaluation_region: big_sur
+    model_comparison: {training_regime_model_comparison}
+    primary_summary: {training_regime_primary_summary}
+    manifest: {training_regime_manifest}
 reports:
   domain_mask:
     primary_full_grid_domain: plausible_kelp_domain
@@ -241,6 +261,9 @@ reports:
         "model_comparison": model_comparison,
         "residual_by_observed_bin": residual_by_observed_bin,
         "assumed_background_leakage": assumed_background_leakage,
+        "training_regime_model_comparison": training_regime_model_comparison,
+        "training_regime_primary_summary": training_regime_primary_summary,
+        "training_regime_manifest": training_regime_manifest,
         "map_figure": map_figure,
         "sidecar_binary_predictions": sidecar_binary_predictions,
         "sidecar_predictions": sidecar_predictions,

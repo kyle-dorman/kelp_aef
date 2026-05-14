@@ -26,8 +26,13 @@ from kelp_aef.domain.reporting_mask import (
     mask_status,
 )
 from kelp_aef.evaluation.baselines import (
+    CLIMATOLOGY_MODEL_NAME,
     FULL_GRID_PREDICTION_BATCH_SIZE,
+    GEOGRAPHIC_MODEL_NAME,
     KELPWATCH_PIXEL_AREA_M2,
+    NO_SKILL_MODEL_NAME,
+    PREVIOUS_YEAR_MODEL_NAME,
+    RIDGE_MODEL_NAME,
     iter_parquet_batches,
     parse_bands,
     percent_bias,
@@ -261,9 +266,43 @@ HURDLE_LEAKAGE_FIELDS = (
     "assumed_background_predicted_positive_rate",
     "presence_probability_threshold",
 )
+TRAINING_REGIME_COMPARISON_FIELDS = (
+    "training_regime",
+    "model_origin_region",
+    "evaluation_region",
+    "model_name",
+    "model_family",
+    "composition_policy",
+    "split",
+    "year",
+    "mask_status",
+    "evaluation_scope",
+    "label_source",
+    "row_count",
+    "mae",
+    "rmse",
+    "r2",
+    "f1_ge_10pct",
+    "observed_canopy_area",
+    "predicted_canopy_area",
+    "area_pct_bias",
+    "source_table",
+)
 
 MetricKey = tuple[str, str, str, int, str]
 ResidualKey = tuple[str, str, str, int, str, str]
+
+
+@dataclass(frozen=True)
+class TrainingRegimeSummaryConfig:
+    """Resolved paths and labels for a local training-regime summary sidecar."""
+
+    training_regime: str
+    model_origin_region: str
+    evaluation_region: str
+    model_comparison_path: Path
+    primary_summary_path: Path
+    manifest_path: Path
 
 
 @dataclass(frozen=True)
@@ -286,6 +325,7 @@ class HurdleConfig:
     residual_by_observed_bin_path: Path
     assumed_background_leakage_path: Path
     map_figure_path: Path | None
+    training_regime_summary: TrainingRegimeSummaryConfig | None
     model_name: str
     hard_gate_model_name: str
     presence_model_name: str
@@ -387,6 +427,7 @@ def compose_hurdle_config(hurdle_config: HurdleConfig) -> None:
         hurdle_config.model_comparison_path,
         HURDLE_MODEL_COMPARISON_FIELDS,
     )
+    write_training_regime_summary(area_rows, hurdle_config)
     write_csv_rows(
         residual_rows,
         hurdle_config.residual_by_observed_bin_path,
@@ -511,6 +552,7 @@ def load_hurdle_config(config_path: Path) -> HurdleConfig:
             )
         ),
         map_figure_path=optional_path(hurdle.get("map_figure")),
+        training_regime_summary=load_training_regime_summary_config(config),
         model_name=str(hurdle.get("model_name", DEFAULT_MODEL_NAME)),
         hard_gate_model_name=str(hurdle.get("hard_gate_model_name", DEFAULT_HARD_GATE_MODEL_NAME)),
         presence_model_name=str(hurdle.get("presence_model_name", DEFAULT_PRESENCE_MODEL_NAME)),
@@ -646,6 +688,7 @@ def load_hurdle_sidecar_configs(
                     map_figure_path=hurdle_sidecar_optional_path(
                         sidecar, sidecar_name, "map_figure", None
                     ),
+                    training_regime_summary=None,
                     presence_threshold_policy=threshold_policy,
                     presence_threshold=resolve_presence_threshold(
                         threshold_selection_path,
@@ -656,6 +699,40 @@ def load_hurdle_sidecar_configs(
             )
         )
     return tuple(output)
+
+
+def load_training_regime_summary_config(
+    config: dict[str, Any],
+) -> TrainingRegimeSummaryConfig | None:
+    """Load optional local training-regime summary output settings."""
+    models = require_mapping(config.get("models"), "models")
+    summary = optional_mapping(models.get("evaluation_summary"), "models.evaluation_summary")
+    if not summary:
+        return None
+    if not read_bool(summary.get("enabled"), "models.evaluation_summary.enabled", default=True):
+        return None
+    region = optional_mapping(config.get("region"), "region")
+    region_name = str(region.get("name", "unknown"))
+    return TrainingRegimeSummaryConfig(
+        training_regime=str(summary.get("training_regime", f"{region_name}_only")),
+        model_origin_region=str(summary.get("model_origin_region", region_name)),
+        evaluation_region=str(summary.get("evaluation_region", region_name)),
+        model_comparison_path=Path(
+            require_string(
+                summary.get("model_comparison"),
+                "models.evaluation_summary.model_comparison",
+            )
+        ),
+        primary_summary_path=Path(
+            require_string(
+                summary.get("primary_summary"),
+                "models.evaluation_summary.primary_summary",
+            )
+        ),
+        manifest_path=Path(
+            require_string(summary.get("manifest"), "models.evaluation_summary.manifest")
+        ),
+    )
 
 
 def hurdle_sidecar_path(config: dict[str, Any], sidecar_name: str, key: str) -> Path:
@@ -1546,6 +1623,127 @@ def model_comparison_rows(
     return rows
 
 
+def write_training_regime_summary(
+    area_rows: list[dict[str, object]],
+    hurdle_config: HurdleConfig,
+) -> None:
+    """Write an optional compact comparison labeled by training regime."""
+    summary = hurdle_config.training_regime_summary
+    if summary is None:
+        return
+    reference_rows = reference_comparison_rows(hurdle_config.reference_area_calibration_path)
+    comparison_rows = training_regime_comparison_rows(
+        reference_rows=reference_rows,
+        hurdle_area_rows=area_rows,
+        hurdle_config=hurdle_config,
+        summary=summary,
+    )
+    primary_rows = primary_training_regime_rows(comparison_rows, hurdle_config)
+    write_csv_rows(
+        comparison_rows,
+        summary.model_comparison_path,
+        TRAINING_REGIME_COMPARISON_FIELDS,
+    )
+    write_csv_rows(
+        primary_rows,
+        summary.primary_summary_path,
+        TRAINING_REGIME_COMPARISON_FIELDS,
+    )
+    write_training_regime_summary_manifest(
+        comparison_rows=comparison_rows,
+        primary_rows=primary_rows,
+        hurdle_config=hurdle_config,
+        summary=summary,
+    )
+    LOGGER.info("Wrote training-regime comparison: %s", summary.model_comparison_path)
+
+
+def training_regime_comparison_rows(
+    *,
+    reference_rows: list[dict[str, object]],
+    hurdle_area_rows: list[dict[str, object]],
+    hurdle_config: HurdleConfig,
+    summary: TrainingRegimeSummaryConfig,
+) -> list[dict[str, object]]:
+    """Build compact comparison rows for one locally trained regime."""
+    rows: list[dict[str, object]] = []
+    reference_path = hurdle_config.reference_area_calibration_path
+    if reference_path is not None:
+        for row in reference_rows:
+            rows.append(training_regime_comparison_row(row, summary, reference_path))
+    for row in hurdle_area_rows:
+        rows.append(
+            training_regime_comparison_row(row, summary, hurdle_config.area_calibration_path)
+        )
+    return rows
+
+
+def training_regime_comparison_row(
+    row: dict[str, object],
+    summary: TrainingRegimeSummaryConfig,
+    source_table: Path,
+) -> dict[str, object]:
+    """Convert one area-calibration row into the training-regime schema."""
+    model_name = str(row.get("model_name", ""))
+    return {
+        "training_regime": summary.training_regime,
+        "model_origin_region": summary.model_origin_region,
+        "evaluation_region": summary.evaluation_region,
+        "model_name": model_name,
+        "model_family": training_regime_model_family(model_name),
+        "composition_policy": row.get("composition_policy", ""),
+        "split": row.get("split", ""),
+        "year": row.get("year", ""),
+        "mask_status": row.get("mask_status", ""),
+        "evaluation_scope": row.get("evaluation_scope", ""),
+        "label_source": row.get("label_source", ""),
+        "row_count": row.get("row_count", ""),
+        "mae": row.get("mae", math.nan),
+        "rmse": row.get("rmse", math.nan),
+        "r2": row.get("r2", math.nan),
+        "f1_ge_10pct": row.get("f1_ge_10pct", math.nan),
+        "observed_canopy_area": row.get("observed_canopy_area", math.nan),
+        "predicted_canopy_area": row.get("predicted_canopy_area", math.nan),
+        "area_pct_bias": row.get("area_pct_bias", math.nan),
+        "source_table": str(source_table),
+    }
+
+
+def training_regime_model_family(model_name: str) -> str:
+    """Return a compact model-family label for local comparison rows."""
+    if model_name in {NO_SKILL_MODEL_NAME, PREVIOUS_YEAR_MODEL_NAME, CLIMATOLOGY_MODEL_NAME}:
+        return "reference_baseline"
+    if model_name == GEOGRAPHIC_MODEL_NAME:
+        return "geographic_reference"
+    if model_name == RIDGE_MODEL_NAME:
+        return "aef_ridge"
+    if model_name.startswith("calibrated_"):
+        return "hurdle"
+    return "unknown"
+
+
+def primary_training_regime_rows(
+    rows: list[dict[str, object]],
+    hurdle_config: HurdleConfig,
+) -> list[dict[str, object]]:
+    """Return held-out retained-domain rows from a training-regime comparison."""
+    primary_split = hurdle_config.test_split
+    primary_year = str(test_year(hurdle_config))
+    primary_mask_status = mask_status(hurdle_config.reporting_domain_mask)
+    primary_scope = evaluation_scope(hurdle_config.reporting_domain_mask)
+    output = []
+    for row in rows:
+        if (
+            str(row.get("split")) == primary_split
+            and str(row.get("year")) == primary_year
+            and str(row.get("mask_status")) == primary_mask_status
+            and str(row.get("evaluation_scope")) == primary_scope
+            and str(row.get("label_source")) == "all"
+        ):
+            output.append(row)
+    return output
+
+
 def reference_comparison_rows(path: Path | None) -> list[dict[str, object]]:
     """Read existing ridge/reference rows in the Phase 1 comparison schema."""
     if path is None or not path.exists():
@@ -1654,6 +1852,82 @@ def finite_percentile(values: np.ndarray, percentile: float, *, default: float) 
     if value <= 0:
         return default
     return value
+
+
+def write_training_regime_summary_manifest(
+    *,
+    comparison_rows: list[dict[str, object]],
+    primary_rows: list[dict[str, object]],
+    hurdle_config: HurdleConfig,
+    summary: TrainingRegimeSummaryConfig,
+) -> None:
+    """Write a JSON manifest for the local training-regime summary sidecar."""
+    payload = {
+        "command": "compose-hurdle-model",
+        "config_path": str(hurdle_config.config_path),
+        "training_regime": summary.training_regime,
+        "model_origin_region": summary.model_origin_region,
+        "evaluation_region": summary.evaluation_region,
+        "selection_split": hurdle_config.selection_split,
+        "selection_year": selection_year(hurdle_config),
+        "test_split": hurdle_config.test_split,
+        "test_year": test_year(hurdle_config),
+        "primary_mask_status": mask_status(hurdle_config.reporting_domain_mask),
+        "primary_evaluation_scope": evaluation_scope(hurdle_config.reporting_domain_mask),
+        "primary_label_source": "all",
+        "train_years": list(hurdle_config.train_years),
+        "validation_years": list(hurdle_config.validation_years),
+        "test_years": list(hurdle_config.test_years),
+        "presence_target_label": hurdle_config.presence_target_label,
+        "presence_target_threshold_fraction": hurdle_config.presence_target_threshold_fraction,
+        "presence_threshold_policy": hurdle_config.presence_threshold_policy,
+        "presence_threshold": hurdle_config.presence_threshold,
+        "inputs": {
+            "inference_table": path_metadata(hurdle_config.inference_table_path),
+            "binary_full_grid_predictions": path_metadata(
+                hurdle_config.binary_full_grid_predictions_path
+            ),
+            "binary_calibration_model": path_metadata(hurdle_config.binary_calibration_model_path),
+            "binary_threshold_selection": path_metadata(
+                hurdle_config.binary_threshold_selection_path
+            ),
+            "conditional_model": path_metadata(hurdle_config.conditional_model_path),
+            "reference_area_calibration": path_metadata(
+                hurdle_config.reference_area_calibration_path
+            ),
+            "hurdle_area_calibration": path_metadata(hurdle_config.area_calibration_path),
+        },
+        "outputs": {
+            "model_comparison": path_metadata(summary.model_comparison_path),
+            "primary_summary": path_metadata(summary.primary_summary_path),
+            "manifest": str(summary.manifest_path),
+        },
+        "row_counts": {
+            "comparison_rows": len(comparison_rows),
+            "primary_summary_rows": len(primary_rows),
+        },
+        "refit_aef_ridge_model": True,
+        "refit_binary_presence_model": True,
+        "refit_binary_calibrator": True,
+        "refit_conditional_canopy_model": True,
+        "test_rows_used_for_training_calibration_or_threshold_selection": False,
+    }
+    summary.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    summary.manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def path_metadata(path: Path | None) -> dict[str, object] | None:
+    """Return existence, size, and mtime metadata for a manifest path."""
+    if path is None:
+        return None
+    exists = path.exists()
+    stat = path.stat() if exists else None
+    return {
+        "path": str(path),
+        "exists": exists,
+        "file_size_bytes": stat.st_size if stat is not None and path.is_file() else None,
+        "modified_time_ns": stat.st_mtime_ns if stat is not None else None,
+    }
 
 
 def write_hurdle_manifest(
