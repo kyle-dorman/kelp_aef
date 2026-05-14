@@ -131,3 +131,35 @@ make check
 - Do not change the retained-domain mask thresholds.
 - Do not make Big Sur model or report changes in this task, but keep the
   visualizer behavior general enough to reuse for Big Sur later in Phase 2.
+
+## Outcome
+
+Completed on 2026-05-14.
+
+- Revised inspection-point selection to prioritize binary TP/FP/FN review rows,
+  including FNs, Kelpwatch-positive rows, non-TN Kelpwatch-observed rows, high
+  expected-value hurdle predictions (`>= 90 m2`), and high conditional-canopy
+  predictions (`>= 450 m2`), plus any large hurdle residuals
+  (`abs(residual) >= 90 m2`) without filling the cap with small true-negative
+  support rows.
+- Split binary outcome display into a TP/FP/FN review layer and a separate
+  TN-only layer so true negatives are not drawn by default when reviewing binary
+  errors.
+- Deduplicated popup fields when multiple point layers share the same source
+  property, so `Binary outcome` appears once.
+- Refreshed the Monterey visualizer artifacts through
+  `uv run kelp-aef visualize-results --config configs/monterey_smoke.yaml`.
+- Kept `reports.results_visualizer.max_inspection_points: 50000`; the refreshed
+  manifest reports the cap was enough for all non-TN priority buckets and the
+  final inspection export contains `9,467` rows.
+- Manifest bucket counts for `test` / `2022`:
+  - Binary TP/FP/FN: `9,432` candidate / `9,432` included / `0` omitted.
+  - Binary FN: `1,470` candidate / `1,470` included / `0` omitted.
+  - Kelpwatch positive: `9,019` candidate / `9,019` included / `0` omitted.
+  - Non-TN Kelpwatch observed: `9,047` candidate / `9,047` included /
+    `0` omitted.
+  - Large hurdle residual: `6,541` candidate / `6,541` included / `0` omitted.
+  - High hurdle prediction: `7,287` candidate / `7,287` included / `0` omitted.
+  - High conditional prediction: `2,498` candidate / `2,498` included /
+    `0` omitted.
+  - True negatives: `417,208` candidate / `35` included / `417,173` omitted.

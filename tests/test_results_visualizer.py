@@ -33,7 +33,8 @@ def test_visualize_results_writes_leaflet_viewer_assets(tmp_path: Path) -> None:
     assert "Expected-value hurdle residual" in html
     assert "Conditional ridge prediction" in html
     assert "Binary presence probability" in html
-    assert "Binary outcome TP/FP/FN/TN" in html
+    assert "Binary outcome TP/FP/FN" in html
+    assert "Binary outcome TN only" in html
     assert "Data layer" in html
     assert 'input.type = "radio"' in html
     assert "Label source" not in html
@@ -45,13 +46,14 @@ def test_visualize_results_writes_leaflet_viewer_assets(tmp_path: Path) -> None:
     assert "Binary outcome" in html
     assert "L.imageOverlay" not in html
     assert "pointLayer.propertyName" in html
+    assert "pointLayer.allowedValues.includes" in html
     assert "opacity-controls" not in html
     assert "coordinate-based hurdle" in html
     assert "Copy lat/lon" in html
 
     inspection = pd.read_csv(inspection_csv)
     manifest = json.loads(manifest_path.read_text())
-    assert len(inspection) == 2
+    assert len(inspection) == 4
     assert {
         "longitude",
         "latitude",
@@ -59,11 +61,44 @@ def test_visualize_results_writes_leaflet_viewer_assets(tmp_path: Path) -> None:
         "conditional_ridge_prediction_m2",
         "binary_presence_probability",
         "binary_outcome_outcome",
+        "selection_reasons",
     } <= set(inspection.columns)
-    assert set(inspection["binary_outcome_outcome"]) == {"TP", "TN"}
+    assert set(inspection["binary_outcome_outcome"]) == {"TP", "FP", "FN", "TN"}
+    assert int(inspection["selection_binary_non_true_negative"].sum()) == 3
+    assert int(inspection["selection_kelpwatch_positive"].sum()) == 2
+    assert int(inspection["selection_binary_false_negative"].sum()) == 1
+    assert int(inspection["selection_large_hurdle_residual"].sum()) == 4
+    assert int(inspection["selection_true_negative"].sum()) == 1
     assert manifest["command"] == "visualize-results"
     assert manifest["mask_status"] == "plausible_kelp_domain"
-    assert manifest["inspection"]["row_count"] == 2
+    assert manifest["inspection"]["row_count"] == 4
+    assert manifest["inspection"]["max_points"] == 4
+    assert manifest["inspection"]["cap_was_enough_for_priority_buckets"] is True
+    assert manifest["inspection"]["selection_buckets"]["kelpwatch_positive"] == {
+        "candidate_count": 2,
+        "included_count": 2,
+        "omitted_count": 0,
+    }
+    assert manifest["inspection"]["selection_buckets"]["binary_false_negative"] == {
+        "candidate_count": 1,
+        "included_count": 1,
+        "omitted_count": 0,
+    }
+    assert manifest["inspection"]["selection_buckets"]["binary_non_true_negative"] == {
+        "candidate_count": 3,
+        "included_count": 3,
+        "omitted_count": 0,
+    }
+    assert manifest["inspection"]["selection_buckets"]["large_hurdle_residual"] == {
+        "candidate_count": 4,
+        "included_count": 4,
+        "omitted_count": 0,
+    }
+    assert manifest["inspection"]["selection_buckets"]["true_negative"] == {
+        "candidate_count": 2,
+        "included_count": 1,
+        "omitted_count": 1,
+    }
     assert manifest["basemap"]["runtime_dependency_only"] is True
     assert {row["layer_id"] for row in manifest["layers"]} == {
         "expected_value_hurdle",
@@ -77,6 +112,16 @@ def test_visualize_results_writes_leaflet_viewer_assets(tmp_path: Path) -> None:
         "conditional_ridge_prediction",
         "binary_presence_probability",
         "binary_outcome_outcome",
+        "binary_outcome_true_negative",
+    }
+    binary_layers = {
+        row["layer_id"]: row["allowed_values"]
+        for row in manifest["point_layers"]
+        if row["type"] == "binary_outcome"
+    }
+    assert binary_layers == {
+        "binary_outcome_outcome": ["TP", "FP", "FN"],
+        "binary_outcome_true_negative": ["TN"],
     }
     assert all(row["coordinate_based"] for row in manifest["point_layers"])
 
@@ -95,7 +140,7 @@ def write_results_visualizer_fixture(tmp_path: Path) -> dict[str, Path]:
     write_continuous_predictions(
         hurdle_predictions,
         model_name="calibrated_probability_x_conditional_canopy",
-        predictions=(360.0, 360.0, 0.0),
+        predictions=(360.0, 0.0, 0.0, 500.0, 120.0),
     )
     write_domain_mask(mask_path, mask_manifest)
     write_footprint(footprint)
@@ -118,7 +163,7 @@ reports:
   results_visualizer:
     split: test
     year: 2022
-    max_inspection_points: 2
+    max_inspection_points: 4
     basemap:
       enabled: true
       name: OpenStreetMap
@@ -176,7 +221,7 @@ def write_continuous_predictions(
     path: Path,
     *,
     model_name: str,
-    predictions: tuple[float, float, float],
+    predictions: tuple[float, ...],
 ) -> None:
     """Write a tiny continuous prediction table for visualizer tests."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -184,6 +229,18 @@ def write_continuous_predictions(
         continuous_row(5, 10, 20, 450.0, predictions[0], -122.000, 36.000, model_name),
         continuous_row(6, 11, 21, 180.0, predictions[1], -121.999, 36.001, model_name),
         continuous_row(7, 12, 22, 0.0, predictions[2], -121.998, 36.002, model_name),
+        continuous_row(8, 13, 23, 0.0, predictions[3], -121.997, 36.003, model_name),
+        continuous_row(
+            9,
+            14,
+            24,
+            0.0,
+            predictions[4],
+            -121.996,
+            36.004,
+            model_name,
+            predicted_class=False,
+        ),
     ]
     pd.DataFrame(rows).to_parquet(path, index=False)
 
@@ -197,8 +254,10 @@ def continuous_row(
     longitude: float,
     latitude: float,
     model_name: str,
+    predicted_class: bool | None = None,
 ) -> dict[str, object]:
     """Return one continuous model prediction row."""
+    presence_class = predicted_area >= 90.0 if predicted_class is None else predicted_class
     return {
         "year": 2022,
         "split": "test",
@@ -218,29 +277,37 @@ def continuous_row(
         "residual_kelp_max_y": observed_area - predicted_area,
         "pred_conditional_area_m2": 900.0 if predicted_area > 0 else 0.0,
         "calibrated_presence_probability": min(predicted_area / 900.0, 1.0),
-        "pred_presence_class": predicted_area >= 90.0,
+        "pred_presence_class": presence_class,
         "presence_target_threshold_fraction": 0.10,
     }
 
 
 def write_domain_mask(mask_path: Path, manifest_path: Path) -> None:
-    """Write a tiny retained-domain mask that drops one test cell."""
+    """Write a tiny retained-domain mask for visualizer tests."""
     mask_path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(
         {
-            "aef_grid_cell_id": [5, 6, 7],
-            "is_plausible_kelp_domain": [True, False, True],
+            "aef_grid_cell_id": [5, 6, 7, 8, 9],
+            "is_plausible_kelp_domain": [True, True, True, True, True],
             "domain_mask_reason": [
                 "retained_depth_0_60m",
-                "dropped_too_deep",
                 "retained_ambiguous_coast",
+                "retained_ambiguous_coast",
+                "retained_depth_0_60m",
+                "retained_depth_0_60m",
             ],
-            "domain_mask_detail": ["fixture"] * 3,
-            "domain_mask_version": ["test_mask_v1"] * 3,
-            "crm_elevation_m": [-4.0, -90.0, 0.5],
-            "crm_depth_m": [4.0, 90.0, 0.0],
-            "depth_bin": ["0_40m", "deep_water", "ambiguous_coast"],
-            "elevation_bin": ["subtidal", "deep_water", "ambiguous_coast"],
+            "domain_mask_detail": ["fixture"] * 5,
+            "domain_mask_version": ["test_mask_v1"] * 5,
+            "crm_elevation_m": [-4.0, -8.0, 0.5, -12.0, -14.0],
+            "crm_depth_m": [4.0, 8.0, 0.0, 12.0, 14.0],
+            "depth_bin": ["0_40m", "0_40m", "ambiguous_coast", "0_40m", "0_40m"],
+            "elevation_bin": [
+                "subtidal",
+                "subtidal",
+                "ambiguous_coast",
+                "subtidal",
+                "subtidal",
+            ],
         }
     ).to_parquet(mask_path, index=False)
     manifest_path.write_text(json.dumps({"mask_version": "test_mask_v1"}) + "\n")

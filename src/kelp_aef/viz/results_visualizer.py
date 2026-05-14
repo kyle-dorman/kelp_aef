@@ -46,6 +46,21 @@ CONTINUOUS_LAYER_TYPE = "continuous"
 CONTINUOUS_PREDICTION_LAYER_TYPE = "continuous_prediction"
 BINARY_PROBABILITY_LAYER_TYPE = "binary_probability"
 BINARY_OUTCOME_LAYER_TYPE = "binary_outcome"
+HURDLE_REVIEW_MIN_AREA_M2 = 90.0
+HURDLE_RESIDUAL_REVIEW_MIN_AREA_M2 = 90.0
+CONDITIONAL_REVIEW_MIN_AREA_M2 = 450.0
+SELECTION_BUCKET_COLUMNS = {
+    "binary_non_true_negative": "selection_binary_non_true_negative",
+    "binary_false_negative": "selection_binary_false_negative",
+    "kelpwatch_positive": "selection_kelpwatch_positive",
+    "kelpwatch_observed": "selection_kelpwatch_observed",
+    "large_hurdle_residual": "selection_large_hurdle_residual",
+    "high_hurdle_prediction": "selection_high_hurdle_prediction",
+    "high_conditional_prediction": "selection_high_conditional_prediction",
+    "true_negative": "selection_true_negative",
+    "residual_fill": "selection_residual_fill",
+    "nonzero_support_fill": "selection_nonzero_support_fill",
+}
 
 COMMON_COLUMNS = (
     "year",
@@ -174,6 +189,16 @@ class PointLayer:
     diverging: bool
     default_visible: bool
     min_abs_display_value: float
+    allowed_values: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
+class InspectionSelection:
+    """Selected inspection rows and row-count diagnostics for review buckets."""
+
+    frame: pd.DataFrame
+    bucket_counts: dict[str, dict[str, int]]
+    cap_was_enough_for_priority: bool
 
 
 def visualize_results(config_path: Path) -> int:
@@ -198,10 +223,11 @@ def visualize_results(config_path: Path) -> int:
         residual_scale_values(layer_frames),
         viewer_config.robust_percentile,
     )
-    inspection_frame = build_inspection_frame(
+    inspection_selection = build_inspection_selection(
         layer_frames,
         viewer_config.max_inspection_points,
     )
+    inspection_frame = inspection_selection.frame
     point_layers = build_point_layers(
         layer_frames=layer_frames,
         residual_scale=residual_scale,
@@ -231,6 +257,7 @@ def visualize_results(config_path: Path) -> int:
         canopy_scale=canopy_scale,
         residual_scale=residual_scale,
         inspection_frame=inspection_frame,
+        inspection_selection=inspection_selection,
         inspection_geojson_path=inspection_geojson_path,
         inspection_js_path=inspection_js_path,
     )
@@ -764,7 +791,7 @@ def build_point_layers(
             point_layers.append(
                 PointLayer(
                     layer_id=f"{layer.layer_id}_outcome",
-                    display_name=f"{layer.display_name} TP/FP/FN/TN",
+                    display_name=f"{layer.display_name} TP/FP/FN",
                     layer_type=layer.layer_type,
                     value_kind="binary_outcome",
                     property_name=f"{layer.layer_id}_outcome",
@@ -774,6 +801,23 @@ def build_point_layers(
                     diverging=False,
                     default_visible=layer.default_visible,
                     min_abs_display_value=0.0,
+                    allowed_values=("TP", "FP", "FN"),
+                )
+            )
+            point_layers.append(
+                PointLayer(
+                    layer_id=f"{layer.layer_id}_true_negative",
+                    display_name=f"{layer.display_name} TN only",
+                    layer_type=layer.layer_type,
+                    value_kind="binary_outcome",
+                    property_name=f"{layer.layer_id}_outcome",
+                    popup_label=popup_label(layer, "outcome"),
+                    scale_min=0.0,
+                    scale_max=1.0,
+                    diverging=False,
+                    default_visible=False,
+                    min_abs_display_value=0.0,
+                    allowed_values=("TN",),
                 )
             )
             continue
@@ -856,6 +900,14 @@ def build_inspection_frame(
     max_points: int,
 ) -> pd.DataFrame:
     """Build a bounded point table for click inspection in the browser."""
+    return build_inspection_selection(layer_frames, max_points).frame
+
+
+def build_inspection_selection(
+    layer_frames: dict[ResultsLayerConfig, pd.DataFrame],
+    max_points: int,
+) -> InspectionSelection:
+    """Build selected inspection rows and manifest-ready bucket diagnostics."""
     continuous_items = [
         (layer, frame)
         for layer, frame in layer_frames.items()
@@ -880,7 +932,17 @@ def build_inspection_frame(
     inspection["nonzero_support"] = inspection["observed_canopy_area_m2"].astype(
         float
     ).abs() + prediction_support_sum(inspection)
-    return select_inspection_points(inspection, max_points)
+    add_selection_bucket_columns(inspection)
+    selected = select_inspection_points(inspection, max_points)
+    bucket_counts = selection_bucket_counts(inspection, selected)
+    priority_columns = priority_selection_columns()
+    priority_candidate_count = int(inspection[priority_columns].any(axis=1).sum())
+    priority_included_count = int(selected[priority_columns].any(axis=1).sum())
+    return InspectionSelection(
+        frame=selected,
+        bucket_counts=bucket_counts,
+        cap_was_enough_for_priority=priority_candidate_count == priority_included_count,
+    )
 
 
 def base_inspection_columns(frame: pd.DataFrame) -> pd.DataFrame:
@@ -956,19 +1018,212 @@ def prediction_support_sum(inspection: pd.DataFrame) -> pd.Series:
     return cast(pd.Series, inspection[prediction_columns].abs().sum(axis=1))
 
 
+def add_selection_bucket_columns(inspection: pd.DataFrame) -> None:
+    """Annotate inspection candidates with deterministic review-priority buckets."""
+    observed = boolean_series(
+        inspection.get("is_kelpwatch_observed", pd.Series(False, index=inspection.index))
+    )
+    observed_area = inspection["observed_canopy_area_m2"].fillna(0.0).astype(float)
+    review_mask = binary_non_true_negative_or_unavailable_mask(inspection)
+    inspection[SELECTION_BUCKET_COLUMNS["binary_non_true_negative"]] = (
+        binary_non_true_negative_mask(inspection)
+    )
+    inspection[SELECTION_BUCKET_COLUMNS["true_negative"]] = true_negative_mask(inspection)
+    inspection[SELECTION_BUCKET_COLUMNS["kelpwatch_observed"]] = observed & review_mask
+    inspection[SELECTION_BUCKET_COLUMNS["kelpwatch_positive"]] = (
+        observed & (observed_area > 0.0) & review_mask
+    )
+    inspection[SELECTION_BUCKET_COLUMNS["binary_false_negative"]] = binary_false_negative_mask(
+        inspection
+    )
+    inspection[SELECTION_BUCKET_COLUMNS["large_hurdle_residual"]] = (
+        inspection["abs_primary_residual"].fillna(0.0).astype(float)
+        >= HURDLE_RESIDUAL_REVIEW_MIN_AREA_M2
+    )
+    inspection[SELECTION_BUCKET_COLUMNS["high_hurdle_prediction"]] = (
+        high_prediction_mask(
+            inspection,
+            token="hurdle",
+            threshold=HURDLE_REVIEW_MIN_AREA_M2,
+        )
+        & review_mask
+    )
+    inspection[SELECTION_BUCKET_COLUMNS["high_conditional_prediction"]] = (
+        high_prediction_mask(
+            inspection,
+            token="conditional",
+            threshold=CONDITIONAL_REVIEW_MIN_AREA_M2,
+        )
+        & review_mask
+    )
+    inspection[SELECTION_BUCKET_COLUMNS["residual_fill"]] = (
+        inspection["abs_primary_residual"].fillna(0.0).astype(float) > 0.0
+    ) & review_mask
+    inspection[SELECTION_BUCKET_COLUMNS["nonzero_support_fill"]] = (
+        inspection["nonzero_support"].fillna(0.0).astype(float) > 0.0
+    ) & review_mask
+
+
+def binary_outcome_columns(inspection: pd.DataFrame) -> list[str]:
+    """Return inspection columns containing binary TP/FP/FN/TN labels."""
+    return [column for column in inspection.columns if column.endswith("_outcome")]
+
+
+def binary_non_true_negative_or_unavailable_mask(inspection: pd.DataFrame) -> pd.Series:
+    """Return non-TN rows, or all rows when no binary outcome layer is available."""
+    if not binary_outcome_columns(inspection):
+        return pd.Series(True, index=inspection.index)
+    return binary_non_true_negative_mask(inspection)
+
+
+def binary_non_true_negative_mask(inspection: pd.DataFrame) -> pd.Series:
+    """Return rows classified as TP, FP, or FN by any binary outcome layer."""
+    outcome_columns = binary_outcome_columns(inspection)
+    if not outcome_columns:
+        return pd.Series(False, index=inspection.index)
+    return cast(pd.Series, inspection[outcome_columns].isin({"TP", "FP", "FN"}).any(axis=1))
+
+
+def binary_false_negative_mask(inspection: pd.DataFrame) -> pd.Series:
+    """Return rows classified as binary false negatives by any outcome layer."""
+    outcome_columns = binary_outcome_columns(inspection)
+    if not outcome_columns:
+        return pd.Series(False, index=inspection.index)
+    return cast(pd.Series, inspection[outcome_columns].eq("FN").any(axis=1))
+
+
+def true_negative_mask(inspection: pd.DataFrame) -> pd.Series:
+    """Return rows classified as true negatives by any binary outcome layer."""
+    outcome_columns = binary_outcome_columns(inspection)
+    if not outcome_columns:
+        return pd.Series(False, index=inspection.index)
+    return cast(pd.Series, inspection[outcome_columns].eq("TN").any(axis=1))
+
+
+def high_prediction_mask(
+    inspection: pd.DataFrame,
+    *,
+    token: str,
+    threshold: float,
+) -> pd.Series:
+    """Return rows whose named prediction columns meet a review threshold."""
+    score = max_prediction_score(inspection, token)
+    return cast(pd.Series, score >= threshold)
+
+
+def max_prediction_score(inspection: pd.DataFrame, token: str) -> pd.Series:
+    """Return the row-wise max prediction score for columns matching a name token."""
+    prediction_columns = [
+        column
+        for column in inspection.columns
+        if column.endswith("_prediction_m2") and token in column
+    ]
+    if not prediction_columns:
+        return pd.Series(0.0, index=inspection.index)
+    return cast(pd.Series, inspection[prediction_columns].fillna(0.0).max(axis=1))
+
+
 def select_inspection_points(inspection: pd.DataFrame, max_points: int) -> pd.DataFrame:
-    """Select a bounded mix of high-residual and nonzero-support points."""
-    if len(inspection) <= max_points:
-        return inspection.copy()
-    residual_count = max(max_points // 2, 1)
-    residual_points = inspection.nlargest(residual_count, "abs_primary_residual")
-    remaining = inspection.drop(index=residual_points.index)
-    support_count = max_points - len(residual_points)
-    support_points = remaining.nlargest(support_count, "nonzero_support")
-    selected = pd.concat([residual_points, support_points], ignore_index=True)
+    """Select a bounded priority mix without crowding out Kelpwatch/FN rows."""
+    selected_indices: list[Any] = []
+    selected_index_set: set[Any] = set()
+    for bucket_name, score_column in selection_priority_order():
+        if len(selected_indices) >= max_points:
+            break
+        mask = inspection[SELECTION_BUCKET_COLUMNS[bucket_name]].astype(bool)
+        available = inspection.loc[mask & ~inspection.index.isin(selected_index_set)]
+        if available.empty:
+            continue
+        scored = available.assign(
+            _selection_score=selection_score(available, bucket_name, score_column)
+        )
+        ordered = scored.sort_values(
+            ["_selection_score", "aef_grid_cell_id"],
+            ascending=[False, True],
+            kind="mergesort",
+        )
+        remaining_slots = max_points - len(selected_indices)
+        chosen = list(ordered.head(remaining_slots).index)
+        selected_indices.extend(chosen)
+        selected_index_set.update(chosen)
+    selected = inspection.loc[selected_indices].copy()
     if len(selected) > max_points:
         selected = selected.head(max_points)
+    selected["selection_reasons"] = selection_reasons(selected)
     return selected.copy()
+
+
+def selection_score(
+    candidates: pd.DataFrame,
+    bucket_name: str,
+    score_column: str,
+) -> pd.Series:
+    """Return a deterministic score for ordering candidates within a bucket."""
+    if score_column in candidates:
+        return cast(pd.Series, candidates[score_column].fillna(0.0).astype(float))
+    if bucket_name == "high_hurdle_prediction":
+        return max_prediction_score(candidates, "hurdle")
+    if bucket_name == "high_conditional_prediction":
+        return max_prediction_score(candidates, "conditional")
+    return pd.Series(0.0, index=candidates.index)
+
+
+def selection_priority_order() -> tuple[tuple[str, str], ...]:
+    """Return bucket names and score columns in selection-priority order."""
+    return (
+        ("binary_non_true_negative", "abs_primary_residual"),
+        ("binary_false_negative", "observed_canopy_area_m2"),
+        ("kelpwatch_positive", "observed_canopy_area_m2"),
+        ("kelpwatch_observed", "observed_canopy_area_m2"),
+        ("large_hurdle_residual", "abs_primary_residual"),
+        ("high_hurdle_prediction", "expected_value_hurdle_prediction_m2"),
+        ("high_conditional_prediction", "conditional_ridge_prediction_m2"),
+        ("residual_fill", "abs_primary_residual"),
+        ("nonzero_support_fill", "nonzero_support"),
+    )
+
+
+def priority_selection_columns() -> list[str]:
+    """Return bucket columns that should fit before residual/support fillers."""
+    return [
+        SELECTION_BUCKET_COLUMNS["binary_non_true_negative"],
+        SELECTION_BUCKET_COLUMNS["binary_false_negative"],
+        SELECTION_BUCKET_COLUMNS["kelpwatch_positive"],
+        SELECTION_BUCKET_COLUMNS["kelpwatch_observed"],
+        SELECTION_BUCKET_COLUMNS["large_hurdle_residual"],
+        SELECTION_BUCKET_COLUMNS["high_hurdle_prediction"],
+        SELECTION_BUCKET_COLUMNS["high_conditional_prediction"],
+    ]
+
+
+def selection_reasons(selection: pd.DataFrame) -> pd.Series:
+    """Return pipe-delimited bucket names that each selected row satisfies."""
+    reasons = []
+    for _, row in selection.iterrows():
+        row_reasons = [
+            bucket_name
+            for bucket_name, column in SELECTION_BUCKET_COLUMNS.items()
+            if bool(row.get(column, False))
+        ]
+        reasons.append("|".join(row_reasons))
+    return pd.Series(reasons, index=selection.index)
+
+
+def selection_bucket_counts(
+    inspection: pd.DataFrame,
+    selected: pd.DataFrame,
+) -> dict[str, dict[str, int]]:
+    """Return candidate, included, and omitted counts for each selection bucket."""
+    counts: dict[str, dict[str, int]] = {}
+    for bucket_name, column in SELECTION_BUCKET_COLUMNS.items():
+        candidate_count = int(inspection[column].astype(bool).sum())
+        included_count = int(selected[column].astype(bool).sum()) if column in selected else 0
+        counts[bucket_name] = {
+            "candidate_count": candidate_count,
+            "included_count": included_count,
+            "omitted_count": candidate_count - included_count,
+        }
+    return counts
 
 
 def write_inspection_outputs(
@@ -1077,7 +1332,8 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
   <div class="legend">
     Use the data-layer radio control to switch between coordinate-based hurdle
     prediction, residual, conditional ridge, binary probability, and binary
-    TP/FP/FN/TN points. Area layers are shown only where values are at least
+    TP/FP/FN review points. A separate optional TN layer is available for
+    background checks. Area layers are shown only where values are at least
     1 m2; binary probability is shown at 0.01 or higher. Residual red/orange
     means observed exceeds predicted and blue means predicted exceeds observed.
     Binary outcome colors are TP green, FP orange, FN purple, and TN gray.
@@ -1156,7 +1412,7 @@ function setActiveDataLayer(layerId) {{
 function shouldDrawPoint(props, pointLayer) {{
   if (pointLayer.valueKind === "binary_outcome") {{
     const value = props[pointLayer.propertyName];
-    return value === "TP" || value === "FP" || value === "FN" || value === "TN";
+    return pointLayer.allowedValues.includes(value);
   }}
   const value = Number(props[pointLayer.propertyName]);
   return Number.isFinite(value) && Math.abs(value) >= pointLayer.minAbsDisplayValue;
@@ -1209,7 +1465,10 @@ function popupHtml(props) {{
     ["Observed frac", formatNumber(props.observed_fraction, 3)],
     ["Depth bin", props.depth_bin]
   ];
+  const popupProperties = new Set();
   for (const pointLayer of VIEWER.pointLayers) {{
+    if (popupProperties.has(pointLayer.propertyName)) continue;
+    popupProperties.add(pointLayer.propertyName);
     const value = props[pointLayer.propertyName];
     if (value !== null && value !== undefined) {{
       if (pointLayer.valueKind === "binary_outcome") {{
@@ -1252,6 +1511,7 @@ def point_layer_payload(layer: PointLayer) -> dict[str, object]:
         "diverging": layer.diverging,
         "defaultVisible": layer.default_visible,
         "minAbsDisplayValue": layer.min_abs_display_value,
+        "allowedValues": list(layer.allowed_values) if layer.allowed_values is not None else [],
     }
 
 
@@ -1269,6 +1529,7 @@ def write_manifest(
     canopy_scale: float,
     residual_scale: float,
     inspection_frame: pd.DataFrame,
+    inspection_selection: InspectionSelection,
     inspection_geojson_path: Path,
     inspection_js_path: Path,
 ) -> None:
@@ -1341,6 +1602,10 @@ def write_manifest(
                 "scale_min": layer.scale_min,
                 "scale_max": layer.scale_max,
                 "min_abs_display_value": layer.min_abs_display_value,
+                "allowed_values": list(layer.allowed_values)
+                if layer.allowed_values is not None
+                else [],
+                "default_visible": layer.default_visible,
                 "coordinate_based": True,
             }
             for layer in point_layers
@@ -1348,6 +1613,10 @@ def write_manifest(
         "inspection": {
             "row_count": int(len(inspection_frame)),
             "max_points": viewer_config.max_inspection_points,
+            "cap_was_enough_for_priority_buckets": (
+                inspection_selection.cap_was_enough_for_priority
+            ),
+            "selection_buckets": inspection_selection.bucket_counts,
             "csv": str(viewer_config.inspection_points_path),
             "geojson": str(inspection_geojson_path),
             "javascript": str(inspection_js_path),

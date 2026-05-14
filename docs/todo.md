@@ -146,7 +146,7 @@ Phase 2 non-goals:
     Kelpwatch-positive rows. The masked sample has `231,345` rows from
     `1,360,150` retained-domain population rows; the split manifest has no
     dropped-feature rows. No Big Sur models or predictions were trained.
-- [ ] P2-04: Improve results visualizer review layers.
+- [x] P2-04: Improve results visualizer review layers.
   - Goal: Make the Monterey visualizer focus on Kelpwatch-observed canopy
     points, binary FNs, and high hurdle/conditional values instead of letting
     deep-water TNs dominate the default binary outcome view.
@@ -156,6 +156,19 @@ Phase 2 non-goals:
   - Acceptance: the existing 50k cap is tested first, any cap increase is
     recorded, and Kelpwatch positives/FNs remain visible for manual QA.
   - Plan: `tasks/46_improve_results_visualizer_review_layers.md`.
+  - Completed: prioritized binary TP/FP/FN review rows, including FNs,
+    Kelpwatch-positive rows, non-TN Kelpwatch-observed rows, high expected-value
+    hurdle predictions, high conditional-canopy predictions, and large hurdle
+    residuals (`abs(residual) >= 90 m2`) without filling the cap with small
+    true-negative support rows; split binary outcome review into TP/FP/FN and
+    TN-only layers; deduplicated popup fields; refreshed the Monterey
+    visualizer artifacts. The existing `50,000` cap was enough:
+    `9,432/9,432` TP/FP/FN rows, `1,470/1,470` binary FNs,
+    `9,019/9,019` Kelpwatch-positive rows, `9,047/9,047` non-TN
+    Kelpwatch-observed rows, `6,541/6,541` large hurdle residuals,
+    `7,287/7,287` high hurdle rows, and `2,498/2,498` high conditional rows
+    were included. True negatives are omitted unless they meet the large
+    residual rule: `35/417,208` included.
 - [ ] P2-05: Add results visualizer layer filters and legends.
   - Goal: Let reviewers hide noisy binary outcome classes and low-scoring
     continuous/probability values per data type or layer, while replacing
