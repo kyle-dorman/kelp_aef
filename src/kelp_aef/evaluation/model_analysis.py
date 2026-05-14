@@ -583,6 +583,84 @@ TOP_RESIDUAL_CONTEXT_FIELDS = (
     "abs_residual_kelp_max_y",
     "residual_class",
 )
+PHASE2_TRAINING_REGIME_MODELS = (
+    "ridge_regression",
+    "calibrated_probability_x_conditional_canopy",
+    "calibrated_hard_gate_conditional_canopy",
+)
+PHASE2_BINARY_SUPPORT_FIELDS = (
+    "evaluation_region",
+    "training_regime",
+    "model_origin_region",
+    "model_name",
+    "target_label",
+    "split",
+    "year",
+    "mask_status",
+    "evaluation_scope",
+    "label_source",
+    "row_count",
+    "positive_count",
+    "positive_rate",
+    "predicted_positive_count",
+    "predicted_positive_rate",
+    "probability_source",
+    "threshold_policy",
+    "probability_threshold",
+    "auroc",
+    "auprc",
+    "precision",
+    "recall",
+    "f1",
+    "true_positive_count",
+    "false_positive_count",
+    "false_positive_rate",
+    "false_negative_count",
+    "false_negative_rate",
+    "assumed_background_count",
+    "assumed_background_false_positive_count",
+    "assumed_background_false_positive_rate",
+    "full_grid_predictions",
+    "calibration_model",
+)
+PHASE2_TRAINING_REGIME_LABELS = {
+    "monterey_only": "Monterey-only",
+    "big_sur_only": "Big Sur-only",
+    "pooled_monterey_big_sur": "Pooled Monterey+Big Sur",
+}
+PHASE2_EVALUATION_REGION_LABELS = {
+    "monterey": "Monterey",
+    "big_sur": "Big Sur",
+}
+
+
+@dataclass(frozen=True)
+class Phase2BinarySupportInput:
+    """Configured binary-support input for one train/evaluate cell."""
+
+    name: str
+    full_grid_predictions_path: Path
+    calibration_model_path: Path
+    training_regime: str
+    model_origin_region: str
+    evaluation_region: str
+    threshold_policy: str
+
+
+@dataclass(frozen=True)
+class Phase2ReportConfig:
+    """Resolved Phase 2 report comparison inputs and primary filters."""
+
+    training_regime_model_comparison_path: Path
+    training_regime_primary_summary_path: Path
+    training_regime_manifest_path: Path
+    binary_support_primary_summary_path: Path
+    binary_support_inputs: tuple[Phase2BinarySupportInput, ...]
+    primary_split: str
+    primary_year: int
+    primary_mask_status: str
+    primary_evaluation_scope: str
+    primary_label_source: str
 
 
 @dataclass(frozen=True)
@@ -680,6 +758,7 @@ class ModelAnalysisConfig:
     residual_interactive_html: Path
     top_residual_count: int
     domain_mask: ReportingDomainMask | None
+    phase2_report: Phase2ReportConfig | None
 
 
 @dataclass(frozen=True)
@@ -730,6 +809,8 @@ class AnalysisTables:
     top_residual_context: list[dict[str, object]]
     quarter_mapping: list[dict[str, object]]
     reference_area_calibration: list[dict[str, object]]
+    phase2_training_regime_primary: list[dict[str, object]]
+    phase2_binary_support: list[dict[str, object]]
 
 
 @dataclass(frozen=True)
@@ -1178,7 +1259,136 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             DEFAULT_TOP_RESIDUAL_COUNT,
         ),
         domain_mask=domain_mask,
+        phase2_report=load_phase2_report_config(config, config_path, outputs, tables_dir),
     )
+
+
+def load_phase2_report_config(
+    config: dict[str, Any],
+    config_path: Path,
+    outputs: dict[str, Any],
+    tables_dir: Path,
+) -> Phase2ReportConfig | None:
+    """Load optional Phase 2 report comparison settings from config."""
+    comparison = optional_mapping(
+        config.get("training_regime_comparison"),
+        "training_regime_comparison",
+    )
+    if not comparison:
+        return None
+    binary_support = optional_mapping(
+        comparison.get("binary_support"),
+        "training_regime_comparison.binary_support",
+    )
+    binary_inputs = optional_mapping(
+        binary_support.get("inputs"),
+        "training_regime_comparison.binary_support.inputs",
+    )
+    return Phase2ReportConfig(
+        training_regime_model_comparison_path=config_relative_path(
+            comparison.get("model_comparison"),
+            "training_regime_comparison.model_comparison",
+            config_path,
+        ),
+        training_regime_primary_summary_path=config_relative_path(
+            comparison.get("primary_summary"),
+            "training_regime_comparison.primary_summary",
+            config_path,
+        ),
+        training_regime_manifest_path=config_relative_path(
+            comparison.get("manifest"),
+            "training_regime_comparison.manifest",
+            config_path,
+        ),
+        binary_support_primary_summary_path=phase2_binary_support_output_path(
+            binary_support,
+            outputs,
+            tables_dir,
+            config_path,
+        ),
+        binary_support_inputs=tuple(
+            phase2_binary_support_input(input_name, value, config_path)
+            for input_name, value in sorted(binary_inputs.items(), key=lambda item: str(item[0]))
+        ),
+        primary_split=str(comparison.get("primary_split", DEFAULT_ANALYSIS_SPLIT)),
+        primary_year=optional_int(
+            comparison.get("primary_year"),
+            "training_regime_comparison.primary_year",
+            DEFAULT_ANALYSIS_YEAR,
+        ),
+        primary_mask_status=str(comparison.get("primary_mask_status", "plausible_kelp_domain")),
+        primary_evaluation_scope=str(
+            comparison.get("primary_evaluation_scope", "full_grid_masked")
+        ),
+        primary_label_source=str(comparison.get("primary_label_source", "all")),
+    )
+
+
+def phase2_binary_support_output_path(
+    binary_support: dict[str, Any],
+    outputs: dict[str, Any],
+    tables_dir: Path,
+    config_path: Path,
+) -> Path:
+    """Return the configured Phase 2 binary-support summary output path."""
+    if binary_support.get("primary_summary") is not None:
+        return config_relative_path(
+            binary_support.get("primary_summary"),
+            "training_regime_comparison.binary_support.primary_summary",
+            config_path,
+        )
+    return output_path(
+        outputs,
+        "model_analysis_phase2_binary_support_primary_summary",
+        tables_dir / "monterey_big_sur_binary_support_primary_summary.csv",
+    )
+
+
+def phase2_binary_support_input(
+    name: object,
+    value: object,
+    config_path: Path,
+) -> Phase2BinarySupportInput:
+    """Load one Phase 2 binary-support input entry."""
+    input_name = str(name)
+    entry = require_mapping(
+        value,
+        f"training_regime_comparison.binary_support.inputs.{input_name}",
+    )
+    return Phase2BinarySupportInput(
+        name=input_name,
+        full_grid_predictions_path=config_relative_path(
+            entry.get("full_grid_predictions"),
+            f"training_regime_comparison.binary_support.inputs.{input_name}.full_grid_predictions",
+            config_path,
+        ),
+        calibration_model_path=config_relative_path(
+            entry.get("calibration_model"),
+            f"training_regime_comparison.binary_support.inputs.{input_name}.calibration_model",
+            config_path,
+        ),
+        training_regime=require_string(
+            entry.get("training_regime"),
+            f"training_regime_comparison.binary_support.inputs.{input_name}.training_regime",
+        ),
+        model_origin_region=require_string(
+            entry.get("model_origin_region"),
+            f"training_regime_comparison.binary_support.inputs.{input_name}.model_origin_region",
+        ),
+        evaluation_region=require_string(
+            entry.get("evaluation_region"),
+            f"training_regime_comparison.binary_support.inputs.{input_name}.evaluation_region",
+        ),
+        threshold_policy=str(entry.get("threshold_policy", "validation_max_f1_calibrated")),
+    )
+
+
+def config_relative_path(value: object, name: str, config_path: Path) -> Path:
+    """Read a path config value, resolving relative paths next to the config file."""
+    path = Path(require_string(value, name))
+    if path.is_absolute():
+        return path
+    return config_path.parent / path
 
 
 def optional_mapping(value: object, name: str) -> dict[str, Any]:
@@ -1625,6 +1835,8 @@ def build_analysis_tables(
     residual_by_depth_bin = build_residual_by_depth_bin(data.model_predictions, analysis_config)
     top_residual_context = build_top_residual_context(data.model_predictions, analysis_config)
     quarter_mapping = build_quarter_mapping(analysis_config)
+    phase2_training_regime_primary = read_phase2_training_regime_primary(analysis_config)
+    phase2_binary_support = build_phase2_binary_support_summary(analysis_config)
     data.aligned.attrs["model_analysis_projection_frame"] = projection_frame
     return AnalysisTables(
         stage_distribution=build_stage_distribution(data),
@@ -1651,6 +1863,198 @@ def build_analysis_tables(
         top_residual_context=top_residual_context,
         quarter_mapping=quarter_mapping,
         reference_area_calibration=reference_area_calibration,
+        phase2_training_regime_primary=phase2_training_regime_primary,
+        phase2_binary_support=phase2_binary_support,
+    )
+
+
+def read_phase2_training_regime_primary(
+    analysis_config: ModelAnalysisConfig,
+) -> list[dict[str, object]]:
+    """Read configured Phase 2 primary training-regime rows."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None:
+        return []
+    rows = read_optional_csv_rows(phase2_config.training_regime_primary_summary_path)
+    return [row for row in rows if phase2_primary_filter_match(row, phase2_config)]
+
+
+def phase2_primary_filter_match(
+    row: dict[str, object],
+    phase2_config: Phase2ReportConfig,
+) -> bool:
+    """Return whether a row matches the configured Phase 2 primary filters."""
+    return (
+        str(row.get("split", "")) == phase2_config.primary_split
+        and sampling_policy_year_matches(row.get("year"), phase2_config.primary_year)
+        and str(row.get("mask_status", "")) == phase2_config.primary_mask_status
+        and str(row.get("evaluation_scope", "")) == phase2_config.primary_evaluation_scope
+        and str(row.get("label_source", "")) == phase2_config.primary_label_source
+    )
+
+
+def build_phase2_binary_support_summary(
+    analysis_config: ModelAnalysisConfig,
+) -> list[dict[str, object]]:
+    """Compute Phase 2 full-grid binary support rows from configured inputs."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None:
+        return []
+    rows = [
+        phase2_binary_support_row(input_config, phase2_config)
+        for input_config in phase2_config.binary_support_inputs
+    ]
+    return sorted(rows, key=phase2_binary_support_sort_key)
+
+
+def phase2_binary_support_row(
+    input_config: Phase2BinarySupportInput,
+    phase2_config: Phase2ReportConfig,
+) -> dict[str, object]:
+    """Compute one Phase 2 binary-support summary row."""
+    predictions = read_phase2_binary_support_predictions(input_config, phase2_config)
+    payload = cast(dict[str, Any], joblib.load(input_config.calibration_model_path))
+    policy_thresholds = cast(dict[str, tuple[str, float]], payload.get("policy_thresholds", {}))
+    if input_config.threshold_policy not in policy_thresholds:
+        msg = (
+            "binary calibration payload is missing threshold policy "
+            f"{input_config.threshold_policy}: {input_config.calibration_model_path}"
+        )
+        raise ValueError(msg)
+    probability_source, probability_threshold = policy_thresholds[input_config.threshold_policy]
+    raw_probabilities = predictions["pred_binary_probability"].to_numpy(dtype=float)
+    probabilities = (
+        raw_probabilities
+        if probability_source == "raw_logistic"
+        else apply_binary_calibrator(binary_calibrator_from_payload(payload), raw_probabilities)
+    )
+    valid = np.isfinite(probabilities)
+    observed = predictions.loc[valid, "binary_observed_y"].to_numpy(dtype=bool)
+    valid_probabilities = probabilities[valid]
+    predicted = valid_probabilities >= float(probability_threshold)
+    false_positive = ~observed & predicted
+    false_negative = observed & ~predicted
+    true_positive = observed & predicted
+    precision, recall, f1 = precision_recall_f1(observed, predicted)
+    label_sources = (
+        predictions.loc[valid, "label_source"].to_numpy(dtype=object)
+        if "label_source" in predictions.columns
+        else np.full(observed.shape, phase2_config.primary_label_source, dtype=object)
+    )
+    assumed_background = label_sources == "assumed_background"
+    assumed_background_false_positive = assumed_background & false_positive
+    positive_count = int(np.count_nonzero(observed))
+    predicted_positive_count = int(np.count_nonzero(predicted))
+    return {
+        "evaluation_region": input_config.evaluation_region,
+        "training_regime": input_config.training_regime,
+        "model_origin_region": input_config.model_origin_region,
+        "model_name": str(payload.get("model_name", "logistic_annual_max_ge_10pct")),
+        "target_label": phase2_binary_target_label(predictions),
+        "split": phase2_config.primary_split,
+        "year": phase2_config.primary_year,
+        "mask_status": phase2_config.primary_mask_status,
+        "evaluation_scope": phase2_config.primary_evaluation_scope,
+        "label_source": phase2_config.primary_label_source,
+        "row_count": int(observed.size),
+        "positive_count": positive_count,
+        "positive_rate": safe_ratio(positive_count, int(observed.size)),
+        "predicted_positive_count": predicted_positive_count,
+        "predicted_positive_rate": safe_ratio(predicted_positive_count, int(predicted.size)),
+        "probability_source": probability_source,
+        "threshold_policy": input_config.threshold_policy,
+        "probability_threshold": float(probability_threshold),
+        "auroc": binary_auroc(observed, valid_probabilities),
+        "auprc": binary_auprc(observed, valid_probabilities),
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "true_positive_count": int(np.count_nonzero(true_positive)),
+        "false_positive_count": int(np.count_nonzero(false_positive)),
+        "false_positive_rate": safe_ratio(
+            int(np.count_nonzero(false_positive)),
+            int(observed.size - positive_count),
+        ),
+        "false_negative_count": int(np.count_nonzero(false_negative)),
+        "false_negative_rate": safe_ratio(int(np.count_nonzero(false_negative)), positive_count),
+        "assumed_background_count": int(np.count_nonzero(assumed_background)),
+        "assumed_background_false_positive_count": int(
+            np.count_nonzero(assumed_background_false_positive)
+        ),
+        "assumed_background_false_positive_rate": safe_ratio(
+            int(np.count_nonzero(assumed_background_false_positive)),
+            int(np.count_nonzero(assumed_background)),
+        ),
+        "full_grid_predictions": str(input_config.full_grid_predictions_path),
+        "calibration_model": str(input_config.calibration_model_path),
+    }
+
+
+def read_phase2_binary_support_predictions(
+    input_config: Phase2BinarySupportInput,
+    phase2_config: Phase2ReportConfig,
+) -> pd.DataFrame:
+    """Read primary split/year binary full-grid predictions for Phase 2 support."""
+    path = input_config.full_grid_predictions_path
+    if not path.exists():
+        msg = f"Phase 2 binary prediction input does not exist: {path}"
+        raise FileNotFoundError(msg)
+    available = set(ds.dataset(path, format="parquet").schema.names)  # type: ignore[no-untyped-call]
+    columns = [
+        column
+        for column in (
+            "split",
+            "year",
+            "label_source",
+            "binary_observed_y",
+            "pred_binary_probability",
+            "target_label",
+        )
+        if column in available
+    ]
+    filters = [
+        ("split", "==", phase2_config.primary_split),
+        ("year", "==", phase2_config.primary_year),
+    ]
+    try:
+        frame = pd.read_parquet(path, columns=columns, filters=filters)
+    except (ArrowInvalid, NotImplementedError, ValueError):
+        frame = pd.read_parquet(path, columns=columns)
+        frame = frame.loc[
+            (frame["split"] == phase2_config.primary_split)
+            & (frame["year"].astype(int) == phase2_config.primary_year)
+        ].copy()
+    required = {"split", "year", "binary_observed_y", "pred_binary_probability"}
+    if not required.issubset(frame.columns):
+        msg = f"Phase 2 binary prediction input is missing required columns: {path}"
+        raise ValueError(msg)
+    if frame.empty:
+        msg = (
+            "Phase 2 binary prediction input has no primary rows for "
+            f"{phase2_config.primary_split} {phase2_config.primary_year}: {path}"
+        )
+        raise ValueError(msg)
+    if "label_source" not in frame.columns:
+        frame["label_source"] = phase2_config.primary_label_source
+    return frame.reset_index(drop=True)
+
+
+def phase2_binary_target_label(predictions: pd.DataFrame) -> str:
+    """Return the binary target label carried by a prediction artifact."""
+    if "target_label" not in predictions.columns:
+        return "annual_max_ge_10pct"
+    labels = predictions["target_label"].dropna().astype(str).unique()
+    return str(labels[0]) if len(labels) else "annual_max_ge_10pct"
+
+
+def phase2_binary_support_sort_key(row: dict[str, object]) -> tuple[int, int, str]:
+    """Sort Phase 2 binary rows by region and canonical training regime."""
+    region_order = {"big_sur": 0, "monterey": 1}
+    regime_order = {"monterey_only": 0, "big_sur_only": 1, "pooled_monterey_big_sur": 2}
+    return (
+        region_order.get(str(row.get("evaluation_region", "")), 99),
+        regime_order.get(str(row.get("training_regime", "")), 99),
+        str(row.get("training_regime", "")),
     )
 
 
@@ -4686,6 +5090,12 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
     )
     write_csv(tables.data_health, analysis_config.data_health_path, DATA_HEALTH_FIELDS)
     write_csv(tables.quarter_mapping, analysis_config.quarter_mapping_path, QUARTER_MAPPING_FIELDS)
+    if analysis_config.phase2_report is not None:
+        write_csv(
+            tables.phase2_binary_support,
+            analysis_config.phase2_report.binary_support_primary_summary_path,
+            PHASE2_BINARY_SUPPORT_FIELDS,
+        )
 
 
 def write_csv(rows: list[dict[str, object]], output_path: Path, fields: tuple[str, ...]) -> None:
@@ -5211,7 +5621,10 @@ def write_residual_domain_context_figure(
 def write_report(
     data: AnalysisData, tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> None:
-    """Write the Markdown Phase 1 model-analysis report."""
+    """Write the Markdown model-analysis report."""
+    if analysis_config.phase2_report is not None:
+        write_phase2_report(data, tables, analysis_config)
+        return
     output_path = analysis_config.report_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
     test_distribution = first_matching_row(
@@ -5373,6 +5786,140 @@ def write_report(
     write_pdf_report(report_text.splitlines(), analysis_config.pdf_report_path, output_path.parent)
 
 
+def write_phase2_report(
+    data: AnalysisData,
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+) -> None:
+    """Write the Phase 2 Big Sur generalization report."""
+    output_path = analysis_config.report_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    test_distribution = first_matching_row(
+        tables.prediction_distribution,
+        split=analysis_config.analysis_split,
+        year=analysis_config.analysis_year,
+    )
+    stage_rows = [
+        row
+        for row in tables.stage_distribution
+        if row["year"] == analysis_config.analysis_year
+        and row["stage"] in {"annual_labels", "model_input_sample", "retained_model_rows"}
+    ]
+    report = [
+        "# Big Sur Phase 2 Model Analysis",
+        "",
+        "## Executive Summary",
+        "",
+        phase2_executive_summary_markdown(tables, analysis_config),
+        "",
+        "## Phase 2 Training-Regime Answer",
+        "",
+        phase2_training_regime_answer_markdown(tables, analysis_config),
+        "",
+        "### Canopy Amount And Hurdle Calibration",
+        "",
+        phase2_amount_comparison_markdown(tables, analysis_config),
+        "",
+        "### Binary Support Transfer",
+        "",
+        phase2_binary_support_markdown(tables, analysis_config),
+        "",
+        "## Big Sur Same-Region Context",
+        "",
+        phase2_policy_scope_markdown(analysis_config),
+        "",
+        primary_scoreboard_markdown(tables.phase1_model_comparison, analysis_config),
+        "",
+        image_markdown(
+            "Pixel skill and area calibration",
+            analysis_config.pixel_skill_area_calibration_figure,
+            output_path,
+        ),
+        "",
+        "### Big Sur Binary-Presence Diagnostic Map",
+        "",
+        binary_presence_decision_markdown(analysis_config),
+        "",
+        binary_presence_map_figure_markdown(analysis_config, output_path),
+        "",
+        "## Remaining Failure Modes",
+        "",
+        phase2_text_without_phase1_task_refs(
+            phase2_remaining_failure_modes_markdown(tables, analysis_config, test_distribution)
+        ),
+        "",
+        image_markdown(
+            "Residual by observed bin", analysis_config.residual_by_bin_figure, output_path
+        ),
+        "",
+        image_markdown(
+            "Residual by persistence",
+            analysis_config.residual_by_persistence_figure,
+            output_path,
+        ),
+        "",
+        image_markdown(
+            "Residual by retained domain context",
+            analysis_config.residual_domain_context_figure,
+            output_path,
+        ),
+        "",
+        "## Appendix",
+        "",
+        "### Data Health And Scope Checks",
+        "",
+        data_health_markdown(tables.data_health, analysis_config),
+        "",
+        stage_distribution_markdown(stage_rows),
+        "",
+        class_target_balance_markdown(tables, analysis_config),
+        "",
+        image_markdown(
+            "Label distribution", analysis_config.label_distribution_figure, output_path
+        ),
+        "",
+        image_markdown(
+            "Annual-max class balance",
+            analysis_config.class_balance_figure,
+            output_path,
+        ),
+        "",
+        "### Threshold, Calibration, And Amount Diagnostics",
+        "",
+        phase2_text_without_phase1_task_refs(
+            binary_threshold_comparison_markdown(tables, analysis_config)
+        ),
+        "",
+        binary_presence_markdown(tables, analysis_config),
+        "",
+        phase2_text_without_phase1_task_refs(binary_presence_calibration_markdown(analysis_config)),
+        "",
+        conditional_canopy_markdown(analysis_config),
+        "",
+        phase2_text_without_phase1_task_refs(hurdle_model_markdown(tables, analysis_config)),
+        "",
+        "### Artifact Index",
+        "",
+        phase2_artifact_index_markdown(analysis_config),
+        "",
+        "Validation command:",
+        "",
+        "```bash",
+        "uv run kelp-aef analyze-model --config configs/big_sur_smoke.yaml",
+        "```",
+        "",
+    ]
+    report_text = "\n".join(report)
+    output_path.write_text(report_text)
+    write_html_report(
+        report_text.splitlines(),
+        analysis_config.html_report_path,
+        output_path.parent,
+        title="Big Sur Phase 2 Model Analysis",
+    )
+    write_pdf_report(report_text.splitlines(), analysis_config.pdf_report_path, output_path.parent)
+
+
 def image_markdown(alt_text: str, image_path: Path, report_path: Path) -> str:
     """Build a Markdown image link that is relative to the report file."""
     return f"![{alt_text}]({relative_markdown_path(image_path, report_path.parent)})"
@@ -5523,7 +6070,11 @@ IMAGE_MARKDOWN_PATTERN = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)$")
 
 
 def write_html_report(
-    markdown_lines: list[str], output_path: Path, markdown_base_dir: Path
+    markdown_lines: list[str],
+    output_path: Path,
+    markdown_base_dir: Path,
+    *,
+    title: str = "Monterey Phase 1 Model Analysis",
 ) -> None:
     """Write a standalone HTML report with image files embedded as data URIs."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -5534,7 +6085,7 @@ def write_html_report(
         "<head>",
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        "<title>Monterey Phase 1 Model Analysis</title>",
+        f"<title>{html.escape(title)}</title>",
         "<style>",
         "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; margin: 0; background: #f6f7f8; color: #1f2933; }",
         "main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 56px; background: #ffffff; }",
@@ -6526,6 +7077,450 @@ def current_policy_scope_markdown(analysis_config: ModelAnalysisConfig) -> str:
         f"- Model comparison table: `{analysis_config.phase1_model_comparison_path}`",
     ]
     return "\n".join(lines)
+
+
+def phase2_executive_summary_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the Phase 2 executive-summary answer."""
+    big_sur_transfer = phase2_amount_row(
+        tables.phase2_training_regime_primary,
+        evaluation_region="big_sur",
+        training_regime="monterey_only",
+        model_name="calibrated_probability_x_conditional_canopy",
+    )
+    big_sur_local = phase2_amount_row(
+        tables.phase2_training_regime_primary,
+        evaluation_region="big_sur",
+        training_regime="big_sur_only",
+        model_name="calibrated_probability_x_conditional_canopy",
+    )
+    big_sur_pooled = phase2_amount_row(
+        tables.phase2_training_regime_primary,
+        evaluation_region="big_sur",
+        training_regime="pooled_monterey_big_sur",
+        model_name="calibrated_probability_x_conditional_canopy",
+    )
+    binary_transfer = phase2_binary_row(
+        tables.phase2_binary_support,
+        evaluation_region="big_sur",
+        training_regime="monterey_only",
+    )
+    binary_local = phase2_binary_row(
+        tables.phase2_binary_support,
+        evaluation_region="big_sur",
+        training_regime="big_sur_only",
+    )
+    binary_pooled = phase2_binary_row(
+        tables.phase2_binary_support,
+        evaluation_region="big_sur",
+        training_regime="pooled_monterey_big_sur",
+    )
+    monterey_local = phase2_binary_row(
+        tables.phase2_binary_support,
+        evaluation_region="monterey",
+        training_regime="monterey_only",
+    )
+    monterey_pooled = phase2_binary_row(
+        tables.phase2_binary_support,
+        evaluation_region="monterey",
+        training_regime="pooled_monterey_big_sur",
+    )
+    return "\n\n".join(
+        [
+            (
+                "This Phase 2 report evaluates Kelpwatch-style annual maximum reproduction "
+                "across Monterey and Big Sur. It is not independent field-truth biomass "
+                "validation."
+            ),
+            (
+                "Big Sur-only training is best for Big Sur canopy amount calibration. The "
+                "Big Sur-only expected-value hurdle has area bias "
+                f"`{format_percent(row_float(big_sur_local, 'area_pct_bias'), 1)}`, RMSE "
+                f"`{format_decimal(row_float(big_sur_local, 'rmse'), 4)}`, and F1 "
+                f"`{format_decimal(row_float(big_sur_local, 'f1_ge_10pct'), 3)}`. Monterey-only "
+                f"transfer area bias is `{format_percent(row_float(big_sur_transfer, 'area_pct_bias'), 1)}`, "
+                f"and pooled Monterey+Big Sur area bias is "
+                f"`{format_percent(row_float(big_sur_pooled, 'area_pct_bias'), 1)}`."
+            ),
+            (
+                "Pooled Monterey+Big Sur training does not beat Big Sur-only for Big Sur "
+                "canopy amount calibration. It is closer to Monterey-transfer behavior than "
+                "to the locally tuned Big Sur hurdle on the primary retained-domain 2022 rows."
+            ),
+            (
+                "Binary support transfers much better than canopy amount. Monterey-to-Big-Sur "
+                f"binary F1 is `{format_decimal(row_float(binary_transfer, 'f1'), 3)}` versus "
+                f"Big Sur-only `{format_decimal(row_float(binary_local, 'f1'), 3)}`. The pooled "
+                f"Big Sur binary row is competitive at F1 `{format_decimal(row_float(binary_pooled, 'f1'), 3)}`, "
+                f"with higher precision `{format_decimal(row_float(binary_pooled, 'precision'), 3)}` "
+                f"and lower recall `{format_decimal(row_float(binary_pooled, 'recall'), 3)}` than "
+                "the local model."
+            ),
+            (
+                "Pooled binary support is more conservative in both regions: on Monterey, pooled "
+                f"precision is `{format_decimal(row_float(monterey_pooled, 'precision'), 3)}` "
+                f"versus Monterey-only `{format_decimal(row_float(monterey_local, 'precision'), 3)}`, "
+                f"while pooled recall falls to `{format_decimal(row_float(monterey_pooled, 'recall'), 3)}`."
+            ),
+        ]
+    )
+
+
+def phase2_training_regime_answer_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the direct Phase 2 training-regime answer section."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None:
+        return "Phase 2 training-regime inputs are not configured."
+    big_sur_local = phase2_amount_row(
+        tables.phase2_training_regime_primary,
+        evaluation_region="big_sur",
+        training_regime="big_sur_only",
+        model_name="calibrated_probability_x_conditional_canopy",
+    )
+    big_sur_pooled = phase2_amount_row(
+        tables.phase2_training_regime_primary,
+        evaluation_region="big_sur",
+        training_regime="pooled_monterey_big_sur",
+        model_name="calibrated_probability_x_conditional_canopy",
+    )
+    binary_local = phase2_binary_row(
+        tables.phase2_binary_support,
+        evaluation_region="big_sur",
+        training_regime="big_sur_only",
+    )
+    binary_pooled = phase2_binary_row(
+        tables.phase2_binary_support,
+        evaluation_region="big_sur",
+        training_regime="pooled_monterey_big_sur",
+    )
+    lines = [
+        (
+            f"Primary rows use `split = {phase2_config.primary_split}`, "
+            f"`year = {phase2_config.primary_year}`, "
+            f"`mask_status = {phase2_config.primary_mask_status}`, "
+            f"`evaluation_scope = {phase2_config.primary_evaluation_scope}`, and "
+            f"`label_source = {phase2_config.primary_label_source}`."
+        ),
+        (
+            "Answer: Big Sur-only training improves Big Sur canopy amount calibration, and "
+            "pooled Monterey+Big Sur training does not beat it. The local Big Sur expected-value "
+            f"hurdle has area bias `{format_percent(row_float(big_sur_local, 'area_pct_bias'), 1)}` "
+            f"versus pooled `{format_percent(row_float(big_sur_pooled, 'area_pct_bias'), 1)}`."
+        ),
+        (
+            "The binary-support answer is different. Pooled support is competitive but more "
+            f"conservative: Big Sur pooled precision is "
+            f"`{format_decimal(row_float(binary_pooled, 'precision'), 3)}` versus local "
+            f"`{format_decimal(row_float(binary_local, 'precision'), 3)}`, while pooled recall "
+            f"is `{format_decimal(row_float(binary_pooled, 'recall'), 3)}` versus local "
+            f"`{format_decimal(row_float(binary_local, 'recall'), 3)}`."
+        ),
+    ]
+    return "\n\n".join(lines)
+
+
+def phase2_amount_comparison_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the compact Phase 2 canopy amount comparison table."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None:
+        return "Phase 2 training-regime inputs are not configured."
+    rows = phase2_amount_display_rows(tables.phase2_training_regime_primary)
+    if not rows:
+        return "Phase 2 training-regime primary rows were not available."
+    lines = [
+        (
+            "This table separates canopy amount and hurdle area calibration from binary "
+            "support. Lower absolute area bias and lower RMSE are better for Kelpwatch-style "
+            "annual maximum amount reproduction."
+        ),
+        "",
+        "| Evaluation region | Training regime | Model | F1 >=10% | RMSE | R2 | Area bias |",
+        "|---|---|---|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        lines.append(
+            f"| {phase2_region_label(str(row.get('evaluation_region', '')))} | "
+            f"{phase2_training_regime_label(str(row.get('training_regime', '')))} | "
+            f"{phase2_model_label(str(row.get('model_name', '')))} | "
+            f"{format_decimal(row_float(row, 'f1_ge_10pct'), 3)} | "
+            f"{format_decimal(row_float(row, 'rmse'), 4)} | "
+            f"{format_decimal(row_float(row, 'r2'), 3)} | "
+            f"{format_percent(row_float(row, 'area_pct_bias'), 1)} |"
+        )
+    lines.extend(
+        [
+            "",
+            (
+                "The full comparison table is "
+                f"`{phase2_config.training_regime_primary_summary_path}`."
+            ),
+        ]
+    )
+    return "\n".join(lines)
+
+
+def phase2_binary_support_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the Phase 2 binary-support transfer table."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None:
+        return "Phase 2 binary-support inputs are not configured."
+    rows = tables.phase2_binary_support
+    if not rows:
+        return "Phase 2 binary-support rows were not available."
+    lines = [
+        (
+            "Binary support uses the Kelpwatch-style `annual_max_ge_10pct` target on the "
+            "same 2022 retained-domain full grid. These rows evaluate the calibrated support "
+            "gate, not the conditional canopy amount model."
+        ),
+        "",
+        "| Evaluation region | Training regime | Binary F1 | Precision | Recall | AUPRC | Predicted positive |",
+        "|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in rows:
+        lines.append(
+            f"| {phase2_region_label(str(row.get('evaluation_region', '')))} | "
+            f"{phase2_training_regime_label(str(row.get('training_regime', '')))} | "
+            f"{format_decimal(row_float(row, 'f1'), 3)} | "
+            f"{format_decimal(row_float(row, 'precision'), 3)} | "
+            f"{format_decimal(row_float(row, 'recall'), 3)} | "
+            f"{format_decimal(row_float(row, 'auprc'), 3)} | "
+            f"{format_percent(row_float(row, 'predicted_positive_rate'), 2)} |"
+        )
+    lines.extend(
+        [
+            "",
+            (
+                "Monterey-to-Big-Sur binary transfer is decent; Big-Sur-to-Monterey binary "
+                "transfer is weaker. The larger Phase 2 issue is canopy amount calibration, "
+                "where Big Sur-only tuning matters more than the support classifier alone."
+            ),
+            (
+                "The emitted binary-support table is "
+                f"`{phase2_config.binary_support_primary_summary_path}`."
+            ),
+        ]
+    )
+    return "\n".join(lines)
+
+
+def phase2_policy_scope_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Build the Phase 2 report scope and artifact source section."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None:
+        return "Phase 2 comparison inputs are not configured."
+    lines = [
+        f"- Config: `{analysis_config.config_path}`",
+        f"- Label input: Kelpwatch annual max from `{analysis_config.label_path}`.",
+        f"- Big Sur model input sample: `{analysis_config.aligned_table_path}`",
+        (
+            f"- Same-region Big Sur sampling policy: `{analysis_config.sample_policy}` "
+            f"({sampling_policy_label(analysis_config.sample_policy)})."
+        ),
+        (
+            f"- Primary report filters: `split = {phase2_config.primary_split}`, "
+            f"`year = {phase2_config.primary_year}`, "
+            f"`mask_status = {phase2_config.primary_mask_status}`, "
+            f"`evaluation_scope = {phase2_config.primary_evaluation_scope}`, "
+            f"`label_source = {phase2_config.primary_label_source}`."
+        ),
+        (
+            "- Training-regime comparison table: "
+            f"`{phase2_config.training_regime_primary_summary_path}`"
+        ),
+        f"- Binary-support comparison table: `{phase2_config.binary_support_primary_summary_path}`",
+    ]
+    return "\n".join(lines)
+
+
+def phase2_remaining_failure_modes_markdown(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+    test_distribution: dict[str, object],
+) -> str:
+    """Build Phase 2 failure-mode prose without Phase 1 closeout wording."""
+    high_canopy = primary_conditional_high_canopy_row(analysis_config)
+    near_saturated = primary_conditional_near_saturated_row(analysis_config)
+    lines = [
+        prediction_distribution_markdown(test_distribution),
+        residual_bin_interpretation_markdown(tables.residual_by_bin, analysis_config),
+        mask_aware_residual_markdown(tables, analysis_config),
+        (
+            "High-canopy amount remains the model bottleneck. On held-out observed-positive "
+            f"`annual_max_ge_50pct` rows, the conditional amount model mean residual is "
+            f"`{format_decimal(row_float(high_canopy, 'mean_residual_area'), 1)} m2`; on "
+            f"`near_saturated_ge_810m2` rows it is "
+            f"`{format_decimal(row_float(near_saturated, 'mean_residual_area'), 1)} m2`."
+        ),
+        (
+            "Phase 2 therefore points to region-specific canopy amount calibration as the "
+            "main unresolved issue, while binary support is comparatively transferable. "
+            "The visual QA and Phase 2 closeout tasks should use this split explicitly."
+        ),
+    ]
+    return "\n\n".join(lines)
+
+
+def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Build the Phase 2 report artifact index."""
+    phase2_config = analysis_config.phase2_report
+    lines = [
+        f"- Stage distribution table: `{analysis_config.label_distribution_path}`",
+        f"- Prediction distribution table: `{analysis_config.prediction_distribution_path}`",
+        f"- Residual by observed bin table: `{analysis_config.residual_by_bin_path}`",
+        f"- Residual by persistence table: `{analysis_config.residual_by_persistence_path}`",
+        f"- Residual by domain context table: `{analysis_config.residual_domain_context_path}`",
+        f"- Residual by mask reason table: `{analysis_config.residual_by_mask_reason_path}`",
+        f"- Residual by depth/elevation bin table: `{analysis_config.residual_by_depth_bin_path}`",
+        f"- Top residual domain-context table: `{analysis_config.top_residual_context_path}`",
+        f"- Class balance by split table: `{analysis_config.class_balance_by_split_path}`",
+        f"- Target balance by label source table: `{analysis_config.target_balance_by_label_source_path}`",
+        f"- Background rate summary table: `{analysis_config.background_rate_summary_path}`",
+        f"- Binary threshold prevalence table: `{analysis_config.binary_threshold_prevalence_path}`",
+        f"- Binary threshold comparison table: `{analysis_config.binary_threshold_comparison_path}`",
+        f"- Binary threshold recommendation table: `{analysis_config.binary_threshold_recommendation_path}`",
+        binary_presence_appendix_markdown(analysis_config),
+        binary_presence_calibration_appendix_markdown(analysis_config),
+        conditional_canopy_appendix_markdown(analysis_config),
+        hurdle_model_appendix_markdown(analysis_config),
+        f"- Big Sur same-region model comparison table: `{analysis_config.phase1_model_comparison_path}`",
+        (
+            "- Big Sur all-model sampling-policy audit table: "
+            f"`{analysis_config.all_model_sampling_policy_comparison_path}`"
+        ),
+        f"- Big Sur data-health table: `{analysis_config.data_health_path}`",
+        f"- Quarter mapping table: `{analysis_config.quarter_mapping_path}`",
+        f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
+        f"- Reference area calibration table: `{analysis_config.reference_area_calibration_path}`",
+        f"- Phase 2 PDF report: `{analysis_config.pdf_report_path}`",
+    ]
+    if phase2_config is not None:
+        lines.extend(
+            [
+                (
+                    "- Phase 2 training-regime primary summary: "
+                    f"`{phase2_config.training_regime_primary_summary_path}`"
+                ),
+                (
+                    "- Phase 2 training-regime manifest: "
+                    f"`{phase2_config.training_regime_manifest_path}`"
+                ),
+                (
+                    "- Phase 2 binary-support primary summary: "
+                    f"`{phase2_config.binary_support_primary_summary_path}`"
+                ),
+            ]
+        )
+    return "\n".join(line for line in lines if line)
+
+
+def phase2_text_without_phase1_task_refs(text: str) -> str:
+    """Remove Phase 1 task-specific wording from reused Phase 2 appendix text."""
+    replacements = {
+        "The recommended next P1-18 candidate is": (
+            "The validation-selected binary threshold candidate is"
+        ),
+        "raw P1-18 thresholding": "raw validation-threshold policy",
+        "p1_18_validation_raw_threshold": "raw_validation_threshold",
+        "P1-12/P1-14 plausible-kelp domain mask": "configured plausible-kelp domain mask",
+        "P1-20 high-canopy underprediction": "high-canopy underprediction",
+        (
+            "is a Phase 1 failure-mode finding, not a reason to tune mask thresholds "
+            "in the closeout."
+        ): (
+            "remains a retained-domain failure-mode finding, not a reason to tune mask "
+            "thresholds from held-out test rows."
+        ),
+    }
+    scrubbed = text
+    for old, new in replacements.items():
+        scrubbed = scrubbed.replace(old, new)
+    return scrubbed
+
+
+def phase2_amount_display_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Select and sort compact Phase 2 amount-comparison rows."""
+    selected = [
+        row for row in rows if str(row.get("model_name", "")) in PHASE2_TRAINING_REGIME_MODELS
+    ]
+    return sorted(selected, key=phase2_amount_sort_key)
+
+
+def phase2_amount_sort_key(row: dict[str, object]) -> tuple[int, int, int, str]:
+    """Sort Phase 2 amount rows by region, regime, and model."""
+    region_order = {"big_sur": 0, "monterey": 1}
+    regime_order = {"monterey_only": 0, "big_sur_only": 1, "pooled_monterey_big_sur": 2}
+    model_name = str(row.get("model_name", ""))
+    model_order = (
+        PHASE2_TRAINING_REGIME_MODELS.index(model_name)
+        if model_name in PHASE2_TRAINING_REGIME_MODELS
+        else len(PHASE2_TRAINING_REGIME_MODELS)
+    )
+    return (
+        region_order.get(str(row.get("evaluation_region", "")), 99),
+        regime_order.get(str(row.get("training_regime", "")), 99),
+        model_order,
+        model_name,
+    )
+
+
+def phase2_amount_row(
+    rows: list[dict[str, object]],
+    *,
+    evaluation_region: str,
+    training_regime: str,
+    model_name: str,
+) -> dict[str, object]:
+    """Return one Phase 2 amount-comparison row."""
+    for row in rows:
+        if (
+            str(row.get("evaluation_region", "")) == evaluation_region
+            and str(row.get("training_regime", "")) == training_regime
+            and str(row.get("model_name", "")) == model_name
+        ):
+            return row
+    return {}
+
+
+def phase2_binary_row(
+    rows: list[dict[str, object]],
+    *,
+    evaluation_region: str,
+    training_regime: str,
+) -> dict[str, object]:
+    """Return one Phase 2 binary-support row."""
+    for row in rows:
+        if (
+            str(row.get("evaluation_region", "")) == evaluation_region
+            and str(row.get("training_regime", "")) == training_regime
+        ):
+            return row
+    return {}
+
+
+def phase2_region_label(region: str) -> str:
+    """Return the report label for a Phase 2 evaluation region."""
+    return PHASE2_EVALUATION_REGION_LABELS.get(region, region.replace("_", " ").title())
+
+
+def phase2_training_regime_label(training_regime: str) -> str:
+    """Return the report label for a Phase 2 training regime."""
+    return PHASE2_TRAINING_REGIME_LABELS.get(
+        training_regime,
+        training_regime.replace("_", " ").title(),
+    )
+
+
+def phase2_model_label(model_name: str) -> str:
+    """Return the report label for a Phase 2 comparison model."""
+    return PRIMARY_SCOREBOARD_LABELS.get(model_name, model_name.replace("_", " "))
 
 
 def primary_scoreboard_markdown(
@@ -8321,6 +9316,7 @@ def write_manifest(
             "data_health": str(analysis_config.data_health_path),
             "manifest": str(analysis_config.manifest_path),
         },
+        "phase2": phase2_manifest_payload(analysis_config),
         "row_counts": {
             "labels": int(len(data.labels)),
             "aligned": int(len(data.aligned)),
@@ -8346,9 +9342,56 @@ def write_manifest(
             "top_residual_context": len(tables.top_residual_context),
             "reference_area_calibration": len(tables.reference_area_calibration),
             "data_health": len(tables.data_health),
+            "phase2_training_regime_primary": len(tables.phase2_training_regime_primary),
+            "phase2_binary_support": len(tables.phase2_binary_support),
         },
     }
     analysis_config.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with analysis_config.manifest_path.open("w") as file:
         json.dump(payload, file, indent=2)
         file.write("\n")
+
+
+def phase2_manifest_payload(analysis_config: ModelAnalysisConfig) -> dict[str, object] | None:
+    """Build optional Phase 2 report manifest metadata."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None:
+        return None
+    return {
+        "primary_filters": {
+            "split": phase2_config.primary_split,
+            "year": phase2_config.primary_year,
+            "mask_status": phase2_config.primary_mask_status,
+            "evaluation_scope": phase2_config.primary_evaluation_scope,
+            "label_source": phase2_config.primary_label_source,
+        },
+        "inputs": {
+            "training_regime_model_comparison": str(
+                phase2_config.training_regime_model_comparison_path
+            ),
+            "training_regime_primary_summary": str(
+                phase2_config.training_regime_primary_summary_path
+            ),
+            "training_regime_manifest": str(phase2_config.training_regime_manifest_path),
+            "binary_support": [
+                {
+                    "name": input_config.name,
+                    "training_regime": input_config.training_regime,
+                    "model_origin_region": input_config.model_origin_region,
+                    "evaluation_region": input_config.evaluation_region,
+                    "full_grid_predictions": str(input_config.full_grid_predictions_path),
+                    "calibration_model": str(input_config.calibration_model_path),
+                    "threshold_policy": input_config.threshold_policy,
+                }
+                for input_config in phase2_config.binary_support_inputs
+            ],
+        },
+        "outputs": {
+            "binary_support_primary_summary": str(
+                phase2_config.binary_support_primary_summary_path
+            ),
+            "report": str(analysis_config.report_path),
+            "html_report": str(analysis_config.html_report_path),
+            "pdf_report": str(analysis_config.pdf_report_path),
+        },
+    }

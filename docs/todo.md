@@ -264,7 +264,7 @@ Phase 2 non-goals:
     regions, with higher precision but lower recall than the local model.
     This supports treating binary support as relatively transferable and
     canopy amount calibration as the larger region-specific issue.
-- [ ] P2-09: Update the model-analysis report for region and training-regime
+- [x] P2-09: Update the model-analysis report for region and training-regime
       comparison.
   - Goal: Make Phase 2 outcomes visible without turning the report into a long
     chronology.
@@ -273,13 +273,25 @@ Phase 2 non-goals:
   - Acceptance: the report answers whether Big Sur-only or pooled training
     improves Big Sur performance.
   - Plan: `tasks/51_update_phase2_model_analysis_report.md`.
+  - Completed: `analyze-model` now switches the Big Sur report into a compact
+    Phase 2 synthesis when `training_regime_comparison` is configured. The
+    regenerated report leads with the P2-09 answer: Big Sur-only training is
+    best for Big Sur canopy amount calibration; pooled Monterey+Big Sur does
+    not beat Big Sur-only for Big Sur amount calibration; binary support
+    transfers better than canopy amount and pooled support is more
+    conservative. The new binary-support table is
+    `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_binary_support_primary_summary.csv`,
+    and the manifest records the training-regime inputs, binary prediction
+    inputs, calibration payloads, primary filters, and output report paths.
 - [ ] P2-10: Generate or extend the results visualizer for Big Sur.
   - Goal: Make Big Sur labels, predictions, residuals, and binary outcomes
     inspectable.
   - Outputs: Big Sur visualizer or a multi-region visualizer with region/year
     selection.
   - Acceptance: Big Sur can be selected or opened without confusing it with
-    Monterey rows.
+    Monterey rows. Use the P2-09 split explicitly: binary support is relatively
+    transferable, while canopy amount calibration and residual structure need
+    Big Sur visual QA.
 - [ ] P2-11: Close Phase 2 and recommend Phase 3.
   - Goal: Decide whether Phase 3 should broaden geography, test simple
     non-linear tabular models such as random forest or gradient boosting,
@@ -287,7 +299,8 @@ Phase 2 non-goals:
     improve evaluation tooling.
   - Outputs: Phase 2 closeout decision note and updated docs.
   - Acceptance: the decision is grounded in Big Sur source coverage, transfer
-    performance, Big Sur-only performance, pooled performance, and visual QA.
+    performance, Big Sur-only performance, pooled performance, the P2-09 report
+    synthesis, and visual QA.
 
 ## Closed Phase 1 TODO
 

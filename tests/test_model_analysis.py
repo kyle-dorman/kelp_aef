@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import joblib  # type: ignore[import-untyped]
 import pandas as pd  # type: ignore[import-untyped]
 
 from kelp_aef import main
@@ -187,6 +188,60 @@ def test_analyze_model_writes_report_artifacts(tmp_path: Path) -> None:
     assert "<h2>2022 Retained-Domain Model Scoreboard</h2>" in html_report
     assert "<h2>Phase 1 Closeout Decision</h2>" in html_report
     assert 'src="data:image/png;base64,' in html_report
+
+
+def test_analyze_model_writes_phase2_report_sections(tmp_path: Path) -> None:
+    """Verify Phase 2 report mode adds training-regime and binary-support sections."""
+    fixture = write_model_analysis_fixture(
+        tmp_path,
+        include_domain_mask=True,
+        include_training_mask_columns=True,
+        include_reference_area_calibration=True,
+    )
+    phase2_primary = tmp_path / "reports/tables/phase2_training_regime_primary.csv"
+    phase2_model_comparison = tmp_path / "reports/tables/phase2_training_regime_all.csv"
+    phase2_manifest = tmp_path / "interim/phase2_training_regime_manifest.json"
+    binary_summary = tmp_path / "reports/tables/phase2_binary_support.csv"
+    binary_predictions = tmp_path / "processed/phase2_binary_predictions.parquet"
+    calibration_model = tmp_path / "models/phase2_binary_calibration.joblib"
+    write_phase2_training_regime_rows(phase2_primary)
+    write_phase2_training_regime_rows(phase2_model_comparison)
+    phase2_manifest.parent.mkdir(parents=True, exist_ok=True)
+    phase2_manifest.write_text(json.dumps({"command": "compare-training-regimes"}))
+    write_phase2_binary_predictions(binary_predictions)
+    write_phase2_calibration_payload(calibration_model)
+    append_phase2_config(
+        fixture["config_path"],
+        phase2_primary=phase2_primary,
+        phase2_model_comparison=phase2_model_comparison,
+        phase2_manifest=phase2_manifest,
+        binary_summary=binary_summary,
+        binary_predictions=binary_predictions,
+        calibration_model=calibration_model,
+    )
+
+    assert main(["analyze-model", "--config", str(fixture["config_path"])]) == 0
+
+    report = fixture["report"].read_text()
+    html_report = fixture["html_report"].read_text()
+    binary_rows = pd.read_csv(binary_summary)
+    manifest = json.loads(fixture["manifest"].read_text())
+    assert "# Big Sur Phase 2 Model Analysis" in report
+    assert "Phase 2 Training-Regime Answer" in report
+    assert "Canopy Amount And Hurdle Calibration" in report
+    assert "Binary Support Transfer" in report
+    assert "Kelpwatch-style annual maximum reproduction" in report
+    assert "Phase 1 Closeout Decision" not in report
+    assert "<title>Big Sur Phase 2 Model Analysis</title>" in html_report
+    assert set(binary_rows["evaluation_region"]) == {"big_sur", "monterey"}
+    assert set(binary_rows["training_regime"]) == {
+        "big_sur_only",
+        "monterey_only",
+        "pooled_monterey_big_sur",
+    }
+    assert float(binary_rows.iloc[0]["f1"]) == 0.8
+    assert manifest["phase2"]["outputs"]["binary_support_primary_summary"] == str(binary_summary)
+    assert manifest["row_counts"]["phase2_binary_support"] == 6
 
 
 def test_sampling_policy_audit_helper_filters_to_trained_model_tables(tmp_path: Path) -> None:
@@ -627,6 +682,172 @@ def comparison_row(
         "assumed_background_false_positive_rate": 0.05,
         "assumed_background_false_positive_area": 30.0,
     }
+
+
+def write_phase2_training_regime_rows(path: Path) -> None:
+    """Write compact Phase 2 training-regime comparison fixture rows."""
+    rows = []
+    for evaluation_region in ("big_sur", "monterey"):
+        for training_regime, origin in (
+            ("monterey_only", "monterey"),
+            ("big_sur_only", "big_sur"),
+            ("pooled_monterey_big_sur", "monterey_big_sur"),
+        ):
+            for model_name, bias in (
+                ("ridge_regression", 0.30),
+                ("calibrated_probability_x_conditional_canopy", -0.05),
+                ("calibrated_hard_gate_conditional_canopy", -0.02),
+            ):
+                rows.append(
+                    {
+                        "training_regime": training_regime,
+                        "model_origin_region": origin,
+                        "evaluation_region": evaluation_region,
+                        "model_name": model_name,
+                        "model_family": "hurdle"
+                        if model_name.startswith("calibrated_")
+                        else "aef_ridge",
+                        "composition_policy": "expected_value"
+                        if model_name == "calibrated_probability_x_conditional_canopy"
+                        else "",
+                        "split": "test",
+                        "year": 2022,
+                        "mask_status": "plausible_kelp_domain",
+                        "evaluation_scope": "full_grid_masked",
+                        "label_source": "all",
+                        "row_count": 4,
+                        "mae": 0.01,
+                        "rmse": 0.04,
+                        "r2": 0.8,
+                        "f1_ge_10pct": 0.85,
+                        "observed_canopy_area": 1800.0,
+                        "predicted_canopy_area": 1800.0 * (1.0 + bias),
+                        "area_pct_bias": bias,
+                        "source_table": str(path),
+                    }
+                )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def write_phase2_binary_predictions(path: Path) -> None:
+    """Write tiny binary full-grid predictions for Phase 2 support tests."""
+    rows = [
+        phase2_binary_prediction_row(True, 0.90, "kelpwatch_station"),
+        phase2_binary_prediction_row(True, 0.60, "kelpwatch_station"),
+        phase2_binary_prediction_row(False, 0.70, "assumed_background"),
+        phase2_binary_prediction_row(False, 0.20, "assumed_background"),
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_parquet(path, index=False)
+
+
+def phase2_binary_prediction_row(
+    observed: bool,
+    probability: float,
+    label_source: str,
+) -> dict[str, object]:
+    """Build one tiny Phase 2 binary prediction row."""
+    return {
+        "split": "test",
+        "year": 2022,
+        "label_source": label_source,
+        "binary_observed_y": observed,
+        "pred_binary_probability": probability,
+        "target_label": "annual_max_ge_10pct",
+    }
+
+
+def write_phase2_calibration_payload(path: Path) -> None:
+    """Write a raw-threshold calibration payload for Phase 2 support tests."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(
+        {
+            "model_name": "logistic_annual_max_ge_10pct",
+            "policy_thresholds": {
+                "validation_max_f1_calibrated": ("raw_logistic", 0.5),
+            },
+        },
+        path,
+    )
+
+
+def append_phase2_config(
+    config_path: Path,
+    *,
+    phase2_primary: Path,
+    phase2_model_comparison: Path,
+    phase2_manifest: Path,
+    binary_summary: Path,
+    binary_predictions: Path,
+    calibration_model: Path,
+) -> None:
+    """Append a Phase 2 comparison block to a synthetic model-analysis config."""
+    entries = "\n".join(
+        phase2_binary_config_entry(
+            name,
+            training_regime=training_regime,
+            model_origin_region=model_origin_region,
+            evaluation_region=evaluation_region,
+            binary_predictions=binary_predictions,
+            calibration_model=calibration_model,
+        )
+        for name, training_regime, model_origin_region, evaluation_region in (
+            ("big_sur_monterey_only_transfer", "monterey_only", "monterey", "big_sur"),
+            ("big_sur_big_sur_only", "big_sur_only", "big_sur", "big_sur"),
+            (
+                "big_sur_pooled_monterey_big_sur",
+                "pooled_monterey_big_sur",
+                "monterey_big_sur",
+                "big_sur",
+            ),
+            ("monterey_big_sur_only_transfer", "big_sur_only", "big_sur", "monterey"),
+            ("monterey_monterey_only", "monterey_only", "monterey", "monterey"),
+            (
+                "monterey_pooled_monterey_big_sur",
+                "pooled_monterey_big_sur",
+                "monterey_big_sur",
+                "monterey",
+            ),
+        )
+    )
+    with config_path.open("a") as file:
+        file.write(
+            f"""
+training_regime_comparison:
+  primary_split: test
+  primary_year: 2022
+  primary_mask_status: plausible_kelp_domain
+  primary_evaluation_scope: full_grid_masked
+  primary_label_source: all
+  model_comparison: {phase2_model_comparison}
+  primary_summary: {phase2_primary}
+  manifest: {phase2_manifest}
+  binary_support:
+    primary_summary: {binary_summary}
+    inputs:
+{entries}
+"""
+        )
+
+
+def phase2_binary_config_entry(
+    name: str,
+    *,
+    training_regime: str,
+    model_origin_region: str,
+    evaluation_region: str,
+    binary_predictions: Path,
+    calibration_model: Path,
+) -> str:
+    """Build one YAML entry for a Phase 2 binary-support fixture."""
+    return f"""      {name}:
+        full_grid_predictions: {binary_predictions}
+        calibration_model: {calibration_model}
+        training_regime: {training_regime}
+        model_origin_region: {model_origin_region}
+        evaluation_region: {evaluation_region}
+        threshold_policy: validation_max_f1_calibrated"""
 
 
 def write_model_analysis_fixture(

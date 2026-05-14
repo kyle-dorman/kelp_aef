@@ -505,6 +505,51 @@ training_regime_comparison:
       training_regime: pooled_monterey_big_sur
       model_origin_region: monterey_big_sur
       evaluation_region: monterey
+  binary_support:
+    primary_summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_binary_support_primary_summary.csv
+    inputs:
+      big_sur_monterey_only_transfer:
+        full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_monterey_transfer_binary_presence_full_grid_predictions.parquet
+        calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct_calibration.joblib
+        training_regime: monterey_only
+        model_origin_region: monterey
+        evaluation_region: big_sur
+        threshold_policy: validation_max_f1_calibrated
+      big_sur_big_sur_only:
+        full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_binary_presence_full_grid_predictions.parquet
+        calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/big_sur_logistic_annual_max_ge_10pct_calibration.joblib
+        training_regime: big_sur_only
+        model_origin_region: big_sur
+        evaluation_region: big_sur
+        threshold_policy: validation_max_f1_calibrated
+      big_sur_pooled_monterey_big_sur:
+        full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+        calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/pooled_monterey_big_sur_logistic_annual_max_ge_10pct_calibration.big_sur_target.joblib
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        evaluation_region: big_sur
+        threshold_policy: validation_max_f1_calibrated
+      monterey_big_sur_only_transfer:
+        full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_big_sur_transfer_binary_presence_full_grid_predictions.parquet
+        calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/big_sur_logistic_annual_max_ge_10pct_calibration.joblib
+        training_regime: big_sur_only
+        model_origin_region: big_sur
+        evaluation_region: monterey
+        threshold_policy: validation_max_f1_calibrated
+      monterey_monterey_only:
+        full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.parquet
+        calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/logistic_annual_max_ge_10pct_calibration.joblib
+        training_regime: monterey_only
+        model_origin_region: monterey
+        evaluation_region: monterey
+        threshold_policy: validation_max_f1_calibrated
+      monterey_pooled_monterey_big_sur:
+        full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+        calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/pooled_monterey_big_sur_logistic_annual_max_ge_10pct_calibration.monterey_target.joblib
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        evaluation_region: monterey
+        threshold_policy: validation_max_f1_calibrated
 
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures
