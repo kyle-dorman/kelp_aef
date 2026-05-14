@@ -32,6 +32,7 @@ labels, thresholds, and units where relevant.
 - Updated `visualize-results` HTML with filter controls scoped to the active data
   layer.
 - Configurable filter defaults for supported data types, such as:
+  - observed-label canopy area thresholds;
   - continuous canopy area thresholds;
   - residual absolute-value thresholds;
   - binary probability thresholds;
@@ -39,6 +40,7 @@ labels, thresholds, and units where relevant.
   - dataset- or layer-specific thresholds where one global cutoff would be
     misleading.
 - Improved per-data-type legends:
+  - observed-label color ramp with units;
   - continuous prediction color ramp with units;
   - residual diverging color ramp with sign meaning;
   - probability ramp with probability ticks;
@@ -55,6 +57,7 @@ Expected config shape can live under `reports.results_visualizer`, for example:
 
 ```yaml
 filter_defaults:
+  label_min_area_m2: 1.0
   continuous_min_area_m2: 1.0
   residual_min_abs_area_m2: 1.0
   probability_min: 0.01
@@ -75,7 +78,8 @@ Write a brief implementation plan before editing code. The plan should specify:
 - how layer-specific filter overrides are represented in config and manifest;
 - the default binary outcome visibility, especially whether TN is hidden by
   default and whether FN can be toggled off when it clouds other information;
-- the default thresholds for continuous, residual, and probability layers;
+- the default thresholds for observed-label, continuous, residual, and
+  probability layers;
 - how legends update when the active radio data layer changes;
 - how color ramps and swatches are generated without making the HTML brittle.
 
@@ -108,6 +112,8 @@ make check
 - The viewer has visible, layer-aware filter controls for the active data layer.
 - Reviewers can hide low-scoring continuous values without changing the source
   prediction artifacts.
+- Reviewers can select the observed Kelpwatch annual-max label layer as a normal
+  data layer and filter it independently from model prediction layers.
 - Reviewers can toggle binary outcome classes, including noisy classes that cloud
   the map, while preserving access to TP, FP, FN, and TN when needed.
 - Filters can differ by data type and, where needed, by specific layer/dataset.
@@ -125,3 +131,37 @@ make check
   documented export-selection rule.
 - Do not make Big Sur model-evaluation changes in this task, but keep the
   controls reusable for a Big Sur visualizer.
+
+## Outcome
+
+Completed on 2026-05-14.
+
+- Added config-backed browser filter defaults under
+  `reports.results_visualizer.filter_defaults` and layer-specific overrides
+  under `reports.results_visualizer.layer_filter_defaults`.
+- Filters are UI-only: the inspection CSV/GeoJSON remains the Task 46
+  reproducible review export, while the browser redraws the active Leaflet point
+  layer as filter settings change.
+- Default filters for the Monterey visualizer:
+  - Kelpwatch observed label: value `>= 1 m2`.
+  - Hurdle prediction: value `>= 90 m2`.
+  - Hurdle residual: absolute value `>= 90 m2`.
+  - Conditional ridge prediction: value `>= 450 m2`.
+  - Binary presence probability: value `>= 0.10`.
+  - Binary outcome layer: TP, FP, and FN visible by default; TN available as a
+    checkbox in the same layer.
+- Added active-layer controls:
+  - numeric inputs for continuous prediction, residual, and probability layers;
+  - checkbox class toggles for binary outcome layers.
+- Added a `Kelpwatch observed label` radio layer using `observed_canopy_area_m2`
+  from the inspection export, with its own active filter and legend metadata.
+- Replaced the text-only right-side guidance with an active visual legend:
+  sequential ramps for prediction/probability layers, diverging ramp for
+  residuals, and binary outcome swatches.
+- Manifest now records global filter defaults, layer-specific overrides, and
+  resolved per-point-layer `filter` and `legend` metadata.
+- Refreshed the Monterey visualizer artifacts through
+  `uv run kelp-aef visualize-results --config configs/monterey_smoke.yaml`.
+  The inspection export remains `9,467` rows: `7,008` TP, `1,470` FN, `954` FP,
+  and `35` large-residual TN rows. The label layer has `9,020` nonzero
+  observed-label points at the default `>= 1 m2` filter.

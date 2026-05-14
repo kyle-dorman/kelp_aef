@@ -304,9 +304,9 @@ report tables.
 
 | Output | Path | Purpose | Git |
 | --- | --- | --- | --- |
-| Results visualizer HTML | `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer.html` | Leaflet-based local viewer with a runtime basemap, radio data-layer control, legend, and inspection popups. | Not tracked |
-| Results visualizer assets | `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer/` | Bounded coordinate-based inspection-point GeoJSON/JavaScript assets for hurdle, conditional ridge, binary probability, TP/FP/FN outcome review, and optional TN-only review. | Not tracked |
-| Results visualizer manifest | `/Volumes/x10pro/kelp_aef/interim/results_visualizer_manifest.json` | Input paths, row counts, point-layer color scales, selection-bucket counts, basemap URL/attribution, and qualitative-review caveats. | Not tracked |
+| Results visualizer HTML | `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer.html` | Leaflet-based local viewer with a runtime basemap, radio data-layer control, active-layer filters, visual legends, and inspection popups. | Not tracked |
+| Results visualizer assets | `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer/` | Bounded coordinate-based inspection-point GeoJSON/JavaScript assets for Kelpwatch observed labels, hurdle, conditional ridge, binary probability, and binary TP/FP/FN/TN outcome review with class filters. | Not tracked |
+| Results visualizer manifest | `/Volumes/x10pro/kelp_aef/interim/results_visualizer_manifest.json` | Input paths, row counts, point-layer color scales, filter defaults, legend metadata, selection-bucket counts, basemap URL/attribution, and qualitative-review caveats. | Not tracked |
 | Results visualizer inspection points | `/Volumes/x10pro/kelp_aef/reports/tables/results_visualizer_inspection_points.csv` | Bounded priority set of binary TP/FP/FN rows, Kelpwatch-positive rows, non-TN Kelpwatch-observed rows, high hurdle/conditional predictions, and large hurdle residuals with coordinates and model/label values for manual Planet or Kelpwatch lookup. | Not tracked |
 
 ## Phase 2 Big Sur Planned Artifact Conventions

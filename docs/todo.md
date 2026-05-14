@@ -160,16 +160,17 @@ Phase 2 non-goals:
     Kelpwatch-positive rows, non-TN Kelpwatch-observed rows, high expected-value
     hurdle predictions, high conditional-canopy predictions, and large hurdle
     residuals (`abs(residual) >= 90 m2`) without filling the cap with small
-    true-negative support rows; split binary outcome review into TP/FP/FN and
-    TN-only layers; deduplicated popup fields; refreshed the Monterey
-    visualizer artifacts. The existing `50,000` cap was enough:
+    true-negative support rows; exposed binary outcomes as one TP/FP/FN/TN
+    layer with TN hidden by default through the class filter; deduplicated popup
+    fields; refreshed the Monterey visualizer artifacts. The existing `50,000`
+    cap was enough:
     `9,432/9,432` TP/FP/FN rows, `1,470/1,470` binary FNs,
     `9,019/9,019` Kelpwatch-positive rows, `9,047/9,047` non-TN
     Kelpwatch-observed rows, `6,541/6,541` large hurdle residuals,
     `7,287/7,287` high hurdle rows, and `2,498/2,498` high conditional rows
     were included. True negatives are omitted unless they meet the large
     residual rule: `35/417,208` included.
-- [ ] P2-05: Add results visualizer layer filters and legends.
+- [x] P2-05: Add results visualizer layer filters and legends.
   - Goal: Let reviewers hide noisy binary outcome classes and low-scoring
     continuous/probability values per data type or layer, while replacing
     text-only legend guidance with visual swatches and ramps.
@@ -178,6 +179,15 @@ Phase 2 non-goals:
   - Acceptance: filters are optional, layer-aware, and do not change model
     artifacts or tune thresholds from held-out rows.
   - Plan: `tasks/47_add_visualizer_layer_filters_and_legends.md`.
+  - Completed: added UI-only active-layer filters with config-backed defaults
+    and layer overrides, numeric controls for prediction/residual/probability
+    layers, binary class checkboxes, active visual ramps/swatches, and manifest
+    filter/legend metadata, and a `Kelpwatch observed label` layer. Defaults
+    are `>= 1 m2` for observed labels, `>= 90 m2` for hurdle predictions,
+    `abs(residual) >= 90 m2`, `>= 450 m2` for conditional ridge, probability
+    `>= 0.10`, and TP/FP/FN visible in the binary outcome review layer. The
+    Monterey visualizer artifacts were refreshed and the Task 46 inspection
+    export remains `9,467` rows.
 - [ ] P2-06: Evaluate Monterey-trained transfer on Big Sur.
   - Goal: Apply the closed Monterey Phase 1 policy to Big Sur as the transfer
     baseline.

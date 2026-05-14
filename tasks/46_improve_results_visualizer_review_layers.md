@@ -142,9 +142,9 @@ Completed on 2026-05-14.
   predictions (`>= 450 m2`), plus any large hurdle residuals
   (`abs(residual) >= 90 m2`) without filling the cap with small true-negative
   support rows.
-- Split binary outcome display into a TP/FP/FN review layer and a separate
-  TN-only layer so true negatives are not drawn by default when reviewing binary
-  errors.
+- Exposed binary outcome display as one TP/FP/FN/TN layer, with TN hidden by
+  default through the class filter so true negatives are not drawn by default
+  when reviewing binary errors.
 - Deduplicated popup fields when multiple point layers share the same source
   property, so `Binary outcome` appears once.
 - Refreshed the Monterey visualizer artifacts through

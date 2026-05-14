@@ -29,14 +29,19 @@ def test_visualize_results_writes_leaflet_viewer_assets(tmp_path: Path) -> None:
     assert "L.control.layers" in html
     assert 'position: "topleft"' in html
     assert "OpenStreetMap" in html
+    assert "Kelpwatch observed label" in html
     assert "Expected-value hurdle prediction" in html
     assert "Expected-value hurdle residual" in html
     assert "Conditional ridge prediction" in html
     assert "Binary presence probability" in html
-    assert "Binary outcome TP/FP/FN" in html
-    assert "Binary outcome TN only" in html
+    assert "Binary outcome TP/FP/FN/TN" in html
+    assert "Binary outcome TN only" not in html
     assert "Data layer" in html
+    assert "Layer filter" in html
+    assert "Active legend" in html
     assert 'input.type = "radio"' in html
+    assert 'input.type = "number"' in html
+    assert 'input.type = "checkbox"' in html
     assert "Label source" not in html
     assert "Mask reason" not in html
     assert "Hurdle pred m2" in html
@@ -47,8 +52,14 @@ def test_visualize_results_writes_leaflet_viewer_assets(tmp_path: Path) -> None:
     assert "L.imageOverlay" not in html
     assert "pointLayer.propertyName" in html
     assert "pointLayer.allowedValues.includes" in html
+    assert "filterState" in html
+    assert "legend-ramp" in html
+    assert "binary-outcome-filter" in html
+    assert "Minimum area m2" in html
+    assert "Minimum label area m2" in html
+    assert "Minimum abs residual m2" in html
     assert "opacity-controls" not in html
-    assert "coordinate-based hurdle" in html
+    assert "Predicted canopy area" in html
     assert "Copy lat/lon" in html
 
     inspection = pd.read_csv(inspection_csv)
@@ -100,6 +111,17 @@ def test_visualize_results_writes_leaflet_viewer_assets(tmp_path: Path) -> None:
         "omitted_count": 1,
     }
     assert manifest["basemap"]["runtime_dependency_only"] is True
+    assert manifest["filter_defaults"]["continuous_min_area_m2"] == 90.0
+    assert manifest["filter_defaults"]["label_min_area_m2"] == 1.0
+    assert manifest["filter_defaults"]["residual_min_abs_area_m2"] == 45.0
+    assert manifest["filter_defaults"]["probability_min"] == 0.2
+    assert manifest["filter_defaults"]["binary_outcomes_visible"] == ["TP", "FN"]
+    assert (
+        manifest["filter_defaults"]["layer_overrides"]["conditional_ridge"][
+            "continuous_min_area_m2"
+        ]
+        == 450.0
+    )
     assert {row["layer_id"] for row in manifest["layers"]} == {
         "expected_value_hurdle",
         "conditional_ridge",
@@ -107,12 +129,12 @@ def test_visualize_results_writes_leaflet_viewer_assets(tmp_path: Path) -> None:
         "binary_outcome",
     }
     assert {row["layer_id"] for row in manifest["point_layers"]} == {
+        "kelpwatch_observed_label",
         "expected_value_hurdle_prediction",
         "expected_value_hurdle_residual",
         "conditional_ridge_prediction",
         "binary_presence_probability",
         "binary_outcome_outcome",
-        "binary_outcome_true_negative",
     }
     binary_layers = {
         row["layer_id"]: row["allowed_values"]
@@ -120,9 +142,19 @@ def test_visualize_results_writes_leaflet_viewer_assets(tmp_path: Path) -> None:
         if row["type"] == "binary_outcome"
     }
     assert binary_layers == {
-        "binary_outcome_outcome": ["TP", "FP", "FN"],
-        "binary_outcome_true_negative": ["TN"],
+        "binary_outcome_outcome": ["TP", "FP", "FN", "TN"],
     }
+    filters = {row["layer_id"]: row["filter"] for row in manifest["point_layers"]}
+    legends = {row["layer_id"]: row["legend"] for row in manifest["point_layers"]}
+    assert filters["kelpwatch_observed_label"]["defaultMinValue"] == 1.0
+    assert filters["expected_value_hurdle_prediction"]["defaultMinValue"] == 90.0
+    assert filters["expected_value_hurdle_residual"]["defaultMinValue"] == 45.0
+    assert filters["conditional_ridge_prediction"]["defaultMinValue"] == 450.0
+    assert filters["binary_presence_probability"]["defaultMinValue"] == 0.2
+    assert filters["binary_outcome_outcome"]["defaultValues"] == ["TP", "FN"]
+    assert legends["kelpwatch_observed_label"]["description"].startswith("Observed Kelpwatch")
+    assert legends["expected_value_hurdle_prediction"]["unit"] == "m2"
+    assert legends["expected_value_hurdle_residual"]["diverging"] is True
     assert all(row["coordinate_based"] for row in manifest["point_layers"])
 
 
@@ -164,6 +196,15 @@ reports:
     split: test
     year: 2022
     max_inspection_points: 4
+    filter_defaults:
+      continuous_min_area_m2: 90.0
+      label_min_area_m2: 1.0
+      residual_min_abs_area_m2: 45.0
+      probability_min: 0.20
+      binary_outcomes_visible: [TP, FN]
+    layer_filter_defaults:
+      conditional_ridge:
+        continuous_min_area_m2: 450.0
     basemap:
       enabled: true
       name: OpenStreetMap

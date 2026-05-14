@@ -439,6 +439,15 @@ reports:
     year: 2022
     robust_percentile: 99.0
     max_inspection_points: 50000
+    filter_defaults:
+      continuous_min_area_m2: 90.0
+      label_min_area_m2: 1.0
+      residual_min_abs_area_m2: 90.0
+      probability_min: 0.10
+      binary_outcomes_visible: [TP, FP, FN]
+    layer_filter_defaults:
+      conditional_ridge:
+        continuous_min_area_m2: 450.0
     basemap:
       enabled: true
       name: OpenStreetMap

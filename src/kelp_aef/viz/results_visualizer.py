@@ -42,10 +42,19 @@ DEFAULT_BASEMAP_ATTRIBUTION = (
 )
 DEFAULT_LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
 DEFAULT_LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+DEFAULT_CONTINUOUS_MIN_AREA_M2 = 90.0
+DEFAULT_LABEL_MIN_AREA_M2 = 1.0
+DEFAULT_RESIDUAL_MIN_ABS_AREA_M2 = 90.0
+DEFAULT_PROBABILITY_MIN = 0.10
+DEFAULT_BINARY_OUTCOMES_VISIBLE = ("TP", "FP", "FN")
 CONTINUOUS_LAYER_TYPE = "continuous"
 CONTINUOUS_PREDICTION_LAYER_TYPE = "continuous_prediction"
 BINARY_PROBABILITY_LAYER_TYPE = "binary_probability"
 BINARY_OUTCOME_LAYER_TYPE = "binary_outcome"
+OBSERVED_LABEL_LAYER_TYPE = "observed_label"
+FILTER_MODE_MIN = "min"
+FILTER_MODE_ABS_MIN = "abs_min"
+FILTER_MODE_CLASSES = "classes"
 HURDLE_REVIEW_MIN_AREA_M2 = 90.0
 HURDLE_RESIDUAL_REVIEW_MIN_AREA_M2 = 90.0
 CONDITIONAL_REVIEW_MIN_AREA_M2 = 450.0
@@ -143,6 +152,29 @@ class ResultsVisualizerConfig:
     basemap: BasemapConfig
     domain_mask: ReportingDomainMask | None
     layers: tuple[ResultsLayerConfig, ...]
+    filters: VisualizerFilterConfig
+
+
+@dataclass(frozen=True)
+class LayerFilterDefaults:
+    """Optional filter overrides for one configured source layer."""
+
+    continuous_min_area_m2: float | None
+    residual_min_abs_area_m2: float | None
+    probability_min: float | None
+    binary_outcomes_visible: tuple[str, ...] | None
+
+
+@dataclass(frozen=True)
+class VisualizerFilterConfig:
+    """Resolved filter defaults for browser-side layer controls."""
+
+    continuous_min_area_m2: float
+    label_min_area_m2: float
+    residual_min_abs_area_m2: float
+    probability_min: float
+    binary_outcomes_visible: tuple[str, ...]
+    layer_overrides: dict[str, LayerFilterDefaults]
 
 
 @dataclass(frozen=True)
@@ -190,6 +222,12 @@ class PointLayer:
     default_visible: bool
     min_abs_display_value: float
     allowed_values: tuple[str, ...] | None = None
+    filter_mode: str = FILTER_MODE_MIN
+    filter_default_min: float | None = None
+    filter_default_values: tuple[str, ...] = ()
+    filter_label: str = ""
+    legend_unit: str = ""
+    legend_description: str = ""
 
 
 @dataclass(frozen=True)
@@ -232,6 +270,7 @@ def visualize_results(config_path: Path) -> int:
         layer_frames=layer_frames,
         residual_scale=residual_scale,
         robust_percentile=viewer_config.robust_percentile,
+        filter_config=viewer_config.filters,
     )
     inspection_geojson_path = viewer_config.asset_dir / "inspection_points.geojson"
     inspection_js_path = viewer_config.asset_dir / "inspection_points.js"
@@ -291,6 +330,7 @@ def load_results_visualizer_config(config_path: Path) -> ResultsVisualizerConfig
     output_defaults = visualizer_output_defaults(data_root)
     basemap = load_basemap_config(settings.get("basemap"))
     layers = load_layer_configs(config, settings)
+    filters = load_visualizer_filter_config(settings)
     return ResultsVisualizerConfig(
         config_path=config_path,
         data_root=data_root,
@@ -332,6 +372,7 @@ def load_results_visualizer_config(config_path: Path) -> ResultsVisualizerConfig
         basemap=basemap,
         domain_mask=load_reporting_domain_mask(config),
         layers=layers,
+        filters=filters,
     )
 
 
@@ -389,6 +430,109 @@ def load_basemap_config(value: object) -> BasemapConfig:
             19,
         ),
     )
+
+
+def load_visualizer_filter_config(settings: dict[str, Any]) -> VisualizerFilterConfig:
+    """Load browser-side filter defaults for interactive point layers."""
+    defaults = optional_mapping(
+        settings.get("filter_defaults"),
+        "reports.results_visualizer.filter_defaults",
+    )
+    return VisualizerFilterConfig(
+        continuous_min_area_m2=optional_float(
+            defaults.get("continuous_min_area_m2"),
+            "reports.results_visualizer.filter_defaults.continuous_min_area_m2",
+            DEFAULT_CONTINUOUS_MIN_AREA_M2,
+        ),
+        label_min_area_m2=optional_float(
+            defaults.get("label_min_area_m2"),
+            "reports.results_visualizer.filter_defaults.label_min_area_m2",
+            DEFAULT_LABEL_MIN_AREA_M2,
+        ),
+        residual_min_abs_area_m2=optional_float(
+            defaults.get("residual_min_abs_area_m2"),
+            "reports.results_visualizer.filter_defaults.residual_min_abs_area_m2",
+            DEFAULT_RESIDUAL_MIN_ABS_AREA_M2,
+        ),
+        probability_min=optional_float(
+            defaults.get("probability_min"),
+            "reports.results_visualizer.filter_defaults.probability_min",
+            DEFAULT_PROBABILITY_MIN,
+        ),
+        binary_outcomes_visible=optional_string_tuple(
+            defaults.get("binary_outcomes_visible"),
+            "reports.results_visualizer.filter_defaults.binary_outcomes_visible",
+            DEFAULT_BINARY_OUTCOMES_VISIBLE,
+        ),
+        layer_overrides=load_layer_filter_overrides(settings.get("layer_filter_defaults")),
+    )
+
+
+def load_layer_filter_overrides(value: object) -> dict[str, LayerFilterDefaults]:
+    """Load optional layer-specific browser filter overrides by source layer id."""
+    if value is None:
+        return {}
+    overrides = require_mapping(value, "reports.results_visualizer.layer_filter_defaults")
+    return {
+        slugify(str(layer_id)): layer_filter_defaults_from_mapping(layer_id, layer_value)
+        for layer_id, layer_value in overrides.items()
+    }
+
+
+def layer_filter_defaults_from_mapping(
+    layer_id: object,
+    value: object,
+) -> LayerFilterDefaults:
+    """Validate one layer-specific filter override mapping."""
+    name = f"reports.results_visualizer.layer_filter_defaults.{layer_id}"
+    settings = require_mapping(value, name)
+    return LayerFilterDefaults(
+        continuous_min_area_m2=optional_float_or_none(
+            settings.get("continuous_min_area_m2"),
+            f"{name}.continuous_min_area_m2",
+        ),
+        residual_min_abs_area_m2=optional_float_or_none(
+            settings.get("residual_min_abs_area_m2"),
+            f"{name}.residual_min_abs_area_m2",
+        ),
+        probability_min=optional_float_or_none(
+            settings.get("probability_min"),
+            f"{name}.probability_min",
+        ),
+        binary_outcomes_visible=optional_string_tuple_or_none(
+            settings.get("binary_outcomes_visible"),
+            f"{name}.binary_outcomes_visible",
+        ),
+    )
+
+
+def optional_float_or_none(value: object, name: str) -> float | None:
+    """Validate an optional floating-point override that may be absent."""
+    if value is None:
+        return None
+    return optional_float(value, name, 0.0)
+
+
+def optional_string_tuple(
+    value: object,
+    name: str,
+    default: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Validate an optional string list and return uppercase labels."""
+    if value is None:
+        return default
+    result = optional_string_tuple_or_none(value, name)
+    return default if result is None else result
+
+
+def optional_string_tuple_or_none(value: object, name: str) -> tuple[str, ...] | None:
+    """Validate a string list override that may be absent."""
+    if value is None:
+        return None
+    if not isinstance(value, list | tuple):
+        msg = f"config field must be a list: {name}"
+        raise ValueError(msg)
+    return tuple(str(item).strip().upper() for item in value if str(item).strip())
 
 
 def load_layer_configs(
@@ -783,15 +927,19 @@ def build_point_layers(
     layer_frames: dict[ResultsLayerConfig, pd.DataFrame],
     residual_scale: float,
     robust_percentile: float,
+    filter_config: VisualizerFilterConfig,
 ) -> list[PointLayer]:
     """Build point-layer metadata for coordinate-safe browser rendering."""
-    point_layers: list[PointLayer] = []
+    point_layers: list[PointLayer] = [
+        observed_label_point_layer(layer_frames, robust_percentile, filter_config)
+    ]
     for layer, frame in layer_frames.items():
         if layer.layer_type == BINARY_OUTCOME_LAYER_TYPE:
+            outcome_values = ("TP", "FP", "FN", "TN")
             point_layers.append(
                 PointLayer(
                     layer_id=f"{layer.layer_id}_outcome",
-                    display_name=f"{layer.display_name} TP/FP/FN",
+                    display_name=f"{layer.display_name} TP/FP/FN/TN",
                     layer_type=layer.layer_type,
                     value_kind="binary_outcome",
                     property_name=f"{layer.layer_id}_outcome",
@@ -801,23 +949,14 @@ def build_point_layers(
                     diverging=False,
                     default_visible=layer.default_visible,
                     min_abs_display_value=0.0,
-                    allowed_values=("TP", "FP", "FN"),
-                )
-            )
-            point_layers.append(
-                PointLayer(
-                    layer_id=f"{layer.layer_id}_true_negative",
-                    display_name=f"{layer.display_name} TN only",
-                    layer_type=layer.layer_type,
-                    value_kind="binary_outcome",
-                    property_name=f"{layer.layer_id}_outcome",
-                    popup_label=popup_label(layer, "outcome"),
-                    scale_min=0.0,
-                    scale_max=1.0,
-                    diverging=False,
-                    default_visible=False,
-                    min_abs_display_value=0.0,
-                    allowed_values=("TN",),
+                    allowed_values=outcome_values,
+                    filter_mode=FILTER_MODE_CLASSES,
+                    filter_default_values=resolved_binary_filter_values(
+                        filter_config, layer.layer_id, outcome_values
+                    ),
+                    filter_label="Outcome classes",
+                    legend_unit="class",
+                    legend_description="Binary outcome class",
                 )
             )
             continue
@@ -835,9 +974,15 @@ def build_point_layers(
                     diverging=False,
                     default_visible=layer.default_visible,
                     min_abs_display_value=0.01,
+                    filter_mode=FILTER_MODE_MIN,
+                    filter_default_min=resolved_probability_min(filter_config, layer.layer_id),
+                    filter_label="Minimum probability",
+                    legend_unit="probability",
+                    legend_description="Predicted binary presence probability",
                 )
             )
             continue
+        prediction_min = resolved_continuous_min(filter_config, layer.layer_id)
         point_layers.append(
             PointLayer(
                 layer_id=f"{layer.layer_id}_prediction",
@@ -854,6 +999,11 @@ def build_point_layers(
                 diverging=False,
                 default_visible=layer.default_visible,
                 min_abs_display_value=1.0,
+                filter_mode=FILTER_MODE_MIN,
+                filter_default_min=prediction_min,
+                filter_label="Minimum area m2",
+                legend_unit="m2",
+                legend_description="Predicted canopy area",
             )
         )
         if "viewer_residual_area" in frame:
@@ -870,9 +1020,92 @@ def build_point_layers(
                     diverging=True,
                     default_visible=False,
                     min_abs_display_value=1.0,
+                    filter_mode=FILTER_MODE_ABS_MIN,
+                    filter_default_min=resolved_residual_min(filter_config, layer.layer_id),
+                    filter_label="Minimum abs residual m2",
+                    legend_unit="m2",
+                    legend_description="Observed minus predicted canopy area",
                 )
             )
     return point_layers
+
+
+def observed_label_point_layer(
+    layer_frames: dict[ResultsLayerConfig, pd.DataFrame],
+    robust_percentile: float,
+    filter_config: VisualizerFilterConfig,
+) -> PointLayer:
+    """Build the observed Kelpwatch annual-max label point layer."""
+    observed = primary_observed_frame(layer_frames)
+    return PointLayer(
+        layer_id="kelpwatch_observed_label",
+        display_name="Kelpwatch observed label",
+        layer_type=OBSERVED_LABEL_LAYER_TYPE,
+        value_kind="observed_canopy_area_m2",
+        property_name="observed_canopy_area_m2",
+        popup_label="Observed m2",
+        scale_min=0.0,
+        scale_max=robust_scale(
+            observed["kelp_max_y"].to_numpy(dtype=float),
+            robust_percentile,
+        ),
+        diverging=False,
+        default_visible=False,
+        min_abs_display_value=1.0,
+        filter_mode=FILTER_MODE_MIN,
+        filter_default_min=filter_config.label_min_area_m2,
+        filter_label="Minimum label area m2",
+        legend_unit="m2",
+        legend_description="Observed Kelpwatch annual-max canopy area",
+    )
+
+
+def layer_filter_override(
+    filter_config: VisualizerFilterConfig,
+    layer_id: str,
+) -> LayerFilterDefaults | None:
+    """Return layer-specific filter overrides for a source layer id."""
+    return filter_config.layer_overrides.get(layer_id)
+
+
+def resolved_continuous_min(filter_config: VisualizerFilterConfig, layer_id: str) -> float:
+    """Return the browser default minimum for continuous prediction layers."""
+    override = layer_filter_override(filter_config, layer_id)
+    if override is not None and override.continuous_min_area_m2 is not None:
+        return override.continuous_min_area_m2
+    return filter_config.continuous_min_area_m2
+
+
+def resolved_residual_min(filter_config: VisualizerFilterConfig, layer_id: str) -> float:
+    """Return the browser default minimum absolute residual for residual layers."""
+    override = layer_filter_override(filter_config, layer_id)
+    if override is not None and override.residual_min_abs_area_m2 is not None:
+        return override.residual_min_abs_area_m2
+    return filter_config.residual_min_abs_area_m2
+
+
+def resolved_probability_min(filter_config: VisualizerFilterConfig, layer_id: str) -> float:
+    """Return the browser default minimum probability for probability layers."""
+    override = layer_filter_override(filter_config, layer_id)
+    if override is not None and override.probability_min is not None:
+        return override.probability_min
+    return filter_config.probability_min
+
+
+def resolved_binary_filter_values(
+    filter_config: VisualizerFilterConfig,
+    layer_id: str,
+    allowed_values: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Return browser default visible binary classes for one outcome layer."""
+    override = layer_filter_override(filter_config, layer_id)
+    default_values = (
+        override.binary_outcomes_visible
+        if override is not None and override.binary_outcomes_visible is not None
+        else filter_config.binary_outcomes_visible
+    )
+    values = tuple(value for value in allowed_values if value in default_values)
+    return values or allowed_values
 
 
 def popup_label(layer: ResultsLayerConfig, value_kind: str) -> str:
@@ -1310,6 +1543,13 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
 .panel h1 {{ margin: 0; font-size: 16px; }}
 .panel .meta {{ margin-top: 4px; color: #52616b; font-size: 12px; line-height: 1.35; }}
 .legend {{ padding: 10px 12px 12px; color: #52616b; font-size: 12px; line-height: 1.45; }}
+.legend h2 {{ color: #172026; font-size: 12px; margin: 0 0 8px; }}
+.legend-title {{ color: #172026; font-weight: 700; margin-bottom: 7px; }}
+.legend-ramp {{ border: 1px solid #6f7b80; border-radius: 4px; height: 12px; margin: 7px 0 5px; }}
+.legend-scale {{ display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }}
+.legend-swatch-row {{ align-items: center; display: flex; gap: 7px; margin: 5px 0; }}
+.legend-swatch {{ border: 1px solid #172026; border-radius: 50%; display: inline-block; height: 11px; width: 11px; }}
+.filter-summary {{ border-top: 1px solid #dbe1e4; margin-top: 10px; padding-top: 8px; }}
 .leaflet-popup-content {{ min-width: 245px; max-width: 310px; }}
 .leaflet-popup-content table {{ border-collapse: collapse; font-size: 12px; table-layout: fixed; width: 100%; }}
 .leaflet-popup-content th {{ text-align: left; color: #52616b; padding: 3px 8px 3px 0; white-space: normal; width: 48%; }}
@@ -1320,6 +1560,12 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
 .data-layer-control .control-title {{ color: #52616b; font-size: 11px; font-weight: 700; margin-bottom: 5px; text-transform: uppercase; }}
 .data-layer-control label {{ align-items: center; color: #172026; cursor: pointer; display: flex; font-size: 12px; gap: 6px; line-height: 1.3; margin: 4px 0; }}
 .data-layer-control input {{ margin: 0; }}
+.filter-control {{ background: rgba(255,255,255,0.94); border: 1px solid #c9d1d5; border-radius: 6px; box-shadow: 0 1px 6px rgba(0,0,0,0.18); margin-top: 8px; min-width: 205px; padding: 8px 10px; }}
+.filter-control .control-title {{ color: #52616b; font-size: 11px; font-weight: 700; margin-bottom: 5px; text-transform: uppercase; }}
+.filter-control label {{ align-items: center; color: #172026; display: flex; font-size: 12px; gap: 6px; line-height: 1.3; margin: 5px 0; }}
+.filter-control input[type="number"] {{ border: 1px solid #aab5ba; border-radius: 4px; box-sizing: border-box; font-size: 12px; padding: 4px 5px; width: 84px; }}
+.filter-control input[type="checkbox"] {{ margin: 0; }}
+.filter-value {{ color: #52616b; font-size: 11px; margin-top: 5px; }}
 </style>
 </head>
 <body>
@@ -1330,14 +1576,9 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; 
     <div class="meta">Split {html.escape(viewer_config.split)} | {viewer_config.year} | {html.escape(mask_status(viewer_config.domain_mask))}</div>
   </header>
   <div class="legend">
-    Use the data-layer radio control to switch between coordinate-based hurdle
-    prediction, residual, conditional ridge, binary probability, and binary
-    TP/FP/FN review points. A separate optional TN layer is available for
-    background checks. Area layers are shown only where values are at least
-    1 m2; binary probability is shown at 0.01 or higher. Residual red/orange
-    means observed exceeds predicted and blue means predicted exceeds observed.
-    Binary outcome colors are TP green, FP orange, FN purple, and TN gray.
-    External basemap tiles load only at browser runtime.
+    <h2>Active legend</h2>
+    <div id="active-legend"></div>
+    <div id="active-filter-summary" class="filter-summary"></div>
   </div>
 </aside>
 <script src="{html.escape(viewer_config.leaflet_js_url, quote=True)}"></script>
@@ -1358,21 +1599,20 @@ if (VIEWER.basemap.enabled) {{
 const map = L.map("map", {{ preferCanvas: true, layers: initialLayers }});
 map.fitBounds(VIEWER.bounds);
 const dataLayers = {{}};
+const filterState = {{}};
 let activeDataLayerId = null;
 for (const pointLayer of VIEWER.pointLayers) {{
-  const layer = L.geoJSON(window.RESULTS_VISUALIZER_INSPECTION, {{
-    filter: (feature) => shouldDrawPoint(feature.properties, pointLayer),
-    pointToLayer: (feature, latlng) => L.circleMarker(latlng, pointStyle(feature.properties, pointLayer)),
-    onEachFeature: (feature, layer) => layer.bindPopup(popupHtml(feature.properties))
-  }});
-  dataLayers[pointLayer.id] = {{ config: pointLayer, layer }};
+  filterState[pointLayer.id] = initialFilterState(pointLayer);
+  dataLayers[pointLayer.id] = {{ config: pointLayer, layer: null }};
   if (pointLayer.defaultVisible && activeDataLayerId === null) activeDataLayerId = pointLayer.id;
 }}
 if (activeDataLayerId === null && VIEWER.pointLayers.length > 0) activeDataLayerId = VIEWER.pointLayers[0].id;
-if (activeDataLayerId !== null) setActiveDataLayer(activeDataLayerId);
 const dataLayerControl = L.control({{ position: "topleft" }});
+let dataLayerControlContainer = null;
+let filterControlContainer = null;
 dataLayerControl.onAdd = function() {{
   const container = L.DomUtil.create("div", "data-layer-control leaflet-control");
+  dataLayerControlContainer = container;
   const title = document.createElement("div");
   title.className = "control-title";
   title.textContent = "Data layer";
@@ -1398,24 +1638,129 @@ dataLayerControl.onAdd = function() {{
   return container;
 }};
 dataLayerControl.addTo(map);
+const filterControl = L.control({{ position: "topleft" }});
+filterControl.onAdd = function() {{
+  const container = L.DomUtil.create("div", "filter-control leaflet-control");
+  filterControlContainer = container;
+  L.DomEvent.disableClickPropagation(container);
+  L.DomEvent.disableScrollPropagation(container);
+  return container;
+}};
+filterControl.addTo(map);
 L.control.layers(baseLayers, {{}}, {{ collapsed: true, position: "bottomright" }}).addTo(map);
 L.control.scale({{ imperial: false }}).addTo(map);
+if (activeDataLayerId !== null) setActiveDataLayer(activeDataLayerId);
+function initialFilterState(pointLayer) {{
+  return {{
+    minValue: pointLayer.filter.defaultMinValue,
+    visibleValues: [...pointLayer.filter.defaultValues]
+  }};
+}}
+function makeDataLayer(pointLayer) {{
+  return L.geoJSON(window.RESULTS_VISUALIZER_INSPECTION, {{
+    filter: (feature) => shouldDrawPoint(feature.properties, pointLayer),
+    pointToLayer: (feature, latlng) => L.circleMarker(latlng, pointStyle(feature.properties, pointLayer)),
+    onEachFeature: (feature, layer) => layer.bindPopup(popupHtml(feature.properties))
+  }});
+}}
 function setActiveDataLayer(layerId) {{
   for (const entry of Object.values(dataLayers)) {{
-    if (map.hasLayer(entry.layer)) map.removeLayer(entry.layer);
+    if (entry.layer !== null && map.hasLayer(entry.layer)) map.removeLayer(entry.layer);
   }}
   if (dataLayers[layerId]) {{
-    dataLayers[layerId].layer.addTo(map);
     activeDataLayerId = layerId;
+    dataLayers[layerId].layer = makeDataLayer(dataLayers[layerId].config);
+    dataLayers[layerId].layer.addTo(map);
+    updateFilterControl(dataLayers[layerId].config);
+    updateLegend(dataLayers[layerId].config);
+  }}
+}}
+function refreshActiveDataLayer() {{
+  if (activeDataLayerId === null || !dataLayers[activeDataLayerId]) return;
+  const entry = dataLayers[activeDataLayerId];
+  if (entry.layer !== null && map.hasLayer(entry.layer)) map.removeLayer(entry.layer);
+  entry.layer = makeDataLayer(entry.config);
+  entry.layer.addTo(map);
+  updateLegend(entry.config);
+}}
+function updateFilterControl(pointLayer) {{
+  if (filterControlContainer === null) return;
+  filterControlContainer.replaceChildren();
+  const title = document.createElement("div");
+  title.className = "control-title";
+  title.textContent = "Layer filter";
+  filterControlContainer.appendChild(title);
+  const layerName = document.createElement("div");
+  layerName.className = "filter-value";
+  layerName.textContent = pointLayer.displayName;
+  filterControlContainer.appendChild(layerName);
+  if (pointLayer.filter.mode === "classes") {{
+    for (const value of pointLayer.filter.allowedValues) {{
+      const label = document.createElement("label");
+      label.className = "binary-outcome-filter";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = value;
+      input.checked = filterState[pointLayer.id].visibleValues.includes(value);
+      input.addEventListener("change", () => {{
+        const state = filterState[pointLayer.id];
+        if (input.checked && !state.visibleValues.includes(value)) state.visibleValues.push(value);
+        if (!input.checked) state.visibleValues = state.visibleValues.filter(item => item !== value);
+        refreshActiveDataLayer();
+        updateFilterSummary(pointLayer);
+      }});
+      const swatch = document.createElement("span");
+      swatch.className = "legend-swatch";
+      swatch.style.backgroundColor = outcomeColor(value);
+      const text = document.createElement("span");
+      text.textContent = value;
+      label.appendChild(input);
+      label.appendChild(swatch);
+      label.appendChild(text);
+      filterControlContainer.appendChild(label);
+    }}
+  }} else {{
+    const label = document.createElement("label");
+    const text = document.createElement("span");
+    text.textContent = pointLayer.filter.label;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.step = pointLayer.valueKind === "probability" ? "0.01" : "1";
+    input.value = String(filterState[pointLayer.id].minValue);
+    input.addEventListener("input", () => {{
+      const value = Number(input.value);
+      filterState[pointLayer.id].minValue = Number.isFinite(value) ? value : 0;
+      refreshActiveDataLayer();
+      updateFilterSummary(pointLayer);
+    }});
+    label.appendChild(text);
+    label.appendChild(input);
+    filterControlContainer.appendChild(label);
+  }}
+  updateFilterSummary(pointLayer);
+}}
+function updateFilterSummary(pointLayer) {{
+  const summary = document.getElementById("active-filter-summary");
+  if (summary === null) return;
+  const state = filterState[pointLayer.id];
+  if (pointLayer.filter.mode === "classes") {{
+    summary.textContent = `Filter: ${{state.visibleValues.length ? state.visibleValues.join(", ") : "none"}}`;
+  }} else {{
+    const comparator = pointLayer.filter.mode === "abs_min" ? "absolute value >= " : "value >= ";
+    summary.textContent = `Filter: ${{comparator}}${{formatNumber(state.minValue, pointLayer.valueKind === "probability" ? 2 : 0)}} ${{pointLayer.legend.unit}}`;
   }}
 }}
 function shouldDrawPoint(props, pointLayer) {{
+  const state = filterState[pointLayer.id];
   if (pointLayer.valueKind === "binary_outcome") {{
     const value = props[pointLayer.propertyName];
-    return pointLayer.allowedValues.includes(value);
+    return pointLayer.allowedValues.includes(value) && state.visibleValues.includes(value);
   }}
   const value = Number(props[pointLayer.propertyName]);
-  return Number.isFinite(value) && Math.abs(value) >= pointLayer.minAbsDisplayValue;
+  if (!Number.isFinite(value)) return false;
+  if (pointLayer.filter.mode === "abs_min") return Math.abs(value) >= state.minValue;
+  return value >= state.minValue;
 }}
 function pointStyle(props, pointLayer) {{
   const value = pointLayer.valueKind === "binary_outcome" ? props[pointLayer.propertyName] : Number(props[pointLayer.propertyName]);
@@ -1436,8 +1781,7 @@ function pointRadius(value, pointLayer) {{
 }}
 function pointColor(value, pointLayer) {{
   if (pointLayer.valueKind === "binary_outcome") {{
-    const colors = {{ TP: "#238b45", FP: "#d95f02", FN: "#756bb1", TN: "#bdbdbd" }};
-    return colors[value] || "#737373";
+    return outcomeColor(value);
   }}
   if (pointLayer.diverging) {{
     const span = Math.max(Math.abs(pointLayer.scaleMin), Math.abs(pointLayer.scaleMax), 1);
@@ -1446,6 +1790,61 @@ function pointColor(value, pointLayer) {{
   }}
   const amount = Math.min(Math.max((value - pointLayer.scaleMin) / Math.max(pointLayer.scaleMax - pointLayer.scaleMin, 1), 0), 1);
   return interpolateColor("#c7e9c0", "#006d2c", amount);
+}}
+function updateLegend(pointLayer) {{
+  const container = document.getElementById("active-legend");
+  if (container === null) return;
+  container.replaceChildren();
+  const title = document.createElement("div");
+  title.className = "legend-title";
+  title.textContent = pointLayer.displayName;
+  container.appendChild(title);
+  if (pointLayer.valueKind === "binary_outcome") {{
+    for (const value of pointLayer.filter.allowedValues) {{
+      const row = document.createElement("div");
+      row.className = "legend-swatch-row";
+      const swatch = document.createElement("span");
+      swatch.className = "legend-swatch";
+      swatch.style.backgroundColor = outcomeColor(value);
+      const label = document.createElement("span");
+      label.textContent = binaryOutcomeLabel(value);
+      row.appendChild(swatch);
+      row.appendChild(label);
+      container.appendChild(row);
+    }}
+    return;
+  }}
+  const ramp = document.createElement("div");
+  ramp.className = "legend-ramp";
+  if (pointLayer.diverging) {{
+    ramp.style.background = "linear-gradient(90deg, #08519c 0%, #bdd7e7 45%, #f7f7f7 50%, #fdd49e 55%, #b30000 100%)";
+  }} else if (pointLayer.valueKind === "probability") {{
+    ramp.style.background = "linear-gradient(90deg, #f7fcf5 0%, #c7e9c0 45%, #006d2c 100%)";
+  }} else {{
+    ramp.style.background = "linear-gradient(90deg, #f7fcf5 0%, #c7e9c0 45%, #006d2c 100%)";
+  }}
+  container.appendChild(ramp);
+  const scale = document.createElement("div");
+  scale.className = "legend-scale";
+  if (pointLayer.diverging) {{
+    scale.innerHTML = `<span>${{formatNumber(pointLayer.scaleMin, 0)}}</span><span>0</span><span>${{formatNumber(pointLayer.scaleMax, 0)}} ${{escapeHtml(pointLayer.legend.unit)}}</span>`;
+  }} else {{
+    const digits = pointLayer.valueKind === "probability" ? 2 : 0;
+    scale.innerHTML = `<span>${{formatNumber(pointLayer.scaleMin, digits)}}</span><span>${{formatNumber(pointLayer.scaleMax, digits)}} ${{escapeHtml(pointLayer.legend.unit)}}</span>`;
+  }}
+  container.appendChild(scale);
+  const description = document.createElement("div");
+  description.className = "filter-value";
+  description.textContent = pointLayer.legend.description;
+  container.appendChild(description);
+}}
+function outcomeColor(value) {{
+  const colors = {{ TP: "#238b45", FP: "#d95f02", FN: "#756bb1", TN: "#bdbdbd" }};
+  return colors[value] || "#737373";
+}}
+function binaryOutcomeLabel(value) {{
+  const labels = {{ TP: "TP observed and predicted", FP: "FP predicted only", FN: "FN observed only", TN: "TN background" }};
+  return labels[value] || value;
 }}
 function interpolateColor(low, high, amount) {{
   const start = hexToRgb(low);
@@ -1465,7 +1864,7 @@ function popupHtml(props) {{
     ["Observed frac", formatNumber(props.observed_fraction, 3)],
     ["Depth bin", props.depth_bin]
   ];
-  const popupProperties = new Set();
+  const popupProperties = new Set(["observed_canopy_area_m2"]);
   for (const pointLayer of VIEWER.pointLayers) {{
     if (popupProperties.has(pointLayer.propertyName)) continue;
     popupProperties.add(pointLayer.propertyName);
@@ -1512,6 +1911,58 @@ def point_layer_payload(layer: PointLayer) -> dict[str, object]:
         "defaultVisible": layer.default_visible,
         "minAbsDisplayValue": layer.min_abs_display_value,
         "allowedValues": list(layer.allowed_values) if layer.allowed_values is not None else [],
+        "filter": point_layer_filter_payload(layer),
+        "legend": point_layer_legend_payload(layer),
+    }
+
+
+def point_layer_filter_payload(layer: PointLayer) -> dict[str, object]:
+    """Return JSON-friendly filter defaults for one point layer."""
+    return {
+        "mode": layer.filter_mode,
+        "label": layer.filter_label,
+        "defaultMinValue": layer.filter_default_min,
+        "defaultValues": list(layer.filter_default_values),
+        "allowedValues": list(layer.allowed_values) if layer.allowed_values is not None else [],
+    }
+
+
+def point_layer_legend_payload(layer: PointLayer) -> dict[str, object]:
+    """Return JSON-friendly legend metadata for one point layer."""
+    return {
+        "kind": layer.value_kind,
+        "unit": layer.legend_unit,
+        "description": layer.legend_description,
+        "scaleMin": layer.scale_min,
+        "scaleMax": layer.scale_max,
+        "diverging": layer.diverging,
+    }
+
+
+def filter_config_payload(filter_config: VisualizerFilterConfig) -> dict[str, object]:
+    """Return JSON-friendly global and layer-specific filter defaults."""
+    return {
+        "continuous_min_area_m2": filter_config.continuous_min_area_m2,
+        "label_min_area_m2": filter_config.label_min_area_m2,
+        "residual_min_abs_area_m2": filter_config.residual_min_abs_area_m2,
+        "probability_min": filter_config.probability_min,
+        "binary_outcomes_visible": list(filter_config.binary_outcomes_visible),
+        "layer_overrides": {
+            layer_id: layer_filter_config_payload(override)
+            for layer_id, override in filter_config.layer_overrides.items()
+        },
+    }
+
+
+def layer_filter_config_payload(override: LayerFilterDefaults) -> dict[str, object]:
+    """Return JSON-friendly layer-specific filter override values."""
+    return {
+        "continuous_min_area_m2": override.continuous_min_area_m2,
+        "residual_min_abs_area_m2": override.residual_min_abs_area_m2,
+        "probability_min": override.probability_min,
+        "binary_outcomes_visible": list(override.binary_outcomes_visible)
+        if override.binary_outcomes_visible is not None
+        else None,
     }
 
 
@@ -1580,6 +2031,7 @@ def write_manifest(
             "attribution": viewer_config.basemap.attribution,
             "runtime_dependency_only": True,
         },
+        "filter_defaults": filter_config_payload(viewer_config.filters),
         "layers": [
             {
                 "layer_id": layer.layer_id,
@@ -1606,6 +2058,8 @@ def write_manifest(
                 if layer.allowed_values is not None
                 else [],
                 "default_visible": layer.default_visible,
+                "filter": point_layer_filter_payload(layer),
+                "legend": point_layer_legend_payload(layer),
                 "coordinate_based": True,
             }
             for layer in point_layers
