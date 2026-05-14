@@ -233,13 +233,16 @@ Phase 2 non-goals:
     area bias. Relative to Monterey transfer, Big Sur-only training improved
     the expected-value hurdle F1 from `0.849834` to `0.859563` and area bias
     from `-22.1124%` to `-2.8414%`; the ridge-only baseline got worse.
-- [ ] P2-08: Train and evaluate pooled Monterey+Big Sur models.
-  - Goal: Test whether pooled neighboring-region training improves held-out Big
-    Sur performance.
-  - Outputs: pooled training artifacts and comparison rows keyed by training
-    regime.
-  - Acceptance: the report can compare Monterey-transfer, Big Sur-only, and
-    pooled training on the same Big Sur evaluation scope.
+- [ ] P2-08: Cross-evaluate Monterey and Big Sur training regimes.
+  - Goal: Evaluate Monterey-only, Big Sur-only, and pooled Monterey+Big Sur
+    models on both Monterey and Big Sur.
+  - Outputs: reciprocal transfer artifacts, pooled training artifacts, and a
+    six-cell comparison table keyed by training regime, model origin region,
+    and evaluation region.
+  - Acceptance: the report can compare all Monterey/Big Sur local, transfer,
+    and pooled combinations on the same 2022 retained-domain evaluation scope
+    for each target region.
+  - Plan: `tasks/50_train_evaluate_pooled_monterey_big_sur_models.md`.
 - [ ] P2-09: Update the model-analysis report for region and training-regime
       comparison.
   - Goal: Make Phase 2 outcomes visible without turning the report into a long
