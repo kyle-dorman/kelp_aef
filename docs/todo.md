@@ -272,6 +272,7 @@ Phase 2 non-goals:
     sections.
   - Acceptance: the report answers whether Big Sur-only or pooled training
     improves Big Sur performance.
+  - Plan: `tasks/51_update_phase2_model_analysis_report.md`.
 - [ ] P2-10: Generate or extend the results visualizer for Big Sur.
   - Goal: Make Big Sur labels, predictions, residuals, and binary outcomes
     inspectable.
