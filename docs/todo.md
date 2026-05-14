@@ -84,12 +84,24 @@ Phase 2 non-goals:
     from the configured index and is recorded as a caveat, not a blocker.
     Comparable Big Sur and Monterey source-coverage CSV/PNG/HTML QA artifacts
     were written.
-- [ ] P2-03: Build Big Sur alignment, mask, and model-input artifacts.
-  - Goal: Recreate the Phase 1 retained-domain annual-max data path for Big
-    Sur.
-  - Outputs: Big Sur labels, full-grid alignment, plausible-kelp mask,
-    CRM-stratified mask-first sample, and split manifest.
-  - Acceptance: row counts, dropped positives, and mask reasons are reportable.
+- [ ] P2-03a: Refactor mask-first alignment workflow and verify Monterey.
+  - Goal: Make the retained-domain sample an explicit native step after
+    full-grid alignment, CRM alignment, and domain-mask construction.
+  - Outputs: Refactored alignment/sample commands, refreshed Monterey
+    full-grid/mask/model-input artifacts, and rerun downstream Monterey model
+    and report artifacts.
+  - Acceptance: Monterey reruns through the full downstream workflow, and row
+    counts, dropped positives, mask reasons, and sample weights are reportable
+    from generated artifacts.
+  - Plan: `tasks/43_refactor_mask_first_alignment_workflow.md`.
+- [ ] P2-03b: Build Big Sur alignment, mask, and model-input artifacts.
+  - Goal: Apply the refactored mask-first workflow to Big Sur using the
+    Kelpwatch-native UTM 10N target grid.
+  - Outputs: Big Sur labels, Kelpwatch-native full-grid alignment,
+    plausible-kelp mask, CRM-stratified mask-first sample, and split manifest.
+  - Acceptance: grid snap diagnostics, row counts, dropped positives, and mask
+    reasons are reportable.
+  - Plan: `tasks/44_build_big_sur_alignment_mask_model_inputs.md`.
 - [ ] P2-04: Evaluate Monterey-trained transfer on Big Sur.
   - Goal: Apply the closed Monterey Phase 1 policy to Big Sur as the transfer
     baseline.
