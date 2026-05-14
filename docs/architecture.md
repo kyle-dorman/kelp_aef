@@ -117,6 +117,10 @@ The smoke config defines:
   binary presence, positive-only conditional canopy, and the selected
   expected-value hurdle.
 
+Phase 2 is the first point where a second region config or region-aware config
+extension is expected. Keep Monterey reproducible while adding Big Sur. Prefer
+explicit region-scoped artifact paths over reusing Monterey output names.
+
 ## Data Flow
 
 ```text
@@ -292,3 +296,34 @@ The closed Phase 1 architecture:
 - Preserves a rerunnable model-analysis closeout report.
 
 Do not assume this phase includes full West Coast scale-up.
+
+## Phase 2 Boundary
+
+Phase 2 is the Big Sur generalization gate for the closed Monterey Phase 1
+policy. The planning note is:
+
+```text
+docs/phase2_big_sur_generalization.md
+```
+
+The Phase 2 architecture should:
+
+- keep the Monterey config and artifacts reproducible;
+- add Big Sur through a small config or region-aware config extension, not a
+  full West Coast config;
+- use the same package-backed CLI command pattern as Monterey;
+- keep AEF, Kelpwatch, domain-source, model, report, and visualizer outputs
+  region-scoped so Big Sur never overwrites Monterey;
+- verify Big Sur domain-source coverage before model interpretation;
+- run an early visual QA pass for Big Sur labels, AEF coverage, and domain
+  context before model training;
+- treat the selected Phase 1 expected-value hurdle as the Monterey-trained
+  transfer baseline;
+- support Big Sur-only and pooled Monterey+Big Sur training-regime artifacts
+  without mixing them with transfer outputs;
+- allow the report and visualizer to grow region and year selection if separate
+  single-region artifacts become awkward to review.
+
+Phase 2 should not introduce deep spatial models, alternative temporal labels,
+or bathymetry/DEM predictors. Those are Phase 3 candidates depending on the Big
+Sur result.

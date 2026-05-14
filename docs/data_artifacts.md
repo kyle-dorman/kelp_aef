@@ -308,6 +308,38 @@ report tables.
 | Results visualizer manifest | `/Volumes/x10pro/kelp_aef/interim/results_visualizer_manifest.json` | Input paths, row counts, point-layer color scales, basemap URL/attribution, and qualitative-review caveats. | Not tracked |
 | Results visualizer inspection points | `/Volumes/x10pro/kelp_aef/reports/tables/results_visualizer_inspection_points.csv` | Bounded set of high-residual and nonzero-support cells with coordinates and model/label values for manual Planet or Kelpwatch lookup. | Not tracked |
 
+## Phase 2 Big Sur Planned Artifact Conventions
+
+Phase 2 uses Big Sur as a neighboring generalization region. The detailed
+artifact names should be declared in the Big Sur config or region-aware config
+extension before any pipeline run. Use the region shorthand `big_sur` in new
+paths so Big Sur artifacts do not overwrite Monterey artifacts.
+
+The user-provided Big Sur AEF context is:
+
+- STAC item id: `8957`.
+- CRS: `EPSG:32610`.
+- Bbox:
+  `[-122.09641373617602, 35.51952415252234, -121.17627335446835, 36.26818075229042]`.
+- Example 2022 AEF asset:
+  `s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000000000-0000008192.tiff`.
+
+Expected Big Sur artifact categories:
+
+| Category | Example path pattern | Purpose | Git |
+| --- | --- | --- | --- |
+| Big Sur footprint | `/Volumes/x10pro/kelp_aef/geos/big_sur_*.geojson` | Region footprint or AEF tile footprint used for Big Sur source queries and QA. | Not tracked |
+| Big Sur source manifests | `/Volumes/x10pro/kelp_aef/interim/*big_sur*manifest*.json` | Reviewable AEF, Kelpwatch, and domain-source coverage manifests before interpretation. | Not tracked |
+| Big Sur early visual QA | `/Volumes/x10pro/kelp_aef/reports/figures/*big_sur*qa*` and `/Volumes/x10pro/kelp_aef/reports/interactive/*big_sur*qa*` | Quick visual check of Big Sur labels, AEF coverage, and domain context before model training. | Not tracked |
+| Big Sur aligned tables | `/Volumes/x10pro/kelp_aef/interim/*big_sur*.parquet` | Region-scoped label, full-grid, domain, and model-input artifacts. | Not tracked |
+| Big Sur model outputs | `/Volumes/x10pro/kelp_aef/processed/*big_sur*.parquet` and `/Volumes/x10pro/kelp_aef/models/*big_sur*` | Region-scoped predictions and model payloads keyed by training regime, such as Monterey-trained transfer, Big Sur-only, or pooled Monterey+Big Sur. | Not tracked |
+| Big Sur report outputs | `/Volumes/x10pro/kelp_aef/reports/tables/*big_sur*`, `/Volumes/x10pro/kelp_aef/reports/figures/*big_sur*`, and `/Volumes/x10pro/kelp_aef/reports/model_analysis/*big_sur*` | Big Sur and Monterey-vs-Big-Sur comparison tables, figures, and reports. | Not tracked |
+| Big Sur visualizer | `/Volumes/x10pro/kelp_aef/reports/interactive/big_sur_results_visualizer.html` or a multi-region visualizer path declared in config | Local qualitative review of Big Sur retained-domain labels, predictions, residuals, and binary outcomes. | Not tracked |
+
+If Phase 2 promotes a multi-region visualizer, its manifest must record which
+regions and years are included so downstream review does not confuse Monterey
+and Big Sur rows.
+
 ## Historical P1-22 Direct-Continuous Failure Artifacts
 
 These outputs are historical records from the failed P1-22 direct-continuous

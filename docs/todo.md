@@ -1,4 +1,128 @@
-# Phase 1 TODO
+# Project TODO
+
+## Active Phase 2 Plan
+
+Status: Phase 2 selected on 2026-05-14. Checklist items below are planning
+stubs only; no `tasks/` files have been written for them yet.
+
+Phase 2 theme: test whether the closed Monterey Phase 1 annual-max policy
+generalizes to neighboring Big Sur before choosing a broader Phase 3 direction.
+
+Phase 2 plan:
+
+```text
+docs/phase2_big_sur_generalization.md
+```
+
+Selected Big Sur AEF context:
+
+- STAC item id: `8957`.
+- CRS: `EPSG:32610`.
+- Bbox:
+  `[-122.09641373617602, 35.51952415252234, -121.17627335446835, 36.26818075229042]`.
+- Example 2022 AEF asset:
+  `s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000000000-0000008192.tiff`.
+
+Phase 2 should:
+
+- verify Big Sur AEF, Kelpwatch, and domain-source coverage before model
+  interpretation;
+- run an early visual QA pass on Big Sur labels, AEF coverage, and domain
+  context before model training;
+- start with the Phase 1 annual-max target, CRM-stratified mask-first sample
+  policy, calibrated binary support model, conditional canopy model, and
+  expected-value hurdle policy fixed unless source verification forces a
+  change;
+- compare Monterey-trained transfer, Big Sur-only training, and pooled
+  Monterey+Big Sur training when evaluating on Big Sur;
+- compare Big Sur against Monterey on AEF ridge, previous-year persistence,
+  expected-value hurdle, and hard-gated diagnostic policy;
+- generate a Big Sur results visualizer;
+- reserve space for report and visualizer changes, including region/year
+  selection if that becomes the cleanest review path;
+- close with a Phase 3 recommendation: broader scale-up, simple non-linear
+  tabular modeling, temporal-label exploration, ingestion/domain hardening, or
+  evaluation-tooling work.
+
+Phase 2 non-goals:
+
+- Do not start full West Coast scale-up.
+- Do not switch away from Kelpwatch annual max inside Phase 2.
+- Do not choose final thresholds, sample quotas, or model policy by tuning on
+  held-out Big Sur test rows. Validation-driven Big Sur-only and pooled
+  training comparisons are in scope.
+- Do not add bathymetry/DEM as predictors without a later decision.
+- Do not write numbered implementation task files in this planning pass.
+
+## Phase 2 Checklist
+
+- [ ] P2-01: Add Big Sur config and source-manifest plan.
+  - Goal: Introduce `big_sur` as a second small region without breaking the
+    closed Monterey config.
+  - Outputs: region-scoped config paths, Big Sur footprint path, and reviewable
+    AEF/Kelpwatch/domain-source manifest expectations.
+  - Acceptance: the planned artifact names cannot overwrite Monterey outputs.
+- [ ] P2-02: Verify Big Sur source coverage and early visual QA.
+  - Goal: Confirm Big Sur AEF, Kelpwatch, CRM/domain, and shoreline support
+    before interpreting any model results, and visually check labels, AEF, and
+    domain context before training.
+  - Outputs: Big Sur coverage manifests, a short coverage summary, and quick
+    visual QA artifacts for labels, AEF coverage, and domain context.
+  - Acceptance: source years, domain coverage, and Kelpwatch-positive retention
+    are explicit, and obvious visual source/alignment problems have been ruled
+    out or recorded.
+- [ ] P2-03: Build Big Sur alignment, mask, and model-input artifacts.
+  - Goal: Recreate the Phase 1 retained-domain annual-max data path for Big
+    Sur.
+  - Outputs: Big Sur labels, full-grid alignment, plausible-kelp mask,
+    CRM-stratified mask-first sample, and split manifest.
+  - Acceptance: row counts, dropped positives, and mask reasons are reportable.
+- [ ] P2-04: Evaluate Monterey-trained transfer on Big Sur.
+  - Goal: Apply the closed Monterey Phase 1 policy to Big Sur as the transfer
+    baseline.
+  - Outputs: Big Sur metrics for AEF ridge, expected-value hurdle, hard-gated
+    hurdle, calibrated binary support, and reference baselines.
+  - Acceptance: Big Sur held-out performance is reported without Big Sur
+    training-driven policy changes.
+- [ ] P2-05: Train and evaluate Big Sur-only models.
+  - Goal: Test whether training on Big Sur improves held-out Big Sur
+    performance relative to Monterey transfer.
+  - Outputs: Big Sur-only baseline, binary, calibration, conditional, and
+    hurdle artifacts.
+  - Acceptance: thresholds and calibration use validation rows, and held-out
+    Big Sur test rows remain final evaluation.
+- [ ] P2-06: Train and evaluate pooled Monterey+Big Sur models.
+  - Goal: Test whether pooled neighboring-region training improves held-out Big
+    Sur performance.
+  - Outputs: pooled training artifacts and comparison rows keyed by training
+    regime.
+  - Acceptance: the report can compare Monterey-transfer, Big Sur-only, and
+    pooled training on the same Big Sur evaluation scope.
+- [ ] P2-07: Update the model-analysis report for region and training-regime
+      comparison.
+  - Goal: Make Phase 2 outcomes visible without turning the report into a long
+    chronology.
+  - Outputs: compact Monterey-vs-Big-Sur and training-regime comparison
+    sections.
+  - Acceptance: the report answers whether Big Sur-only or pooled training
+    improves Big Sur performance.
+- [ ] P2-08: Generate or extend the results visualizer for Big Sur.
+  - Goal: Make Big Sur labels, predictions, residuals, and binary outcomes
+    inspectable.
+  - Outputs: Big Sur visualizer or a multi-region visualizer with region/year
+    selection.
+  - Acceptance: Big Sur can be selected or opened without confusing it with
+    Monterey rows.
+- [ ] P2-09: Close Phase 2 and recommend Phase 3.
+  - Goal: Decide whether Phase 3 should broaden geography, test simple
+    non-linear tabular models such as random forest or gradient boosting,
+    explore deferred temporal labels, harden ingestion/domain coverage, or
+    improve evaluation tooling.
+  - Outputs: Phase 2 closeout decision note and updated docs.
+  - Acceptance: the decision is grounded in Big Sur source coverage, transfer
+    performance, Big Sur-only performance, pooled performance, and visual QA.
+
+## Closed Phase 1 TODO
 
 Status: Phase 1 is closed as of 2026-05-13.
 

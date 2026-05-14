@@ -21,6 +21,12 @@ start.
   - Decision: `docs/phase1_closeout_model_policy_decision.md`.
   - Final report snapshot:
     `docs/report_snapshots/monterey_phase1_closeout_model_analysis.md`.
+- [x] Phase 2 direction selected.
+  - Selected theme: Big Sur generalization gate for the closed Monterey Phase 1
+    annual-max policy.
+  - Plan: `docs/phase2_big_sur_generalization.md`.
+  - Selected on 2026-05-14.
+  - Numbered implementation tasks have not been written yet.
 
 ## Closed Phase 1 Work
 
@@ -64,6 +70,38 @@ start.
   later; use them first for domain filtering and diagnostics.
 - Do not tune on the 2022 test split.
 
+## Active Phase 2 Direction
+
+- [ ] Big Sur generalization gate.
+  - Use neighboring Big Sur as the second small region.
+  - Keep the Phase 1 annual-max policy fixed as much as possible.
+  - Verify AEF, Kelpwatch, and domain-source coverage before interpreting
+    metrics.
+  - Run early visual QA for Big Sur labels, AEF coverage, and domain context.
+  - Rerun or fairly apply the selected expected-value hurdle and diagnostic
+    hard-gated hurdle policy to Big Sur as the Monterey-trained transfer
+    baseline.
+  - Compare Monterey-trained transfer, Big Sur-only training, and pooled
+    Monterey+Big Sur training on Big Sur held-out rows.
+  - Compare Big Sur with Monterey against AEF ridge and previous-year
+    persistence.
+  - Generate a Big Sur interactive visualizer output.
+  - Reserve space for report and visualizer changes, including possible region
+    and year selection.
+  - Close by deciding whether Phase 3 should be scale-up, multi-region
+    training, simple non-linear tabular modeling, temporal-label exploration,
+    ingestion/domain hardening, or evaluation-tooling work.
+
+Phase 2 non-goals:
+
+- Do not start full West Coast processing.
+- Do not switch away from annual max inside Phase 2.
+- Do not choose final thresholds, sampling quotas, or model policy by tuning on
+  held-out Big Sur test rows. Validation-driven Big Sur-only and pooled
+  training comparisons are in scope.
+- Do not add bathymetry/DEM as model predictors.
+- Do not write numbered implementation tasks in this planning pass.
+
 ## Candidate Future Pipeline Milestones
 
 - [ ] Harden ingestion and manifests beyond the Monterey smoke run.
@@ -94,11 +132,13 @@ start.
   - Latitude, site, state, or regional holdouts remain future candidates.
   - Random/block split should stay a sanity check only.
 - [ ] Scale beyond the smoke test.
+  - Big Sur is the selected Phase 2 neighboring-region gate before this becomes
+    broader scale-up.
   - Full U.S. West Coast config.
   - Broader temporal/spatial holdouts.
   - Larger artifact-management and runtime strategy.
-  - Do not start this until Phase 1 decides a defensible mask/model/calibration
-    policy.
+  - Do not start full-scale processing until Phase 2 shows whether the Monterey
+    policy generalizes to Big Sur.
 
 ## Research Questions
 

@@ -85,6 +85,52 @@ Phase 1 non-goals:
 - Do not use bathymetry/DEM as model predictors unless that is explicitly
   approved later; use them first for filtering and diagnostics.
 
+## Phase 2 Status
+
+Phase 2 has been selected as a Big Sur generalization gate as of 2026-05-14.
+The plan is tracked in:
+
+```text
+docs/phase2_big_sur_generalization.md
+```
+
+Phase 2 asks whether the closed Monterey Phase 1 policy generalizes to the
+neighboring Big Sur region before the project chooses a broader Phase 3
+direction.
+
+Selected Phase 2 region:
+
+- Region: Big Sur.
+- Region shorthand: `big_sur`.
+- AEF STAC item id: `8957`.
+- AEF CRS: `EPSG:32610`.
+- AEF bbox:
+  `[-122.09641373617602, 35.51952415252234, -121.17627335446835, 36.26818075229042]`.
+- Example 2022 AEF asset:
+  `s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000000000-0000008192.tiff`.
+
+The working assumption is that AEF and Kelpwatch coverage exist for Big Sur.
+Domain-source coverage is likely but must be verified quickly before model
+metrics are interpreted.
+
+Phase 2 should stay short. It should start with the Phase 1 annual-max policy
+as the Monterey-trained transfer baseline, run quick visual QA for Big Sur
+labels, AEF coverage, and domain context, compare Big Sur-only and pooled
+Monterey+Big Sur training regimes, generate a Big Sur visualizer, adapt the
+report and visualizer for region/year review where needed, and close with a
+Phase 3 recommendation.
+
+Phase 2 non-goals:
+
+- Do not start full West Coast scale-up.
+- Do not change the label target away from Kelpwatch annual max unless Phase 2
+  closes with a Phase 3 temporal-label recommendation.
+- Do not choose final thresholds, sample quotas, or model policy by tuning on
+  held-out Big Sur test rows. Validation-driven Big Sur-only and pooled
+  training comparisons are in scope.
+- Do not use bathymetry/DEM as predictors unless a later decision explicitly
+  changes the feature scope.
+
 ## Success Criteria
 
 The feasibility spike is considered useful enough to pause when:
@@ -168,4 +214,5 @@ Useful metrics:
 
 The closed Phase 1 evaluation emphasized reference-baseline comparison,
 domain-mask effects, imbalance-aware model behavior, and area calibration.
-Alternative temporal target framing remains deferred.
+Phase 2 adds a neighboring-region generalization check before any broader
+scale-up or temporal-target pivot.

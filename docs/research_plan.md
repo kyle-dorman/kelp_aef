@@ -248,6 +248,82 @@ Explicitly deferred work:
 - Full West Coast scale-up.
 - Deep spatial models.
 
+## Phase 2: Big Sur Generalization Gate
+
+Status: selected on 2026-05-14.
+
+Phase 2 tests whether the closed Monterey Phase 1 annual-max policy
+generalizes to the neighboring Big Sur region. The plan is:
+
+```text
+docs/phase2_big_sur_generalization.md
+```
+
+Phase 2 should be shorter than Phase 1. It should not reopen every modeling
+choice, but it should explicitly compare training regimes. The default stance
+is to keep the Phase 1 label input, split semantics, domain-mask logic,
+CRM-stratified mask-first sample policy, calibrated binary presence model,
+conditional canopy model, and expected-value hurdle policy as the
+Monterey-trained transfer baseline, then compare Big Sur-only and pooled
+Monterey+Big Sur training on held-out Big Sur rows.
+
+Selected region:
+
+- Big Sur, shorthand `big_sur`.
+- AlphaEarth STAC item id `8957`.
+- AEF CRS `EPSG:32610`.
+- AEF bbox:
+  `[-122.09641373617602, 35.51952415252234, -121.17627335446835, 36.26818075229042]`.
+- Example 2022 AEF asset:
+  `s3://us-west-2.opendata.source.coop/tge-labs/aef/v1/annual/2022/10N/xaspzf5khdg4c5pbs-0000000000-0000008192.tiff`.
+
+Working assumptions:
+
+- AEF coverage exists for Big Sur.
+- Kelpwatch coverage exists for Big Sur.
+- Domain-source coverage probably exists, but Phase 2 must verify it before
+  interpreting model metrics.
+- The first comparison should use the same 2018-2022 overlap and 2022 test year
+  if source verification confirms that window.
+
+Phase 2 should produce:
+
+- a Big Sur config or region-aware config extension;
+- reviewable Big Sur AEF, Kelpwatch, and domain-source manifests;
+- early visual QA for Big Sur labels, AEF coverage, and domain context;
+- a Big Sur plausible-kelp domain check;
+- model-analysis outputs that compare Monterey-trained transfer, Big Sur-only,
+  and pooled Monterey+Big Sur training on Big Sur;
+- a Big Sur results visualizer, or a multi-region visualizer with region and
+  year selection;
+- report updates that leave room for multi-region comparison without turning
+  the report into a new long chronology.
+
+The Phase 2 closeout should choose the Phase 3 direction:
+
+- broaden to multi-region California or West Coast generalization if Big Sur
+  supports the Monterey policy;
+- broaden to multi-region training if Big Sur-only or pooled training closes
+  most of the Big Sur gap;
+- test simple non-linear tabular models such as random forest or gradient
+  boosting if high-canopy annual-max amount prediction still looks like
+  model-capacity underfit;
+- pivot to deferred temporal-label experiments if high-canopy amount prediction
+  looks more like target mismatch than model-capacity underfit;
+- harden ingestion, alignment, or domain-source coverage if those assumptions
+  break on Big Sur;
+- harden report and visualizer tooling if review becomes the limiting factor.
+
+Phase 2 non-goals:
+
+- Do not start full West Coast scale-up.
+- Do not change the annual-max label target inside Phase 2.
+- Do not choose final thresholds, sampling quotas, or model policy by tuning on
+  held-out Big Sur test rows. Validation-driven Big Sur-only and pooled
+  training comparisons are in scope.
+- Do not introduce deep spatial models, 10 m label targets, or bathymetry/DEM
+  predictors.
+
 ## Candidate Next Work: Evaluation
 
 Metrics should match the ecology use case.
@@ -372,8 +448,17 @@ Phase 1: Monterey annual-max baselines, domain filtering, imbalance-aware
 models, and report calibration.
 ```
 
-No post-Phase-1 milestone is selected in this plan. Do not assume the project
-should immediately start full U.S. West Coast scale-up.
+Current selected milestone:
+
+```text
+Phase 2: Big Sur generalization gate for the closed Monterey Phase 1
+annual-max policy.
+```
+
+Do not assume Phase 2 means full U.S. West Coast scale-up. It is a neighboring
+region test that should decide whether Phase 3 is scale-up, multi-region
+training, simple non-linear tabular modeling, temporal-label exploration,
+ingestion/domain hardening, or evaluation-tooling work.
 
 ## Sources
 
