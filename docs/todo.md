@@ -76,6 +76,7 @@ Phase 2 non-goals:
   - Acceptance: source years, domain coverage, and Kelpwatch-positive retention
     are explicit, and obvious visual source/alignment problems have been ruled
     out or recorded.
+  - Plan: `tasks/42_verify_big_sur_source_coverage_visual_qa.md`.
 - [ ] P2-03: Build Big Sur alignment, mask, and model-input artifacts.
   - Goal: Recreate the Phase 1 retained-domain annual-max data path for Big
     Sur.
