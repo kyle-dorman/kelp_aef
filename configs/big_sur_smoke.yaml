@@ -26,6 +26,7 @@ labels:
     raw_dir: /Volumes/x10pro/kelp_aef/raw/kelpwatch
     source_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_kelpwatch_source_manifest.json
     annual_labels: /Volumes/x10pro/kelp_aef/interim/big_sur_labels_annual.parquet
+    annual_label_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_labels_annual_summary.csv
     annual_label_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_labels_annual_manifest.json
 
 features:

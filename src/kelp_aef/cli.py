@@ -15,7 +15,11 @@ from kelp_aef.domain.noaa_crm import download_noaa_crm, query_noaa_crm
 from kelp_aef.domain.noaa_cudem import download_noaa_cudem, query_noaa_cudem
 from kelp_aef.domain.noaa_cusp import download_noaa_cusp, query_noaa_cusp
 from kelp_aef.domain.usgs_3dep import download_usgs_3dep, query_usgs_3dep
-from kelp_aef.evaluation.baselines import predict_full_grid, train_baselines
+from kelp_aef.evaluation.baselines import (
+    predict_full_grid,
+    train_baselines,
+    write_configured_split_manifest,
+)
 from kelp_aef.evaluation.binary_presence import calibrate_binary_presence, train_binary_presence
 from kelp_aef.evaluation.conditional_canopy import train_conditional_canopy
 from kelp_aef.evaluation.hurdle import compose_hurdle_model
@@ -60,6 +64,7 @@ COMMANDS: dict[str, str] = {
     "align": "Align AlphaEarth features and Kelpwatch labels into a training table.",
     "align-full-grid": "Align AlphaEarth features with full-grid background labels.",
     "build-model-input-sample": "Build the retained-domain model-input sample.",
+    "write-split-manifest": "Write train/validation/test row assignments without training.",
     "train-baselines": "Train and evaluate first simple tabular baselines.",
     "predict-full-grid": "Stream baseline predictions over the full-grid feature table.",
     "train-binary-presence": "Train the balanced binary annual-max presence model.",
@@ -799,6 +804,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_code = align_full_grid(config_path, fast=bool(args.fast))
         elif command == "build-model-input-sample":
             exit_code = build_model_input_sample(config_path, fast=bool(args.fast))
+        elif command == "write-split-manifest":
+            exit_code = write_configured_split_manifest(config_path)
         elif command == "train-baselines":
             exit_code = train_baselines(config_path)
         elif command == "predict-full-grid":

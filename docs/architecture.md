@@ -66,6 +66,7 @@ kelp-aef build-labels --config configs/monterey_smoke.yaml
 kelp-aef align --config configs/monterey_smoke.yaml
 kelp-aef align-full-grid --config configs/monterey_smoke.yaml
 kelp-aef build-model-input-sample --config configs/monterey_smoke.yaml
+kelp-aef write-split-manifest --config configs/monterey_smoke.yaml
 kelp-aef train-baselines --config configs/monterey_smoke.yaml
 kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
 kelp-aef train-conditional-canopy --config configs/monterey_smoke.yaml

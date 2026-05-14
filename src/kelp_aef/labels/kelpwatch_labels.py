@@ -183,6 +183,8 @@ def load_kelpwatch_label_config(config_path: Path) -> KelpwatchLabelConfig:
         require_string(label_paths.get("annual_labels"), "labels.paths.annual_labels")
     )
     tables_dir = Path(require_string(reports.get("tables_dir"), "reports.tables_dir"))
+    summary_path = label_paths.get("annual_label_summary")
+    manifest_path = label_paths.get("annual_label_manifest")
     return KelpwatchLabelConfig(
         config_path=config_path,
         years=years,
@@ -195,8 +197,16 @@ def load_kelpwatch_label_config(config_path: Path) -> KelpwatchLabelConfig:
             require_string(label_paths.get("source_manifest"), "labels.paths.source_manifest")
         ),
         annual_labels_path=annual_labels_path,
-        summary_table_path=tables_dir / "labels_annual_summary.csv",
-        label_manifest_path=annual_labels_path.parent / "labels_annual_manifest.json",
+        summary_table_path=(
+            Path(require_string(summary_path, "labels.paths.annual_label_summary"))
+            if summary_path is not None
+            else tables_dir / "labels_annual_summary.csv"
+        ),
+        label_manifest_path=(
+            Path(require_string(manifest_path, "labels.paths.annual_label_manifest"))
+            if manifest_path is not None
+            else annual_labels_path.parent / "labels_annual_manifest.json"
+        ),
     )
 
 

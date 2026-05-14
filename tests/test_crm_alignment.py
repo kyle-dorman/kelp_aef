@@ -73,7 +73,28 @@ def test_align_noaa_crm_fast_writes_support_and_qa_tables(tmp_path: Path) -> Non
     assert "crm_vs_cudem" in set(comparison["source_pair"])
 
 
-def write_crm_alignment_fixture(tmp_path: Path) -> dict[str, Path]:
+def test_align_noaa_crm_does_not_require_unused_north_product(tmp_path: Path) -> None:
+    """Verify south-only target grids do not require the north CRM source file."""
+    fixture = write_crm_alignment_fixture(
+        tmp_path,
+        include_north_source=False,
+        include_north_target=False,
+    )
+
+    assert main(["align-noaa-crm", "--config", str(fixture["config_path"]), "--fast"]) == 0
+
+    aligned = pd.read_parquet(fixture["fast_output"]).sort_values("aef_grid_cell_id")
+    assert len(aligned) == 2
+    assert set(aligned["crm_source_product_id"]) == {"crm_socal_v2_1as"}
+    assert set(aligned["crm_value_status"]) == {"valid"}
+
+
+def write_crm_alignment_fixture(
+    tmp_path: Path,
+    *,
+    include_north_source: bool = True,
+    include_north_target: bool = True,
+) -> dict[str, Path]:
     """Write a complete tiny CRM alignment fixture under a temp directory."""
     target_grid = tmp_path / "interim/full_grid.parquet"
     source_manifest = tmp_path / "interim/noaa_crm_source_manifest.json"
@@ -92,13 +113,14 @@ def write_crm_alignment_fixture(tmp_path: Path) -> dict[str, Path]:
     geometry_path = tmp_path / "geos/footprint.geojson"
     config_path = tmp_path / "config.yaml"
 
-    write_target_grid_table(target_grid)
+    write_target_grid_table(target_grid, include_north_target=include_north_target)
     write_crm_source(socal_path, variable="Band1", value=-12.0, lat_value=36.9)
-    write_crm_source(vol7_path, variable="z", value=-34.0, lat_value=37.1)
+    if include_north_source:
+        write_crm_source(vol7_path, variable="z", value=-34.0, lat_value=37.1)
     write_qa_raster(cudem_path, value=-11.0)
     write_qa_raster(usgs_path, value=7.0)
     write_region_geometry(geometry_path)
-    write_crm_source_manifest(source_manifest, socal_path, vol7_path)
+    write_crm_source_manifest(source_manifest, socal_path, vol7_path, include_north_source)
     query_manifest.write_text(json.dumps({"selected_products": []}))
     write_raster_manifest(cudem_manifest, "tile_id", "cudem_tile", cudem_path)
     write_raster_manifest(usgs_manifest, "artifact_id", "usgs_tile", usgs_path)
@@ -126,7 +148,7 @@ def write_crm_alignment_fixture(tmp_path: Path) -> dict[str, Path]:
     }
 
 
-def write_target_grid_table(path: Path) -> None:
+def write_target_grid_table(path: Path, *, include_north_target: bool = True) -> None:
     """Write duplicate years of a small full-grid alignment artifact."""
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -147,7 +169,7 @@ def write_target_grid_table(path: Path) -> None:
                     "aef_grid_col": 1,
                     "aef_grid_cell_id": 11,
                     "longitude": -122.0,
-                    "latitude": 37.1,
+                    "latitude": 37.1 if include_north_target else 36.9,
                 },
                 {
                     "year": year,
@@ -224,25 +246,32 @@ def write_region_geometry(path: Path) -> None:
     )
 
 
-def write_crm_source_manifest(path: Path, socal_path: Path, vol7_path: Path) -> None:
+def write_crm_source_manifest(
+    path: Path,
+    socal_path: Path,
+    vol7_path: Path,
+    include_north_source: bool,
+) -> None:
     """Write the source manifest consumed by the CRM alignment command."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "records": [
-            {
-                "product_id": "crm_socal_v2_1as",
-                "product_name": "NOAA Coastal Relief Model Southern California Version 2",
-                "local_path": str(socal_path),
-                "vertical_datum": "mean sea level",
-            },
+    records = [
+        {
+            "product_id": "crm_socal_v2_1as",
+            "product_name": "NOAA Coastal Relief Model Southern California Version 2",
+            "local_path": str(socal_path),
+            "vertical_datum": "mean sea level",
+        }
+    ]
+    if include_north_source:
+        records.append(
             {
                 "product_id": "crm_vol7_2025",
                 "product_name": "NOAA Coastal Relief Model Volume 7 Central Pacific 2025",
                 "local_path": str(vol7_path),
                 "vertical_datum": "EGM2008",
-            },
-        ]
-    }
+            }
+        )
+    payload = {"records": records}
     path.write_text(json.dumps(payload))
 
 

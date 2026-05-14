@@ -32,6 +32,7 @@ def test_cli_imports() -> None:
         "align",
         "align-full-grid",
         "build-model-input-sample",
+        "write-split-manifest",
         "train-baselines",
         "predict-full-grid",
         "train-binary-presence",

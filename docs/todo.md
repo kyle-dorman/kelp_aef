@@ -127,7 +127,7 @@ Phase 2 non-goals:
     expected-value hurdle changed on the primary 2022 `full_grid_masked` all
     row from F1 `0.812370` / area bias `-16.0250%` to F1 `0.840780` / area
     bias `-27.5095%`.
-- [ ] P2-03c: Build Big Sur alignment, mask, and model-input artifacts.
+- [x] P2-03c: Build Big Sur alignment, mask, and model-input artifacts.
   - Goal: Apply the completed mask-first workflow and general
     Kelpwatch-native target-grid policy to Big Sur.
   - Outputs: Big Sur labels, full-grid alignment, plausible-kelp mask,
@@ -135,6 +135,17 @@ Phase 2 non-goals:
   - Acceptance: grid snap diagnostics, row counts, dropped positives, and mask
     reasons are reportable.
   - Plan: `tasks/45_build_big_sur_alignment_mask_model_inputs.md`.
+  - Completed: Big Sur labels, Kelpwatch-native full-grid alignment, CRM
+    alignment, plausible-kelp mask, retained-domain CRM-stratified model-input
+    sample, and split manifest were written. The aligned full-grid has
+    `3,309,208` rows per year (`32,389` Kelpwatch-station rows and `3,276,819`
+    assumed-background rows), max station snap residual `6.25e-08 m`, and
+    `538` stations per year outside selected AEF coverage. CRM is valid for all
+    target cells from `crm_socal_v2_1as`; CUDEM remains a zero-tile QA caveat.
+    The mask retains `272,030` cells, drops `3,037,178`, and drops `0`
+    Kelpwatch-positive rows. The masked sample has `231,345` rows from
+    `1,360,150` retained-domain population rows; the split manifest has no
+    dropped-feature rows. No Big Sur models or predictions were trained.
 - [ ] P2-04: Evaluate Monterey-trained transfer on Big Sur.
   - Goal: Apply the closed Monterey Phase 1 policy to Big Sur as the transfer
     baseline.

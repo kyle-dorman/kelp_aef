@@ -15,7 +15,16 @@ def test_build_labels_cli_writes_annual_label_artifacts(tmp_path: Path) -> None:
     footprint_path = tmp_path / "geos/footprint.geojson"
     manifest_path = tmp_path / "interim/kelpwatch_manifest.json"
     labels_path = tmp_path / "interim/labels_annual.parquet"
-    config_path = write_label_config(tmp_path, footprint_path, manifest_path, labels_path)
+    summary_path = tmp_path / "tables/custom_labels_annual_summary.csv"
+    label_manifest_path = tmp_path / "interim/custom_labels_annual_manifest.json"
+    config_path = write_label_config(
+        tmp_path,
+        footprint_path,
+        manifest_path,
+        labels_path,
+        summary_path,
+        label_manifest_path,
+    )
     write_tiny_label_netcdf(netcdf_path)
     write_footprint_geojson(footprint_path)
     write_source_manifest(manifest_path, netcdf_path)
@@ -26,8 +35,8 @@ def test_build_labels_cli_writes_annual_label_artifacts(tmp_path: Path) -> None:
     assert len(labels) == 8
     assert set(labels["year"]) == {2018, 2019}
     assert set(labels["kelpwatch_station_id"]) == {0, 1, 2, 3}
-    assert (tmp_path / "tables/labels_annual_summary.csv").is_file()
-    assert (tmp_path / "interim/labels_annual_manifest.json").is_file()
+    assert summary_path.is_file()
+    assert label_manifest_path.is_file()
 
     station0_2018 = labels.query("year == 2018 and kelpwatch_station_id == 0").iloc[0]
     assert station0_2018["area_q1"] == 0.0
@@ -44,20 +53,26 @@ def test_build_labels_cli_writes_annual_label_artifacts(tmp_path: Path) -> None:
     assert station2_2018["valid_quarter_count"] == 0
     assert pd.isna(station2_2018["max_area_quarter"])
 
-    with (tmp_path / "tables/labels_annual_summary.csv").open(newline="") as file:
+    with summary_path.open(newline="") as file:
         summary_rows = list(csv.DictReader(file))
     assert [row["year"] for row in summary_rows] == ["2018", "2019"]
     assert summary_rows[0]["row_count"] == "4"
     assert summary_rows[0]["valid_count"] == "3"
     assert summary_rows[0]["ge_10pct_count"] == "2"
 
-    label_manifest = json.loads((tmp_path / "interim/labels_annual_manifest.json").read_text())
+    label_manifest = json.loads(label_manifest_path.read_text())
     assert label_manifest["label_variable"] == "area"
     assert label_manifest["spatial"]["support"] == "kelpwatch_30m_station"
+    assert label_manifest["summary_table"] == str(summary_path)
 
 
 def write_label_config(
-    tmp_path: Path, footprint_path: Path, manifest_path: Path, labels_path: Path
+    tmp_path: Path,
+    footprint_path: Path,
+    manifest_path: Path,
+    labels_path: Path,
+    summary_path: Path,
+    label_manifest_path: Path,
 ) -> Path:
     """Write the minimal workflow config used by the build-labels test."""
     config_path = tmp_path / "config.yaml"
@@ -76,6 +91,8 @@ labels:
   paths:
     source_manifest: {manifest_path}
     annual_labels: {labels_path}
+    annual_label_summary: {summary_path}
+    annual_label_manifest: {label_manifest_path}
 reports:
   tables_dir: {tmp_path / "tables"}
 """.lstrip()

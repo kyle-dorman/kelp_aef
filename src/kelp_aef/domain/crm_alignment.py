@@ -178,7 +178,7 @@ def align_noaa_crm(config_path: Path, *, fast: bool = False) -> int:
     LOGGER.info("Output overwrite policy: replace existing alignment artifacts.")
     target_grid = load_static_target_grid(align_config)
     target_bounds = bounds_from_target_grid(target_grid)
-    crm_sources = open_crm_sources(align_config)
+    crm_sources = open_crm_sources(align_config, target_bounds)
     cudem_sources = open_raster_group(
         manifest_path=align_config.cudem_tile_manifest,
         record_id_field="tile_id",
@@ -545,15 +545,15 @@ def bounds_from_target_grid(target_grid: pd.DataFrame) -> tuple[float, float, fl
     )
 
 
-def open_crm_sources(align_config: CrmAlignmentConfig) -> dict[str, CrmProductSource]:
+def open_crm_sources(
+    align_config: CrmAlignmentConfig,
+    target_bounds: tuple[float, float, float, float],
+) -> dict[str, CrmProductSource]:
     """Open required CRM product sources from the source manifest."""
     source_manifest = load_json_object(align_config.source_manifest, "NOAA CRM source manifest")
     records = cast(list[dict[str, Any]], source_manifest.get("records", []))
     records_by_id = {str(record.get("product_id")): record for record in records}
-    required_ids = {
-        align_config.product_boundary.south_product_id,
-        align_config.product_boundary.north_product_id,
-    }
+    required_ids = required_crm_product_ids(align_config, target_bounds)
     missing_ids = sorted(required_ids - set(records_by_id))
     if missing_ids:
         msg = f"NOAA CRM source manifest is missing required products: {missing_ids}"
@@ -573,6 +573,21 @@ def open_crm_sources(align_config: CrmAlignmentConfig) -> dict[str, CrmProductSo
             raise FileNotFoundError(msg)
         sources[product_id] = open_crm_product_source(product, record, local_path)
     return sources
+
+
+def required_crm_product_ids(
+    align_config: CrmAlignmentConfig,
+    target_bounds: tuple[float, float, float, float],
+) -> set[str]:
+    """Return CRM product IDs needed for the target-grid latitude extent."""
+    _west, south, _east, north = target_bounds
+    boundary_latitude = align_config.product_boundary.latitude
+    required_ids: set[str] = set()
+    if south < boundary_latitude:
+        required_ids.add(align_config.product_boundary.south_product_id)
+    if north >= boundary_latitude:
+        required_ids.add(align_config.product_boundary.north_product_id)
+    return required_ids
 
 
 def open_crm_product_source(
@@ -924,7 +939,7 @@ def sample_crm_sources(
     align_config: CrmAlignmentConfig,
     crm_sources: dict[str, CrmProductSource],
 ) -> dict[str, np.ndarray]:
-    """Sample the two-product CRM mosaic at target-cell centers."""
+    """Sample the configured CRM mosaic at target-cell centers."""
     longitudes = chunk["longitude"].to_numpy(dtype=np.float64)
     latitudes = chunk["latitude"].to_numpy(dtype=np.float64)
     count = len(chunk)
@@ -943,10 +958,10 @@ def sample_crm_sources(
         (align_config.product_boundary.north_product_id, ~south_mask),
     )
     for product_id, product_mask in product_masks:
-        source = crm_sources[product_id]
         indices = np.flatnonzero(product_mask)
         if len(indices) == 0:
             continue
+        source = crm_sources[product_id]
         product_id_values[indices] = source.product_id
         product_name_values[indices] = source.product_name
         path_values[indices] = str(source.local_path)

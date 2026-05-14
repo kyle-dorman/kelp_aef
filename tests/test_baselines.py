@@ -54,6 +54,21 @@ def test_train_baselines_writes_artifacts_and_selects_alpha(tmp_path: Path) -> N
     assert "cell_training_mean" in set(fallback_summary["fallback_reason"])
 
 
+def test_write_split_manifest_does_not_train_models(tmp_path: Path) -> None:
+    """Verify write-split-manifest only writes row split assignments."""
+    fixture = write_baseline_fixture(tmp_path)
+
+    assert main(["write-split-manifest", "--config", str(fixture["config_path"])]) == 0
+
+    split_manifest = pd.read_parquet(fixture["split_manifest"])
+    assert len(split_manifest) == 9
+    assert int((~split_manifest["used_for_training_eval"]).sum()) == 1
+    assert not fixture["model"].exists()
+    assert not fixture["geographic_model"].exists()
+    assert not fixture["predictions"].exists()
+    assert not fixture["metrics"].exists()
+
+
 def test_predict_full_grid_streams_trained_ridge_predictions(tmp_path: Path) -> None:
     """Verify predict-full-grid writes streamed ridge predictions with provenance."""
     fixture = write_baseline_fixture(tmp_path, include_full_grid=True)

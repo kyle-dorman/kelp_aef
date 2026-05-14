@@ -225,11 +225,7 @@ def train_baselines(config_path: Path) -> int:
 
 def train_baselines_config(baseline_config: BaselineConfig) -> None:
     """Train and evaluate one resolved no-skill, ridge, and reference config."""
-    LOGGER.info("Loading aligned table: %s", baseline_config.aligned_table_path)
-    aligned = pd.read_parquet(baseline_config.aligned_table_path)
-    validate_aligned_table(aligned, baseline_config)
-    prepared = prepare_model_frame(aligned, baseline_config)
-    write_split_manifest(prepared.split_manifest, baseline_config.split_manifest_path)
+    prepared = prepare_and_write_split_manifest(baseline_config)
     train_rows = rows_for_split(prepared.retained_rows, "train")
     validation_rows = rows_for_split(prepared.retained_rows, "validation")
 
@@ -297,6 +293,27 @@ def train_baselines_config(baseline_config: BaselineConfig) -> None:
     if area_calibration_rows:
         LOGGER.info("Wrote reference area calibration: %s", baseline_config.area_calibration_path)
     LOGGER.info("Wrote baseline evaluation manifest: %s", baseline_config.eval_manifest_path)
+
+
+def write_configured_split_manifest(config_path: Path) -> int:
+    """Write configured split manifests without fitting baseline models."""
+    baseline_config = load_baseline_config(config_path)
+    prepare_and_write_split_manifest(baseline_config)
+    for sidecar in load_baseline_sidecar_configs(config_path, baseline_config):
+        LOGGER.info("Writing split manifest sidecar: %s", sidecar.name)
+        prepare_and_write_split_manifest(sidecar.baseline_config)
+    return 0
+
+
+def prepare_and_write_split_manifest(baseline_config: BaselineConfig) -> PreparedData:
+    """Load model-input rows, assign splits, and write the split manifest."""
+    LOGGER.info("Loading aligned table: %s", baseline_config.aligned_table_path)
+    aligned = pd.read_parquet(baseline_config.aligned_table_path)
+    validate_aligned_table(aligned, baseline_config)
+    prepared = prepare_model_frame(aligned, baseline_config)
+    write_split_manifest(prepared.split_manifest, baseline_config.split_manifest_path)
+    LOGGER.info("Wrote split manifest: %s", baseline_config.split_manifest_path)
+    return prepared
 
 
 def predict_full_grid(config_path: Path, *, fast: bool = False) -> int:

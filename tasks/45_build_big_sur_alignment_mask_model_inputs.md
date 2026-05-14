@@ -253,3 +253,129 @@ uv run python -c "import pandas as pd; p='/Volumes/x10pro/kelp_aef/interim/big_s
 - Do not overwrite Monterey artifacts as part of this Big Sur task.
 - Do not treat Kelpwatch-style reproduction as independent field-truth biomass
   validation.
+
+## Outcome
+
+Completed on 2026-05-14.
+
+Implementation notes:
+
+- Added `kelp-aef write-split-manifest` so the Big Sur split manifest can be
+  written without fitting baseline models.
+- Fixed `build-labels` to honor configured `labels.paths.annual_label_summary`
+  and `labels.paths.annual_label_manifest` paths. The Big Sur config now writes
+  region-scoped label summary and manifest outputs.
+- Fixed CRM source loading so a target grid south of the configured CRM
+  product boundary does not require the unused north CRM product. Big Sur uses
+  `crm_socal_v2_1as` only; `crm_vol7_2025` remains configured for regions that
+  cross or fall north of the boundary.
+- Reran Monterey `build-labels` after the label-path fix to restore the
+  Monterey label summary and manifest touched by the pre-fix fallback path.
+
+Commands run for Big Sur:
+
+```bash
+uv run kelp-aef build-labels --config configs/big_sur_smoke.yaml
+uv run kelp-aef align-full-grid --config configs/big_sur_smoke.yaml
+uv run kelp-aef align-noaa-crm --config configs/big_sur_smoke.yaml
+uv run kelp-aef build-domain-mask --config configs/big_sur_smoke.yaml
+uv run kelp-aef build-model-input-sample --config configs/big_sur_smoke.yaml
+uv run kelp-aef write-split-manifest --config configs/big_sur_smoke.yaml
+```
+
+Annual labels:
+
+- `big_sur_labels_annual.parquet` has `32,927` valid station rows per year for
+  2018-2022.
+- Annual nonzero rows by year: `22,107`, `10,827`, `14,609`, `13,128`,
+  `18,088`.
+- Annual `>=10%` rows by year: `19,110`, `6,614`, `10,299`, `10,139`,
+  `12,445`.
+
+Full-grid alignment:
+
+- Target-grid policy: `kelpwatch_native_utm_30m`.
+- Target CRS: `EPSG:32610`.
+- Kelpwatch-native lattice: `2,118` columns x `2,349` rows
+  (`4,975,182` cells before selected AEF coverage filtering).
+- Target center origin/range:
+  - `x_min = 601619.9999999551`, `x_max = 665129.9999999551`.
+  - `y_max = 4014299.9999982533`, `y_min = 3943859.9999982533`.
+- Corner origin: left `601604.9999999551`, top `4014314.9999982533`.
+- Spacing: `30.0 m` x `30.0 m`.
+- Snap residuals: max XY residual `6.24750175746099e-08 m`, p95
+  `4.7144612137499704e-08 m`.
+- AEF phase diagnostic: target corner/center is offset about `+5 m` in x and
+  `-5 m` in y relative to the 10 m AEF source grid.
+- Stations outside selected AEF coverage: `538` per year.
+- Full-grid artifact rows per year:
+  - `3,276,819` assumed-background rows.
+  - `32,389` Kelpwatch-station rows.
+  - `0` missing-feature rows.
+
+CRM alignment:
+
+- Static target cells aligned: `3,309,208`.
+- NOAA CRM valid cells: `3,309,208`; missing cells: `0`.
+- CRM source product cells: `3,309,208` from `crm_socal_v2_1as`.
+- NOAA CUDEM QA status remains `skipped_no_valid_sources` for all cells, which
+  preserves the P2-02 zero-tile caveat.
+- USGS 3DEP QA status is valid for all `3,309,208` cells.
+- CUSP is valid shoreline-vector provenance only and covers the target bounds.
+
+Plausible-kelp mask:
+
+- Total static cells: `3,309,208`.
+- Retained cells: `272,030` (`8.2204%`).
+- Dropped cells: `3,037,178` (`91.7796%`).
+- Retained reasons:
+  - `17,532` retained ambiguous coast.
+  - `254,498` retained depth 0-60 m.
+- Dropped reasons:
+  - `2,197,489` dropped definite land.
+  - `839,689` dropped deep water.
+- Kelpwatch-positive retained/dropped counts by year:
+  - 2018: `21,737` retained, `0` dropped.
+  - 2019: `10,675` retained, `0` dropped.
+  - 2020: `14,332` retained, `0` dropped.
+  - 2021: `12,963` retained, `0` dropped.
+  - 2022: `17,759` retained, `0` dropped.
+
+Model-input sample and split manifest:
+
+- Retained-domain population rows: `1,360,150`.
+- Masked sample rows: `231,345`.
+- Mask-dropped full-grid rows: `15,185,890`.
+- Mask-dropped observed rows: `0`.
+- Mask-dropped positive rows: `0`.
+- Per-year sample rows:
+  - `13,880` assumed-background rows.
+  - `32,389` Kelpwatch-station rows.
+  - `46,269` total rows.
+- Per-year background sample:
+  - `5,000` retained ambiguous-coast rows from `15,526` population rows
+    (`sample_weight = 3.1052`).
+  - `8,000` retained 0-40 m depth rows from `136,132` population rows
+    (`sample_weight = 17.0165`).
+  - `880` retained 40-60 m depth rows from `87,983` population rows
+    (`sample_weight = 99.980682`).
+- Kelpwatch-station rows keep `sample_weight = 1.0`.
+- Split manifest rows: `231,345`.
+- Split counts:
+  - Train 2018-2020: `138,807` rows.
+  - Validation 2021: `46,269` rows.
+  - Test 2022: `46,269` rows.
+- All split-manifest rows have complete features and targets; dropped-feature
+  count is `0`.
+
+P2-04 caveats to carry forward:
+
+- The Big Sur source coverage and model-input path are ready for transfer
+  evaluation, but no Big Sur model performance has been interpreted in this
+  task.
+- The selected AEF tile leaves `538` Kelpwatch stations per year outside
+  selected AEF coverage; downstream Big Sur evaluation should use the aligned
+  `32,389` Kelpwatch-station rows per year, not the pre-alignment annual label
+  count of `32,927`.
+- CUDEM remains a recorded zero-tile QA caveat, while CRM support is complete
+  for the target grid.
