@@ -385,6 +385,7 @@ kelp-aef commands:
   build-labels
   align
   align-full-grid
+  build-model-input-sample
   train-baselines
   predict-full-grid
   map-residuals

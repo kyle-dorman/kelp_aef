@@ -84,7 +84,7 @@ Phase 2 non-goals:
     from the configured index and is recorded as a caveat, not a blocker.
     Comparable Big Sur and Monterey source-coverage CSV/PNG/HTML QA artifacts
     were written.
-- [ ] P2-03a: Refactor mask-first alignment workflow and verify Monterey.
+- [x] P2-03a: Refactor mask-first alignment workflow and verify Monterey.
   - Goal: Make the retained-domain sample an explicit native step after
     full-grid alignment, CRM alignment, and domain-mask construction.
   - Outputs: Refactored alignment/sample commands, refreshed Monterey
@@ -94,14 +94,34 @@ Phase 2 non-goals:
     counts, dropped positives, mask reasons, and sample weights are reportable
     from generated artifacts.
   - Plan: `tasks/43_refactor_mask_first_alignment_workflow.md`.
-- [ ] P2-03b: Build Big Sur alignment, mask, and model-input artifacts.
-  - Goal: Apply the refactored mask-first workflow to Big Sur using the
-    Kelpwatch-native UTM 10N target grid.
-  - Outputs: Big Sur labels, Kelpwatch-native full-grid alignment,
-    plausible-kelp mask, CRM-stratified mask-first sample, and split manifest.
+  - Completed: `align-full-grid` now writes only full-grid artifacts, and
+    `build-model-input-sample` explicitly builds the retained-domain
+    CRM-stratified mask-first sample from the full-grid table plus plausible
+    kelp mask. Monterey was rerun through labels, full-grid alignment, CRM
+    alignment, domain mask, model-input sample, baseline/binary/conditional/
+    hurdle models, residual maps, results visualizer, and model analysis.
+    The refreshed sample has 311,475 rows from 3,150,755 retained-domain
+    population rows, with 34,141,050 mask-dropped rows and zero dropped
+    positives recorded in the manifest.
+- [ ] P2-03b: Make Kelpwatch-native UTM 30 m the general target grid.
+  - Goal: Refactor full-grid alignment so Monterey and Big Sur use the
+    Kelpwatch-native UTM 30 m label lattice as the target grid, then map AEF,
+    CRM, and mask metadata onto that grid.
+  - Outputs: General target-grid policy/config wiring, manifest snap and phase
+    diagnostics, refreshed Monterey alignment/mask/model-input artifacts, and a
+    report comparison against the Task 43 byte-identical result.
+  - Acceptance: Monterey reruns under the Kelpwatch-native target-grid policy,
+    Kelpwatch labels are snapped without label interpolation, AEF support
+    diagnostics are recorded, and any report metric movement is documented.
+  - Plan: `tasks/44_use_kelpwatch_native_utm_target_grid.md`.
+- [ ] P2-03c: Build Big Sur alignment, mask, and model-input artifacts.
+  - Goal: Apply the completed mask-first workflow and general
+    Kelpwatch-native target-grid policy to Big Sur.
+  - Outputs: Big Sur labels, full-grid alignment, plausible-kelp mask,
+    CRM-stratified mask-first sample, and split manifest.
   - Acceptance: grid snap diagnostics, row counts, dropped positives, and mask
     reasons are reportable.
-  - Plan: `tasks/44_build_big_sur_alignment_mask_model_inputs.md`.
+  - Plan: `tasks/45_build_big_sur_alignment_mask_model_inputs.md`.
 - [ ] P2-04: Evaluate Monterey-trained transfer on Big Sur.
   - Goal: Apply the closed Monterey Phase 1 policy to Big Sur as the transfer
     baseline.

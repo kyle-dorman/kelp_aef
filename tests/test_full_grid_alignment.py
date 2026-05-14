@@ -17,24 +17,25 @@ from kelp_aef.alignment.full_grid import (
 )
 
 
-def test_align_full_grid_fast_writes_background_and_observed_rows(tmp_path: Path) -> None:
-    """Verify full-grid alignment retains assumed background and observed labels."""
+def test_align_full_grid_fast_writes_only_full_grid_rows(tmp_path: Path) -> None:
+    """Verify full-grid alignment retains background and observed rows only."""
     fixture = write_full_grid_fixture(tmp_path)
 
     assert main(["align-full-grid", "--config", str(fixture["config_path"]), "--fast"]) == 0
 
     full_grid = pd.read_parquet(fixture["fast_full_grid"])
-    sample = pd.read_parquet(fixture["fast_sample"])
+    summary = pd.read_csv(fixture["fast_full_grid_summary"])
     manifest = json.loads(fixture["fast_manifest"].read_text())
 
     assert len(full_grid) == 4
     assert set(full_grid["label_source"]) == {"kelpwatch_station", "assumed_background"}
     assert int((full_grid["label_source"] == "kelpwatch_station").sum()) == 2
     assert int((full_grid["label_source"] == "assumed_background").sum()) == 2
-    assert set(sample["label_source"]) == {"kelpwatch_station", "assumed_background"}
-    assert (sample["sample_weight"] >= 1.0).all()
+    assert "sampled_row_count" not in set(summary.columns)
     assert manifest["label_source_counts"]["2018:kelpwatch_station"] == 2
     assert manifest["label_source_counts"]["2018:assumed_background"] == 2
+    assert "sample_output" not in manifest
+    assert not fixture["fast_masked_sample"].exists()
 
     observed = full_grid.query("label_source == 'kelpwatch_station'").sort_values("kelp_max_y")
     assert observed["kelp_max_y"].to_list() == [0.0, 90.0]
@@ -43,43 +44,29 @@ def test_align_full_grid_fast_writes_background_and_observed_rows(tmp_path: Path
     )
 
 
-def test_align_full_grid_fast_writes_masked_background_sample(tmp_path: Path) -> None:
-    """Verify domain masking writes a retained-domain training sample sidecar."""
-    fixture = write_full_grid_fixture(tmp_path, include_domain_mask=True)
+def test_build_model_input_sample_requires_domain_mask(tmp_path: Path) -> None:
+    """Verify the explicit sample builder fails before a mask is configured."""
+    fixture = write_full_grid_fixture(tmp_path, include_model_input_sample=True)
 
     assert main(["align-full-grid", "--config", str(fixture["config_path"]), "--fast"]) == 0
-
-    masked_sample = pd.read_parquet(fixture["fast_masked_sample"])
-    summary = pd.read_csv(fixture["fast_masked_summary"])
-    manifest = json.loads(fixture["fast_masked_manifest"].read_text())
-
-    assert len(masked_sample) == 2
-    assert set(masked_sample["aef_grid_cell_id"]) == {0, 1}
-    assert set(masked_sample["is_plausible_kelp_domain"]) == {True}
-    assert {"domain_mask_reason", "domain_mask_detail", "domain_mask_version"}.issubset(
-        masked_sample.columns
-    )
-    background = masked_sample.query("label_source == 'assumed_background'")
-    assert background["sample_weight"].iloc[0] == pytest.approx(1.0)
-    dropped = summary.query("is_plausible_kelp_domain == False")
-    assert int(dropped["row_count"].sum()) == 2
-    assert int(dropped["kelpwatch_observed_row_count"].sum()) == 1
-    assert int(dropped["kelpwatch_positive_row_count"].sum()) == 0
-    assert manifest["masked_sample_row_count"] == 2
-    assert manifest["dropped_observed_row_count"] == 1
-    assert manifest["dropped_positive_row_count"] == 0
-    assert manifest["population_counts"]["2018"]["assumed_background"] == 1
+    with pytest.raises(ValueError, match="requires reports.domain_mask"):
+        main(["build-model-input-sample", "--config", str(fixture["config_path"]), "--fast"])
 
 
-def test_align_full_grid_fast_writes_mask_first_crm_default_sample(tmp_path: Path) -> None:
-    """Verify the promoted masked default samples retained full-grid strata first."""
+def test_build_model_input_sample_writes_mask_first_crm_default_sample(
+    tmp_path: Path,
+) -> None:
+    """Verify the explicit sample builder samples retained full-grid strata first."""
     fixture = write_full_grid_fixture(
         tmp_path,
         include_domain_mask=True,
-        mask_first_crm_stratified=True,
+        include_model_input_sample=True,
     )
 
     assert main(["align-full-grid", "--config", str(fixture["config_path"]), "--fast"]) == 0
+    assert (
+        main(["build-model-input-sample", "--config", str(fixture["config_path"]), "--fast"]) == 0
+    )
 
     masked_sample = pd.read_parquet(fixture["fast_masked_sample"])
     summary = pd.read_csv(fixture["fast_masked_summary"])
@@ -95,6 +82,20 @@ def test_align_full_grid_fast_writes_mask_first_crm_default_sample(tmp_path: Pat
     assert manifest["background_rows_per_year_controls_default_masked_workflow"] is False
     assert manifest["sampling_policy"]["all_retained_kelpwatch_rows_kept"] is True
     assert manifest["mask_dropped_positive_row_count"] == 0
+
+
+def test_align_full_grid_fast_does_not_write_model_input_sample(tmp_path: Path) -> None:
+    """Verify model-input sampling is not a hidden full-grid side effect."""
+    fixture = write_full_grid_fixture(
+        tmp_path,
+        include_domain_mask=True,
+        include_model_input_sample=True,
+    )
+
+    assert main(["align-full-grid", "--config", str(fixture["config_path"]), "--fast"]) == 0
+
+    assert not fixture["fast_masked_sample"].exists()
+    assert not fixture["fast_masked_manifest"].exists()
 
 
 def test_crm_stratified_selection_keeps_observed_and_applies_quotas(tmp_path: Path) -> None:
@@ -152,34 +153,11 @@ def test_crm_stratified_selection_keeps_observed_and_applies_quotas(tmp_path: Pa
     assert selection.retained_counts["2018:assumed_background:retained_depth_0_60m:40_60m"] == 1
 
 
-def test_align_full_grid_fast_writes_crm_stratified_sample(tmp_path: Path) -> None:
-    """Verify full-grid alignment writes the CRM-stratified sidecar sample."""
-    fixture = write_full_grid_fixture(
-        tmp_path,
-        include_domain_mask=True,
-        include_crm_stratified=True,
-    )
-
-    assert main(["align-full-grid", "--config", str(fixture["config_path"]), "--fast"]) == 0
-
-    sidecar = pd.read_parquet(fixture["fast_crm_stratified_sample"])
-    summary = pd.read_csv(fixture["fast_crm_stratified_summary"])
-    manifest = json.loads(fixture["fast_crm_stratified_manifest"].read_text())
-
-    assert set(sidecar["aef_grid_cell_id"]) == {0, 1}
-    assert set(sidecar["domain_mask_reason"]) == {"retained"}
-    assert set(sidecar["depth_bin"]) == {"0_40m"}
-    assert int((sidecar["label_source"] == KELPWATCH_STATION).sum()) == 1
-    assert int(summary["sampled_row_count"].sum()) == 2
-    assert manifest["sampling_policy"]["all_retained_kelpwatch_rows_kept"]
-
-
 def write_full_grid_fixture(
     tmp_path: Path,
     *,
     include_domain_mask: bool = False,
-    include_crm_stratified: bool = False,
-    mask_first_crm_stratified: bool = False,
+    include_model_input_sample: bool = False,
 ) -> dict[str, Path]:
     """Write a tiny full-grid config, annual labels, manifest, and AEF raster."""
     labels_path = tmp_path / "interim/labels_annual.parquet"
@@ -189,20 +167,11 @@ def write_full_grid_fixture(
     full_grid = tmp_path / "interim/full_grid.parquet"
     fast_full_grid = tmp_path / "interim/full_grid.fast.parquet"
     fast_manifest = tmp_path / "interim/full_grid.fast_manifest.json"
-    sample = tmp_path / "interim/sample.parquet"
-    fast_sample = tmp_path / "interim/sample.fast.parquet"
+    fast_full_grid_summary = tmp_path / "tables/full_grid.fast_summary.csv"
     masked_sample = tmp_path / "interim/sample.masked.parquet"
     fast_masked_sample = tmp_path / "interim/sample.masked.fast.parquet"
     fast_masked_manifest = tmp_path / "interim/sample.masked.fast_manifest.json"
     fast_masked_summary = tmp_path / "tables/sample.masked.fast_summary.csv"
-    crm_stratified_sample = tmp_path / "interim/sample.crm_stratified.masked.parquet"
-    crm_stratified_manifest = tmp_path / "interim/sample.crm_stratified.masked_manifest.json"
-    crm_stratified_summary = tmp_path / "tables/sample.crm_stratified.masked_summary.csv"
-    fast_crm_stratified_sample = tmp_path / "interim/sample.crm_stratified.masked.fast.parquet"
-    fast_crm_stratified_manifest = (
-        tmp_path / "interim/sample.crm_stratified.masked.fast_manifest.json"
-    )
-    fast_crm_stratified_summary = tmp_path / "tables/sample.crm_stratified.masked.fast_summary.csv"
     domain_mask = tmp_path / "interim/plausible_kelp_domain_mask.parquet"
     domain_manifest = tmp_path / "interim/plausible_kelp_domain_mask_manifest.json"
     config_path = tmp_path / "config.yaml"
@@ -225,41 +194,33 @@ reports:
         if include_domain_mask
         else ""
     )
-    sample_domain_mask_config = (
+    model_input_sample_config = (
         f"""
-    domain_mask:
-      policy: plausible_kelp_domain
-{mask_first_domain_policy_config() if mask_first_crm_stratified else ""}
-      output_table: {masked_sample}
-      output_manifest: {tmp_path / "interim/sample.masked_manifest.json"}
-      summary_table: {tmp_path / "tables/sample.masked_summary.csv"}
-      fail_on_dropped_positive: true
-      fast:
-        output_table: {fast_masked_sample}
-        output_manifest: {fast_masked_manifest}
-        summary_table: {fast_masked_summary}
+model_input_sample:
+  sampling_policy: crm_stratified_mask_first_sample
+  domain_policy: plausible_kelp_domain
+  source_full_grid_table: {full_grid}
+  output_table: {masked_sample}
+  output_manifest: {tmp_path / "interim/sample.masked_manifest.json"}
+  summary_table: {tmp_path / "tables/sample.masked_summary.csv"}
+  sample_weight_column: sample_weight
+  random_seed: 7
+  legacy_background_rows_per_year: 100
+  include_all_kelpwatch_observed: true
+  default_fraction: 0.0
+  default_min_rows_per_year: 0
+  strata:
+    - domain_mask_reason: retained
+      depth_bin: 0_40m
+      fraction: 1.0
+  fail_on_dropped_positive: true
+  fast:
+    source_full_grid_table: {fast_full_grid}
+    output_table: {fast_masked_sample}
+    output_manifest: {fast_masked_manifest}
+    summary_table: {fast_masked_summary}
 """
-        if include_domain_mask
-        else ""
-    )
-    crm_stratified_config = (
-        f"""
-    crm_stratified:
-      output_table: {crm_stratified_sample}
-      output_manifest: {crm_stratified_manifest}
-      summary_table: {crm_stratified_summary}
-      random_seed: 7
-      default_fraction: 0.0
-      strata:
-        - domain_mask_reason: retained
-          depth_bin: 0_40m
-          fraction: 1.0
-      fast:
-        output_table: {fast_crm_stratified_sample}
-        output_manifest: {fast_crm_stratified_manifest}
-        summary_table: {fast_crm_stratified_summary}
-"""
-        if include_crm_stratified
+        if include_model_input_sample
         else ""
     )
     config_path.write_text(
@@ -288,31 +249,19 @@ alignment:
       col_window: [0, 2]
       output_table: {fast_full_grid}
       output_manifest: {fast_manifest}
-      summary_table: {tmp_path / "tables/full_grid.fast_summary.csv"}
-  background_sample:
-    output_table: {sample}
-    output_manifest: {tmp_path / "interim/sample_manifest.json"}
-    summary_table: {tmp_path / "tables/sample_summary.csv"}
-    background_rows_per_year: 100
-    random_seed: 13
-    include_all_kelpwatch_observed: true
-    sample_weight_column: sample_weight
-{sample_domain_mask_config}
-{crm_stratified_config}
+      summary_table: {fast_full_grid_summary}
+{model_input_sample_config}
 {domain_mask_config}
 """.lstrip()
     )
     return {
         "config_path": config_path,
         "fast_full_grid": fast_full_grid,
+        "fast_full_grid_summary": fast_full_grid_summary,
         "fast_manifest": fast_manifest,
-        "fast_sample": fast_sample,
         "fast_masked_sample": fast_masked_sample,
         "fast_masked_manifest": fast_masked_manifest,
         "fast_masked_summary": fast_masked_summary,
-        "fast_crm_stratified_sample": fast_crm_stratified_sample,
-        "fast_crm_stratified_manifest": fast_crm_stratified_manifest,
-        "fast_crm_stratified_summary": fast_crm_stratified_summary,
     }
 
 
@@ -362,19 +311,6 @@ def crm_stratified_population_fixture() -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
-
-
-def mask_first_domain_policy_config() -> str:
-    """Return YAML for the promoted mask-first default sampler."""
-    return """      sampling_policy: crm_stratified_mask_first_sample
-      random_seed: 7
-      default_fraction: 0.0
-      default_min_rows_per_year: 0
-      strata:
-        - domain_mask_reason: retained
-          depth_bin: 0_40m
-          fraction: 1.0
-"""
 
 
 def write_label_table(path: Path) -> None:

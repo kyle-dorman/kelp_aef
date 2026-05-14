@@ -65,6 +65,7 @@ kelp-aef fetch-aef-chip --config configs/monterey_smoke.yaml
 kelp-aef build-labels --config configs/monterey_smoke.yaml
 kelp-aef align --config configs/monterey_smoke.yaml
 kelp-aef align-full-grid --config configs/monterey_smoke.yaml
+kelp-aef build-model-input-sample --config configs/monterey_smoke.yaml
 kelp-aef train-baselines --config configs/monterey_smoke.yaml
 kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
 kelp-aef train-conditional-canopy --config configs/monterey_smoke.yaml
@@ -111,7 +112,8 @@ The smoke config defines:
 - Output paths.
 - Split policy.
 - Runtime limits for small agent-safe runs.
-- A full-grid alignment product and a background-inclusive sampled model input.
+- A full-grid alignment product and an explicit retained-domain model-input
+  sample product.
 - The closed Phase 1 default mask/sample/model policy: retained-domain
   CRM-stratified mask-first sampling, AEF ridge/reference baselines, calibrated
   binary presence, positive-only conditional canopy, and the selected
@@ -128,7 +130,10 @@ raw source data
   -> source metadata summaries
   -> derived annual Kelpwatch labels
   -> AlphaEarth chips or samples
-  -> aligned grid-cell-by-year training table
+  -> aligned full-grid cell-by-year target table
+  -> aligned CRM support table
+  -> plausible-kelp domain mask
+  -> retained-domain model-input sample
   -> split manifests
   -> trained baseline models
   -> metrics, maps, and tables
@@ -147,11 +152,14 @@ Phase 0 now has three alignment-related artifacts with different meanings:
 - `aligned_background_sample_training_table.parquet`: sampled training input
   used by the Phase 0 ridge baseline.
 
-The Phase 0 model was intentionally simple. Phase 1 preserved the same
-artifact-producing shape while adding the retained-domain mask, mask-first
-CRM-stratified model sample, calibrated binary presence, positive-only
-conditional canopy, and hurdle composition. The selected Phase 1 AEF policy is
-the expected-value hurdle recorded in
+The current native alignment path builds `aligned_full_grid_training_table.parquet`
+first, then builds CRM/domain-mask support, then writes the default
+`aligned_background_sample_training_table.masked.parquet` through
+`build-model-input-sample`. Phase 1 preserved the same artifact-producing shape
+while adding the retained-domain mask, mask-first CRM-stratified model sample,
+calibrated binary presence, positive-only conditional canopy, and hurdle
+composition. The selected Phase 1 AEF policy is the expected-value hurdle
+recorded in
 `docs/phase1_closeout_model_policy_decision.md`.
 
 ## Artifact Conventions
@@ -203,7 +211,7 @@ Early smoke-test artifacts:
 - `/Volumes/x10pro/kelp_aef/interim/aef_samples.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet`
-- `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet`
+- `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/split_manifest.parquet`
 - `/Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet`
 - `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet`

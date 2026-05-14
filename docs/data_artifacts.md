@@ -112,8 +112,8 @@ artifact root. They are generated artifacts and should not be tracked in git.
 | Station aligned table | `/Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet` | Station-centered alignment artifact retained as QA/reference; not the primary Phase 0 model input after Task 11. | Not tracked |
 | Full-grid aligned table | `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet` | Full AEF-aligned 30 m target grid with Kelpwatch-station and assumed-background rows. | Not tracked |
 | Full-grid alignment manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table_manifest.json` | Row counts, label-source counts, assets, and alignment settings for the full-grid artifact. | Not tracked |
-| Background sample table | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet` | Background-inclusive sampled model input used by the Phase 0 ridge baseline. | Not tracked |
-| Background sample manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table_manifest.json` | Sampling policy, schema, and sample count metadata. | Not tracked |
+| Background sample table | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet` | Historical Phase 0 background-inclusive sampled model input. The current native workflow uses the explicit masked model-input sample below. | Not tracked |
+| Background sample manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table_manifest.json` | Historical Phase 0 sampling policy, schema, and sample count metadata. | Not tracked |
 | Split manifest | `/Volumes/x10pro/kelp_aef/interim/split_manifest.parquet` | Train/validation/test assignments for year-holdout evaluation. | Not tracked |
 | Baseline model | `/Volumes/x10pro/kelp_aef/models/baselines/ridge_kelp_fraction.joblib` | Serialized Phase 0 ridge model payload. | Not tracked |
 | Sample predictions | `/Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet` | No-skill and ridge predictions on the sampled model frame. | Not tracked |
@@ -225,12 +225,13 @@ objectives, model classes, sample weights, or label inputs.
 ## Phase 1 CRM-Stratified Default Sampling
 
 Task 33 promoted CRM-stratified, mask-first sampling to the Monterey Phase 1
-default masked model-input path. The sampler filters to the retained
-plausible-kelp domain before applying retained-background quotas, keeps all
-retained Kelpwatch-observed rows, and uses CRM mask reason and depth bin only as
-sampling and diagnostic context. Historical `.crm_stratified` sidecar outputs
-may remain on disk for audit, but they are not required by the default
-workflow.
+default masked model-input path. Task 43 made that sample an explicit
+`build-model-input-sample` step after full-grid alignment, CRM alignment, and
+domain-mask construction. The sampler filters to the retained plausible-kelp
+domain before applying retained-background quotas, keeps all retained
+Kelpwatch-observed rows, and uses CRM mask reason and depth bin only as sampling
+and diagnostic context. Historical `.crm_stratified` sidecar outputs may remain
+on disk for audit, but they are not required by the default workflow.
 
 | Output | Path | Purpose | Git |
 | --- | --- | --- | --- |
@@ -356,12 +357,14 @@ cap-sweep, stratified-background, and stratified-background sweep results.
 
 ## Phase 1 Masked Training Outputs
 
-These outputs apply the P1-12 plausible-kelp domain mask to the model-input
-background sample while preserving the unmasked sample as a sidecar comparison
-artifact.
+This historical P1-14 section describes the earlier post-hoc masked training
+contract. The active default contract is now the Phase 1 CRM-stratified default
+sampling section above: the same `.masked` paths are built directly from the
+full grid plus retained-domain mask rather than by filtering an unmasked sample
+side effect.
 
 | Output | Path | Purpose | Git |
 | --- | --- | --- | --- |
-| Masked background sample training table | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet` | Background-inclusive model-input sample filtered to `is_plausible_kelp_domain = true`, with mask metadata columns retained for audit. | Not tracked |
-| Masked background sample manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked_manifest.json` | Source sample path, mask inputs, retained/dropped counts, dropped observed/positive counts, retained-domain population counts, and schema. | Not tracked |
-| Masked background sample summary | `/Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked_summary.csv` | Retained and dropped sample rows by year, label source, mask flag, and mask reason, including observed-positive counts. | Not tracked |
+| Masked background sample training table | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet` | Superseded P1-14 post-hoc masked sample path; now used by the active mask-first CRM-stratified sample. | Not tracked |
+| Masked background sample manifest | `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked_manifest.json` | Superseded post-hoc manifest shape; the current manifest records mask-first sampling, retained-domain counts, quota drops, and mask drops. | Not tracked |
+| Masked background sample summary | `/Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked_summary.csv` | Superseded post-hoc summary shape; the current summary is the CRM-stratified retained-domain population/sample summary. | Not tracked |

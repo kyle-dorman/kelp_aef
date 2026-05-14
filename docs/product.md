@@ -173,6 +173,9 @@ Key Phase 0 artifacts:
 - `/Volumes/x10pro/kelp_aef/interim/aligned_training_table.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet`
 - `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet`
+  (historical Phase 0 sample)
+- `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet`
+  (active retained-domain model-input sample)
 - `/Volumes/x10pro/kelp_aef/processed/baseline_sample_predictions.parquet`
 - `/Volumes/x10pro/kelp_aef/processed/baseline_full_grid_predictions.parquet`
 - `/Volumes/x10pro/kelp_aef/reports/figures/ridge_2022_observed_predicted_residual.png`

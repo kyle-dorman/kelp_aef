@@ -1211,20 +1211,12 @@ def default_sampling_policy(config: dict[str, Any]) -> str:
     baselines = optional_mapping(models.get("baselines"), "models.baselines")
     binary = optional_mapping(models.get("binary_presence"), "models.binary_presence")
     hurdle = optional_mapping(models.get("hurdle"), "models.hurdle")
-    alignment = optional_mapping(config.get("alignment"), "alignment")
-    background_sample = optional_mapping(
-        alignment.get("background_sample"),
-        "alignment.background_sample",
-    )
-    domain_mask = optional_mapping(
-        background_sample.get("domain_mask"),
-        "alignment.background_sample.domain_mask",
-    )
+    model_input = optional_mapping(config.get("model_input_sample"), "model_input_sample")
     policy = (
         baselines.get("sample_policy")
         or binary.get("sample_policy")
         or hurdle.get("sample_policy")
-        or domain_mask.get("sampling_policy")
+        or model_input.get("sampling_policy")
         or "current_masked_sample"
     )
     return str(policy)

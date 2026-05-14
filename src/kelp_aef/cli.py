@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from kelp_aef.alignment.feature_label_table import align_features_labels
-from kelp_aef.alignment.full_grid import align_full_grid
+from kelp_aef.alignment.full_grid import align_full_grid, build_model_input_sample
 from kelp_aef.domain.crm_alignment import align_noaa_crm
 from kelp_aef.domain.domain_mask import build_domain_mask
 from kelp_aef.domain.noaa_crm import download_noaa_crm, query_noaa_crm
@@ -59,6 +59,7 @@ COMMANDS: dict[str, str] = {
     "build-labels": "Build derived Kelpwatch labels for the configured target.",
     "align": "Align AlphaEarth features and Kelpwatch labels into a training table.",
     "align-full-grid": "Align AlphaEarth features with full-grid background labels.",
+    "build-model-input-sample": "Build the retained-domain model-input sample.",
     "train-baselines": "Train and evaluate first simple tabular baselines.",
     "predict-full-grid": "Stream baseline predictions over the full-grid feature table.",
     "train-binary-presence": "Train the balanced binary annual-max presence model.",
@@ -187,6 +188,8 @@ def build_parser() -> argparse.ArgumentParser:
             add_align_arguments(subparser)
         if command == "align-full-grid":
             add_align_full_grid_arguments(subparser)
+        if command == "build-model-input-sample":
+            add_build_model_input_sample_arguments(subparser)
         if command == "predict-full-grid":
             add_predict_full_grid_arguments(subparser)
 
@@ -625,6 +628,15 @@ def add_align_full_grid_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_build_model_input_sample_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add model-input sample options to the build-model-input-sample subcommand."""
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Build the configured fast retained-domain model-input sample.",
+    )
+
+
 def add_predict_full_grid_arguments(parser: argparse.ArgumentParser) -> None:
     """Add full-grid prediction options to the predict-full-grid subcommand."""
     parser.add_argument(
@@ -785,6 +797,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif command == "align-full-grid":
             exit_code = align_full_grid(config_path, fast=bool(args.fast))
+        elif command == "build-model-input-sample":
+            exit_code = build_model_input_sample(config_path, fast=bool(args.fast))
         elif command == "train-baselines":
             exit_code = train_baselines(config_path)
         elif command == "predict-full-grid":

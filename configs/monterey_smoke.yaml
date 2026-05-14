@@ -65,36 +65,6 @@ alignment:
       output_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.fast.parquet
       output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.fast_manifest.json
       summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_full_grid_training_table.fast_summary.csv
-  background_sample:
-    output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.parquet
-    output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table_manifest.json
-    summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table_summary.csv
-    domain_mask:
-      policy: plausible_kelp_domain
-      sampling_policy: crm_stratified_mask_first_sample
-      output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
-      output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked_manifest.json
-      summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked_summary.csv
-      random_seed: 31
-      default_fraction: 0.0
-      default_min_rows_per_year: 0
-      strata:
-        - domain_mask_reason: retained_ambiguous_coast
-          depth_bin: ambiguous_coast
-          fraction: 0.12
-          min_rows_per_year: 5000
-        - domain_mask_reason: retained_depth_0_60m
-          depth_bin: 0_40m
-          fraction: 0.04
-          min_rows_per_year: 8000
-        - domain_mask_reason: retained_depth_0_60m
-          depth_bin: 40_60m
-          fraction: 0.01
-          min_rows_per_year: 500
-      fail_on_dropped_positive: true
-    random_seed: 13
-    legacy_background_rows_per_year: 250000
-    include_all_kelpwatch_observed: true
   fast:
     years: [2022]
     max_stations: 500
@@ -102,6 +72,39 @@ alignment:
     output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_training_table.fast_manifest.json
     summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table.fast_summary.csv
     comparison_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table.fast_method_comparison.csv
+
+model_input_sample:
+  sampling_policy: crm_stratified_mask_first_sample
+  domain_policy: plausible_kelp_domain
+  source_full_grid_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
+  output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
+  output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked_manifest.json
+  summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked_summary.csv
+  sample_weight_column: sample_weight
+  random_seed: 31
+  legacy_background_rows_per_year: 250000
+  include_all_kelpwatch_observed: true
+  default_fraction: 0.0
+  default_min_rows_per_year: 0
+  strata:
+    - domain_mask_reason: retained_ambiguous_coast
+      depth_bin: ambiguous_coast
+      fraction: 0.12
+      min_rows_per_year: 5000
+    - domain_mask_reason: retained_depth_0_60m
+      depth_bin: 0_40m
+      fraction: 0.04
+      min_rows_per_year: 8000
+    - domain_mask_reason: retained_depth_0_60m
+      depth_bin: 40_60m
+      fraction: 0.01
+      min_rows_per_year: 500
+  fail_on_dropped_positive: true
+  fast:
+    source_full_grid_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.fast.parquet
+    output_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.fast.parquet
+    output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.fast_manifest.json
+    summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_background_sample_training_table.masked.fast_summary.csv
 
 domain:
   noaa_cudem:

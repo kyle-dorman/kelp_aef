@@ -31,6 +31,7 @@ def test_cli_imports() -> None:
         "build-labels",
         "align",
         "align-full-grid",
+        "build-model-input-sample",
         "train-baselines",
         "predict-full-grid",
         "train-binary-presence",

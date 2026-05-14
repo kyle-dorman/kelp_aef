@@ -199,3 +199,103 @@ uv run python -c "import pandas as pd; p='/Volumes/x10pro/kelp_aef/reports/table
   predictors.
 - Do not start Big Sur artifact generation until this Monterey refactor task is
   complete.
+
+## Outcome
+
+Completed 2026-05-14.
+
+The native Monterey workflow now runs as:
+
+1. `align-full-grid`: writes only the full-grid alignment table, summary, and
+   manifest.
+2. `align-noaa-crm`: aligns CRM values to the full-grid target cells.
+3. `build-domain-mask`: writes the plausible-kelp retained-domain mask.
+4. `build-model-input-sample`: consumes the full-grid table plus the domain mask
+   and writes the CRM-stratified mask-first model-input sample.
+
+The retained-domain sample is no longer a hidden side effect of
+`align-full-grid`. The sample settings moved to top-level `model_input_sample`
+config in `configs/monterey_smoke.yaml` and `configs/big_sur_smoke.yaml`, and
+`build-model-input-sample` is package-backed through the `kelp-aef` CLI.
+
+Refreshed Monterey full-grid alignment counts:
+
+| Year | Label source | Rows | Complete feature rows | Missing feature rows | Observed canopy area |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 2018 | assumed_background | 7,428,207 | 7,082,546 | 345,661 | 0 |
+| 2018 | kelpwatch_station | 30,154 | 30,154 | 0 | 5,671,776 |
+| 2019 | assumed_background | 7,428,207 | 7,082,546 | 345,661 | 0 |
+| 2019 | kelpwatch_station | 30,154 | 30,154 | 0 | 2,215,941 |
+| 2020 | assumed_background | 7,428,207 | 7,082,546 | 345,661 | 0 |
+| 2020 | kelpwatch_station | 30,154 | 30,154 | 0 | 3,168,796 |
+| 2021 | assumed_background | 7,428,207 | 7,082,546 | 345,661 | 0 |
+| 2021 | kelpwatch_station | 30,154 | 30,154 | 0 | 3,501,294 |
+| 2022 | assumed_background | 7,428,207 | 7,082,546 | 345,661 | 0 |
+| 2022 | kelpwatch_station | 30,154 | 30,154 | 0 | 4,163,014 |
+
+Refreshed Monterey mask counts:
+
+| Mask class | Cells | Fraction |
+| --- | ---: | ---: |
+| retained overall | 630,151 | 0.084489 |
+| dropped overall | 6,828,210 | 0.915511 |
+| retained ambiguous coast | 160,630 | 0.021537 |
+| retained depth 0-60 m | 469,521 | 0.062952 |
+| dropped definite land | 5,692,768 | 0.763273 |
+| dropped deep water | 1,135,442 | 0.152237 |
+
+The model-input sample manifest records `command = build-model-input-sample`,
+`artifact = model_input_sample_domain_mask`,
+`masked_sample_policy = crm_stratified_mask_first_sample`,
+`mask_first = true`, `population_row_count = 3,150,755`,
+`sample_row_count = 311,475`, `mask_dropped_row_count = 34,141,050`, and
+`mask_dropped_positive_row_count = 0`.
+
+The refreshed sample has 62,295 rows per year. Within each year:
+
+| Label source | Mask reason | Depth bin | Sample rows | Population rows |
+| --- | --- | --- | ---: | ---: |
+| assumed_background | retained_ambiguous_coast | ambiguous_coast | 18,981 | 158,170 |
+| assumed_background | retained_depth_0_60m | 0_40m | 11,655 | 291,362 |
+| assumed_background | retained_depth_0_60m | 40_60m | 1,505 | 150,465 |
+| kelpwatch_station | retained_ambiguous_coast | ambiguous_coast | 2,460 | 2,460 |
+| kelpwatch_station | retained_depth_0_60m | 0_40m | 27,692 | 27,692 |
+| kelpwatch_station | retained_depth_0_60m | 40_60m | 2 | 2 |
+
+The sample artifact does not carry a `split` column; the configured split is
+assigned downstream by year: 2018-2020 train, 2021 validation, and 2022 test.
+Sample weights are recomputed in the retained domain: observed Kelpwatch rows
+stay at `1.0`, background ambiguous-coast rows are weighted about `8.333`,
+background 0-40 m rows about `24.999`, and background 40-60 m rows about
+`99.977`.
+
+The full Monterey workflow was rerun through:
+
+- `/Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet`.
+- `/Volumes/x10pro/kelp_aef/interim/aligned_noaa_crm.parquet`.
+- `/Volumes/x10pro/kelp_aef/interim/plausible_kelp_domain_mask.parquet`.
+- `/Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet`.
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/monterey_phase1_model_analysis.md`.
+- `/Volumes/x10pro/kelp_aef/reports/interactive/monterey_results_visualizer.html`.
+
+No model interpretation was changed as part of this refactor. The refreshed
+2022 `full_grid_masked` report rows for `label_source = all` include:
+
+| Model | Rows | RMSE | F1 ge 10pct | Predicted area | Area pct bias |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| ridge_regression | 630,151 | 0.045152 | 0.475989 | 8,415,321 | 1.021449 |
+| previous_year_annual_max | 630,151 | 0.034070 | 0.797394 | 3,501,294 | -0.158952 |
+| grid_cell_climatology | 630,151 | 0.042899 | 0.707638 | 3,685,504 | -0.114703 |
+| calibrated_hard_gate_conditional_canopy | 630,151 | 0.033617 | 0.825024 | 3,494,314 | -0.160629 |
+| calibrated_probability_x_conditional_canopy | 630,151 | 0.032162 | 0.812370 | 3,495,891 | -0.160250 |
+
+Validation passed:
+
+- `uv run ruff check .`
+- `uv run mypy src`
+- `uv run pytest` (`101 passed`)
+
+`make check` still stops at `uv run ruff format --check .` because the
+pre-existing, untouched file `src/kelp_aef/viz/source_coverage.py` needs Ruff
+formatting. The touched files were format-checked separately after
+`tests/test_full_grid_alignment.py` was reformatted.
