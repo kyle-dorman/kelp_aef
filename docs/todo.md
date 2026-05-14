@@ -103,7 +103,7 @@ Phase 2 non-goals:
     The refreshed sample has 311,475 rows from 3,150,755 retained-domain
     population rows, with 34,141,050 mask-dropped rows and zero dropped
     positives recorded in the manifest.
-- [ ] P2-03b: Make Kelpwatch-native UTM 30 m the general target grid.
+- [x] P2-03b: Make Kelpwatch-native UTM 30 m the general target grid.
   - Goal: Refactor full-grid alignment so Monterey and Big Sur use the
     Kelpwatch-native UTM 30 m label lattice as the target grid, then map AEF,
     CRM, and mask metadata onto that grid.
@@ -114,6 +114,19 @@ Phase 2 non-goals:
     Kelpwatch labels are snapped without label interpolation, AEF support
     diagnostics are recorded, and any report metric movement is documented.
   - Plan: `tasks/44_use_kelpwatch_native_utm_target_grid.md`.
+  - Completed: added `kelpwatch_native_utm_30m` as the configured full-grid
+    policy for Monterey and Big Sur, refreshed Monterey through full-grid
+    alignment, CRM alignment, plausible-kelp mask, mask-first model-input
+    sample, baseline/binary/conditional/hurdle models, residual maps,
+    visualizer, and model analysis. The refreshed Monterey target grid is
+    `EPSG:32610`, `718 x 2619` cells, with max station snap residual
+    `8.78e-08 m`, AEF phase offset about `5 m`, and `78` stations per year
+    outside selected AEF coverage. The retained mask has `426,640` cells, the
+    masked sample has `228,495` rows from `2,133,200` retained-domain
+    population rows, and dropped positives remain `0`. The selected
+    expected-value hurdle changed on the primary 2022 `full_grid_masked` all
+    row from F1 `0.812370` / area bias `-16.0250%` to F1 `0.840780` / area
+    bias `-27.5095%`.
 - [ ] P2-03c: Build Big Sur alignment, mask, and model-input artifacts.
   - Goal: Apply the completed mask-first workflow and general
     Kelpwatch-native target-grid policy to Big Sur.

@@ -55,6 +55,8 @@ alignment:
   output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_training_table_manifest.json
   summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_training_table_summary.csv
   full_grid:
+    target_grid_policy: kelpwatch_native_utm_30m
+    station_snap_tolerance_m: 0.05
     output_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table.parquet
     output_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_full_grid_training_table_manifest.json
     summary_table: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_aligned_full_grid_training_table_summary.csv

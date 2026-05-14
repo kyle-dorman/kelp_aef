@@ -8,7 +8,7 @@ import logging
 import math
 import operator
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, SupportsIndex, cast
 
@@ -24,13 +24,14 @@ from rasterio.windows import Window  # type: ignore[import-untyped]
 from kelp_aef.alignment.feature_label_table import (
     RASTERIO_AVERAGE_METHOD,
     AefYearAsset,
+    KelpwatchNativeTargetGrid,
     TargetGrid,
     aef_average_target_grid,
+    kelpwatch_native_target_grid,
     label_crs_from_manifest,
     load_aef_year_assets,
     parse_bands,
     resolve_band_indexes,
-    source_pixel_counts_for_target_cells,
     support_cells_from_resolution,
     transformed_label_points,
 )
@@ -49,6 +50,9 @@ DEFAULT_TARGET_ROW_CHUNK_SIZE = 128
 DEFAULT_BACKGROUND_ROWS_PER_YEAR = 250_000
 DEFAULT_RANDOM_SEED = 13
 DEFAULT_SAMPLE_WEIGHT_COLUMN = "sample_weight"
+DEFAULT_TARGET_GRID_POLICY = "kelpwatch_native_utm_30m"
+AEF_ALIGNED_TARGET_GRID_POLICY = "aef_aligned_30m"
+DEFAULT_STATION_SNAP_TOLERANCE_M = 0.05
 CRM_STRATIFIED_MASK_FIRST_SAMPLE_POLICY = "crm_stratified_mask_first_sample"
 DEFAULT_LABEL_CRS = "EPSG:4326"
 ASSUMED_BACKGROUND = "assumed_background"
@@ -149,8 +153,11 @@ class FullGridAlignmentConfig:
     label_path: Path
     label_manifest_path: Path
     label_crs: str
+    label_resolution_m: float
     tile_manifest_path: Path
     bands: tuple[str, ...]
+    target_grid_policy: str
+    station_snap_tolerance_m: float
     support_cells_per_side: int
     target_row_chunk_size: int
     full_grid_output_path: Path
@@ -225,6 +232,9 @@ class CountAccumulator:
     full_complete_counts: dict[tuple[int, str], int]
     full_observed_area: dict[tuple[int, str], float]
     duplicate_cell_counts: dict[int, int]
+    target_grid_diagnostics: dict[int, dict[str, Any]] = field(default_factory=dict)
+    aef_phase_diagnostics: dict[int, dict[str, Any]] = field(default_factory=dict)
+    stations_outside_aef_coverage: dict[int, int] = field(default_factory=dict)
 
 
 def align_full_grid(config_path: Path, *, fast: bool = False) -> int:
@@ -242,6 +252,7 @@ def align_full_grid(config_path: Path, *, fast: bool = False) -> int:
         labels_for_year = labels.loc[labels["year"] == year].copy()
         year_population = align_full_grid_year(
             labels_for_year=labels_for_year,
+            labels_for_grid=labels,
             asset=asset,
             grid_config=grid_config,
             counters=counters,
@@ -308,25 +319,36 @@ def load_full_grid_alignment_config(config_path: Path, *, fast: bool) -> FullGri
     full_summary = Path(
         require_string(full_grid.get("summary_table"), "alignment.full_grid.summary_table")
     )
+    label_resolution_m = require_float_value(
+        labels.get("native_resolution_m"),
+        "labels.native_resolution_m",
+    )
+    feature_resolution_m = require_float_value(
+        features.get("native_resolution_m"),
+        "features.native_resolution_m",
+    )
+    target_grid_policy = str(full_grid.get("target_grid_policy", DEFAULT_TARGET_GRID_POLICY))
+    validate_target_grid_policy(target_grid_policy)
     return FullGridAlignmentConfig(
         config_path=config_path,
         years=selected_years,
         label_path=label_path,
         label_manifest_path=label_manifest_path,
         label_crs=label_crs_from_manifest(label_manifest_path),
+        label_resolution_m=label_resolution_m,
         tile_manifest_path=Path(
             require_string(feature_paths.get("tile_manifest"), "features.paths.tile_manifest")
         ),
         bands=parse_bands(features.get("bands")),
+        target_grid_policy=target_grid_policy,
+        station_snap_tolerance_m=optional_nonnegative_float(
+            full_grid.get("station_snap_tolerance_m"),
+            "alignment.full_grid.station_snap_tolerance_m",
+            DEFAULT_STATION_SNAP_TOLERANCE_M,
+        ),
         support_cells_per_side=support_cells_from_resolution(
-            label_resolution_m=require_float_value(
-                labels.get("native_resolution_m"),
-                "labels.native_resolution_m",
-            ),
-            feature_resolution_m=require_float_value(
-                features.get("native_resolution_m"),
-                "features.native_resolution_m",
-            ),
+            label_resolution_m=label_resolution_m,
+            feature_resolution_m=feature_resolution_m,
         ),
         target_row_chunk_size=optional_positive_int(
             full_grid.get("target_row_chunk_size"),
@@ -553,6 +575,20 @@ def optional_probability(value: object, name: str, default: float) -> float:
     return parsed
 
 
+def optional_nonnegative_float(value: object, name: str, default: float) -> float:
+    """Validate an optional non-negative float dynamic value."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        msg = f"field must be numeric, not boolean: {name}"
+        raise ValueError(msg)
+    parsed = float(cast(Any, value))
+    if parsed < 0:
+        msg = f"field must be non-negative: {name}"
+        raise ValueError(msg)
+    return parsed
+
+
 def optional_nonnegative_int(value: object, name: str, default: int) -> int:
     """Validate an optional non-negative integer dynamic value."""
     if value is None:
@@ -573,6 +609,14 @@ def optional_positive_int_or_none(value: object, name: str) -> int | None:
         msg = f"field must be positive: {name}"
         raise ValueError(msg)
     return parsed
+
+
+def validate_target_grid_policy(value: str) -> None:
+    """Validate the configured full-grid target-grid policy."""
+    valid_values = {DEFAULT_TARGET_GRID_POLICY, AEF_ALIGNED_TARGET_GRID_POLICY}
+    if value not in valid_values:
+        msg = f"unsupported full-grid target_grid_policy: {value}"
+        raise ValueError(msg)
 
 
 def resolve_years(
@@ -667,6 +711,7 @@ def full_grid_population_counts() -> dict[int, dict[str, int]]:
 def align_full_grid_year(
     *,
     labels_for_year: pd.DataFrame,
+    labels_for_grid: pd.DataFrame,
     asset: AefYearAsset,
     grid_config: FullGridAlignmentConfig,
     counters: CountAccumulator,
@@ -676,16 +721,23 @@ def align_full_grid_year(
         "Building full-grid alignment for %s from %s", asset.year, asset.preferred_read_path
     )
     part_index = 0
+    row_count = 0
+    observed_row_count = 0
+    covered_observed_cell_ids: set[int] = set()
     with rasterio.open(asset.preferred_read_path) as dataset:
         band_indexes = resolve_band_indexes(dataset, grid_config.bands)
-        target_grid = aef_average_target_grid(dataset, grid_config.support_cells_per_side)
+        target_grid, target_diagnostics = build_full_grid_target(
+            labels_for_grid=labels_for_grid,
+            dataset=dataset,
+            grid_config=grid_config,
+        )
+        counters.target_grid_diagnostics[int(asset.year)] = target_diagnostics
+        counters.aef_phase_diagnostics[int(asset.year)] = aef_phase_diagnostics(
+            dataset,
+            target_grid,
+        )
         label_lookup = target_label_lookup(labels_for_year, dataset, target_grid, grid_config)
         windows = grid_windows(target_grid, grid_config)
-        population = {
-            KELPWATCH_STATION: int(len(label_lookup)),
-            ASSUMED_BACKGROUND: int(sum(window_cell_count(window) for window in windows))
-            - int(len(label_lookup)),
-        }
         counters.duplicate_cell_counts[int(asset.year)] = int(
             (label_lookup["kelpwatch_station_count"] > 1).sum()
         )
@@ -712,6 +764,13 @@ def align_full_grid_year(
                     grid_config=grid_config,
                 )
                 update_full_grid_counters(counters, chunk, grid_config.bands)
+                row_count += len(chunk)
+                observed_mask = chunk["label_source"] == KELPWATCH_STATION
+                observed_row_count += int(observed_mask.sum())
+                covered_observed_cell_ids.update(
+                    int(cell_id)
+                    for cell_id in chunk.loc[observed_mask, "aef_grid_cell_id"].to_list()
+                )
                 write_part(chunk, grid_config.full_grid_output_path, asset.year, part_index)
                 part_index += 1
                 LOGGER.info(
@@ -720,7 +779,109 @@ def align_full_grid_year(
                     part_index,
                     len(chunk),
                 )
-    return population
+    counters.stations_outside_aef_coverage[int(asset.year)] = int(
+        len(set(label_lookup["aef_grid_cell_id"].astype(int).to_list()) - covered_observed_cell_ids)
+    )
+    return {
+        KELPWATCH_STATION: observed_row_count,
+        ASSUMED_BACKGROUND: row_count - observed_row_count,
+    }
+
+
+def build_full_grid_target(
+    *,
+    labels_for_grid: pd.DataFrame,
+    dataset: Any,
+    grid_config: FullGridAlignmentConfig,
+) -> tuple[TargetGrid, dict[str, Any]]:
+    """Build the configured full-grid target and manifest diagnostics."""
+    if grid_config.target_grid_policy == AEF_ALIGNED_TARGET_GRID_POLICY:
+        target_grid = aef_average_target_grid(dataset, grid_config.support_cells_per_side)
+        return target_grid, aef_aligned_target_grid_diagnostics(target_grid, dataset)
+    build = kelpwatch_native_target_grid(
+        labels=labels_for_grid,
+        source_crs=grid_config.label_crs,
+        target_crs=dataset.crs,
+        resolution_m=grid_config.label_resolution_m,
+    )
+    validate_station_snap_residuals(build, grid_config)
+    payload = build.manifest_payload()
+    payload["policy"] = grid_config.target_grid_policy
+    return build.grid, payload
+
+
+def aef_aligned_target_grid_diagnostics(target_grid: TargetGrid, dataset: Any) -> dict[str, Any]:
+    """Return diagnostics for the legacy AEF-aligned target-grid policy."""
+    return {
+        "policy": AEF_ALIGNED_TARGET_GRID_POLICY,
+        "target_crs": str(dataset.crs),
+        "width": int(target_grid.width),
+        "height": int(target_grid.height),
+        "cell_count": int(target_grid.width * target_grid.height),
+        "row_range": [0, int(target_grid.height - 1)],
+        "col_range": [0, int(target_grid.width - 1)],
+        "corner_origin": {
+            "left": float(target_grid.transform.c),
+            "top": float(target_grid.transform.f),
+        },
+        "spacing": {
+            "x": float(target_grid.transform.a),
+            "y": float(abs(target_grid.transform.e)),
+        },
+        "transform_gdal": list(target_grid.transform.to_gdal()),
+    }
+
+
+def validate_station_snap_residuals(
+    build: KelpwatchNativeTargetGrid,
+    grid_config: FullGridAlignmentConfig,
+) -> None:
+    """Fail fast if Kelpwatch station coordinates do not snap to the target grid."""
+    max_residual = float(build.snap_summary["max_xy"])
+    if max_residual <= grid_config.station_snap_tolerance_m:
+        return
+    msg = (
+        "Kelpwatch station snap residual exceeds tolerance: "
+        f"{max_residual:.6f} m > {grid_config.station_snap_tolerance_m:.6f} m"
+    )
+    raise ValueError(msg)
+
+
+def aef_phase_diagnostics(dataset: Any, target_grid: TargetGrid) -> dict[str, Any]:
+    """Report target-grid phase offsets relative to the source AEF raster."""
+    source_x_size = float(dataset.transform.a)
+    source_y_size = float(abs(dataset.transform.e))
+    target_x_size = float(target_grid.transform.a)
+    target_y_size = float(abs(target_grid.transform.e))
+    target_left_center = float(target_grid.transform.c + target_x_size / 2.0)
+    target_top_center = float(target_grid.transform.f - target_y_size / 2.0)
+    source_left_center = float(dataset.transform.c + source_x_size / 2.0)
+    source_top_center = float(dataset.transform.f - source_y_size / 2.0)
+    return {
+        "source_crs": str(dataset.crs),
+        "source_pixel_size": {"x": source_x_size, "y": source_y_size},
+        "target_pixel_size": {"x": target_x_size, "y": target_y_size},
+        "target_corner_phase_to_source_grid_m": {
+            "x": folded_phase(float(target_grid.transform.c - dataset.transform.c), source_x_size),
+            "y": folded_phase(float(dataset.transform.f - target_grid.transform.f), source_y_size),
+        },
+        "target_center_phase_to_source_pixel_centers_m": {
+            "x": folded_phase(target_left_center - source_left_center, source_x_size),
+            "y": folded_phase(source_top_center - target_top_center, source_y_size),
+        },
+    }
+
+
+def folded_phase(delta: float, period: float) -> float:
+    """Return a signed phase offset folded into half a period."""
+    if period <= 0:
+        return math.nan
+    phase = math.fmod(delta, period)
+    if phase > period / 2.0:
+        phase -= period
+    if phase < -period / 2.0:
+        phase += period
+    return float(phase)
 
 
 def target_label_lookup(
@@ -842,14 +1003,18 @@ def full_grid_chunk(
         height=window.row_stop - window.row_start,
     )
     feature_values = read_vrt_features(vrt, band_indexes, raster_window)
-    expected_counts, valid_counts = source_pixel_counts_for_target_cells(
-        dataset=dataset,
+    expected_counts, valid_counts = target_cell_support_counts(
+        vrt=vrt,
         band_index=band_indexes[0],
-        target_rows=row_values,
-        target_cols=col_values,
-        target_mask=np.ones(row_values.shape, dtype=bool),
-        cells_per_side=grid_config.support_cells_per_side,
+        window=raster_window,
+        cell_count=row_values.size,
     )
+    in_coverage = valid_counts > 0
+    row_values = row_values[in_coverage]
+    col_values = col_values[in_coverage]
+    feature_values = feature_values[in_coverage]
+    expected_counts = expected_counts[in_coverage]
+    valid_counts = valid_counts[in_coverage]
     longitude, latitude = lon_lat_for_cells(dataset.crs, target_grid, row_values, col_values)
     frame = pd.DataFrame(feature_values, columns=list(grid_config.bands))
     frame.insert(0, "year", int(asset.year))
@@ -882,6 +1047,20 @@ def read_vrt_features(vrt: Any, band_indexes: tuple[int, ...], window: Window) -
     data = vrt.read(band_indexes, window=window, masked=True).astype(np.float32)
     filled = np.ma.filled(data, np.nan)
     return cast(np.ndarray, filled.reshape((len(band_indexes), -1)).T)
+
+
+def target_cell_support_counts(
+    *,
+    vrt: Any,
+    band_index: int,
+    window: Window,
+    cell_count: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return target-cell AEF support flags for an arbitrary target grid."""
+    expected_counts = np.ones(cell_count, dtype=np.int16)
+    mask = vrt.read_masks(band_index, window=window)
+    valid_counts = (mask.reshape(-1) > 0).astype(np.int16)
+    return expected_counts, valid_counts
 
 
 def lon_lat_for_cells(
@@ -1515,7 +1694,26 @@ def write_full_grid_manifest(
         "full_grid_summary": str(grid_config.full_grid_summary_path),
         "bands": list(grid_config.bands),
         "alignment_method": RASTERIO_AVERAGE_METHOD,
+        "target_grid_policy": grid_config.target_grid_policy,
         "target_row_chunk_size": grid_config.target_row_chunk_size,
+        "target_grid": {
+            "policy": grid_config.target_grid_policy,
+            "label_crs": grid_config.label_crs,
+            "label_resolution_m": grid_config.label_resolution_m,
+            "station_snap_tolerance_m": grid_config.station_snap_tolerance_m,
+            "by_year": {
+                str(year): payload
+                for year, payload in sorted(counters.target_grid_diagnostics.items())
+            },
+        },
+        "aef_phase_diagnostics": {
+            str(year): payload
+            for year, payload in sorted(counters.aef_phase_diagnostics.items())
+        },
+        "stations_outside_selected_aef_coverage": {
+            str(year): count
+            for year, count in sorted(counters.stations_outside_aef_coverage.items())
+        },
         "label_source_counts": {
             f"{year}:{label_source}": count
             for (year, label_source), count in sorted(counters.full_counts.items())

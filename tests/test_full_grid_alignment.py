@@ -34,6 +34,10 @@ def test_align_full_grid_fast_writes_only_full_grid_rows(tmp_path: Path) -> None
     assert "sampled_row_count" not in set(summary.columns)
     assert manifest["label_source_counts"]["2018:kelpwatch_station"] == 2
     assert manifest["label_source_counts"]["2018:assumed_background"] == 2
+    assert manifest["target_grid_policy"] == "kelpwatch_native_utm_30m"
+    assert manifest["target_grid"]["by_year"]["2018"]["snap_residuals_m"]["max_xy"] == (
+        pytest.approx(0.0)
+    )
     assert "sample_output" not in manifest
     assert not fixture["fast_masked_sample"].exists()
 
@@ -42,6 +46,30 @@ def test_align_full_grid_fast_writes_only_full_grid_rows(tmp_path: Path) -> None
     assert observed.iloc[1]["A00"] == pytest.approx(
         np.mean([[0, 1, 2], [10, 11, 12], [20, 21, 22]])
     )
+
+
+def test_align_full_grid_uses_kelpwatch_native_grid_when_aef_phase_differs(
+    tmp_path: Path,
+) -> None:
+    """Verify full-grid alignment honors a Kelpwatch-native target-grid phase."""
+    fixture = write_full_grid_fixture(tmp_path, shifted_target_grid=True)
+
+    assert main(["align-full-grid", "--config", str(fixture["config_path"]), "--fast"]) == 0
+
+    full_grid = pd.read_parquet(fixture["fast_full_grid"]).sort_values("aef_grid_cell_id")
+    manifest = json.loads(fixture["fast_manifest"].read_text())
+    target = manifest["target_grid"]["by_year"]["2018"]
+    phase = manifest["aef_phase_diagnostics"]["2018"]["target_corner_phase_to_source_grid_m"]
+
+    assert len(full_grid) == 4
+    assert target["corner_origin"]["left"] == pytest.approx(0.5)
+    assert target["corner_origin"]["top"] == pytest.approx(6.5)
+    assert target["snap_residuals_m"]["max_xy"] == pytest.approx(0.0)
+    assert phase["x"] == pytest.approx(0.5)
+    assert phase["y"] == pytest.approx(0.5)
+    assert full_grid["aef_valid_pixel_count"].to_list() == [1, 1, 1, 1]
+    observed = full_grid.loc[full_grid["label_source"] == KELPWATCH_STATION]
+    assert observed["aef_grid_cell_id"].to_list() == [0, 3]
 
 
 def test_build_model_input_sample_requires_domain_mask(tmp_path: Path) -> None:
@@ -158,6 +186,7 @@ def write_full_grid_fixture(
     *,
     include_domain_mask: bool = False,
     include_model_input_sample: bool = False,
+    shifted_target_grid: bool = False,
 ) -> dict[str, Path]:
     """Write a tiny full-grid config, annual labels, manifest, and AEF raster."""
     labels_path = tmp_path / "interim/labels_annual.parquet"
@@ -175,9 +204,9 @@ def write_full_grid_fixture(
     domain_mask = tmp_path / "interim/plausible_kelp_domain_mask.parquet"
     domain_manifest = tmp_path / "interim/plausible_kelp_domain_mask_manifest.json"
     config_path = tmp_path / "config.yaml"
-    write_label_table(labels_path)
+    write_label_table(labels_path, shifted_target_grid=shifted_target_grid)
     write_label_manifest(label_manifest_path)
-    write_aef_raster(raster_path)
+    write_aef_raster(raster_path, shifted_target_grid=shifted_target_grid)
     write_tile_manifest(tile_manifest_path, raster_path)
     if include_domain_mask:
         write_full_grid_domain_mask(domain_mask, domain_manifest)
@@ -239,6 +268,8 @@ features:
     tile_manifest: {tile_manifest_path}
 alignment:
   full_grid:
+    target_grid_policy: kelpwatch_native_utm_30m
+    station_snap_tolerance_m: 0.01
     output_table: {full_grid}
     output_manifest: {tmp_path / "interim/full_grid_manifest.json"}
     summary_table: {tmp_path / "tables/full_grid_summary.csv"}
@@ -313,15 +344,17 @@ def crm_stratified_population_fixture() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def write_label_table(path: Path) -> None:
+def write_label_table(path: Path, *, shifted_target_grid: bool = False) -> None:
     """Write one positive and one zero Kelpwatch station label."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    longitudes = [2.0, 5.0] if shifted_target_grid else [1.5, 4.5]
+    latitudes = [5.0, 2.0] if shifted_target_grid else [4.5, 1.5]
     pd.DataFrame(
         {
             "year": [2018, 2018],
             "kelpwatch_station_id": [10, 11],
-            "longitude": [1.5, 4.5],
-            "latitude": [4.5, 1.5],
+            "longitude": longitudes,
+            "latitude": latitudes,
             "kelp_max_y": [90.0, 0.0],
             "kelp_fraction_y": [0.1, 0.0],
             "area_q1": [0.0, 0.0],
@@ -345,23 +378,25 @@ def write_label_manifest(path: Path) -> None:
     path.write_text(json.dumps({"spatial": {"crs": "EPSG:4326"}}))
 
 
-def write_aef_raster(path: Path) -> None:
+def write_aef_raster(path: Path, *, shifted_target_grid: bool = False) -> None:
     """Write a 6x6 two-band raster that aggregates to a 2x2 target grid."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    rows = np.arange(6, dtype=np.int16)[:, None]
-    cols = np.arange(6, dtype=np.int16)[None, :]
+    size = 7 if shifted_target_grid else 6
+    top = 7.0 if shifted_target_grid else 6.0
+    rows = np.arange(size, dtype=np.int16)[:, None]
+    cols = np.arange(size, dtype=np.int16)[None, :]
     a00 = rows * 10 + cols
     a01 = a00 + 100
     with rasterio.open(
         path,
         "w",
         driver="GTiff",
-        height=6,
-        width=6,
+        height=size,
+        width=size,
         count=2,
         dtype="int16",
         crs="EPSG:4326",
-        transform=from_origin(0.0, 6.0, 1.0, 1.0),
+        transform=from_origin(0.0, top, 1.0, 1.0),
         nodata=-999,
     ) as dataset:
         dataset.write(a00, 1)

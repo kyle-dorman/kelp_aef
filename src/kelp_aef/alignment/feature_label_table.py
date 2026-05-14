@@ -118,11 +118,55 @@ class SupportPixels:
 
 @dataclass(frozen=True)
 class TargetGrid:
-    """Rasterio target grid metadata for the AEF-aligned 30 m average path."""
+    """Rasterio target grid metadata for 30 m feature/label alignment."""
 
     transform: Affine
     width: int
     height: int
+
+
+@dataclass(frozen=True)
+class KelpwatchNativeTargetGrid:
+    """Kelpwatch station-lattice target grid and snap diagnostics."""
+
+    grid: TargetGrid
+    target_crs: str
+    resolution_m: float
+    x_min_center: float
+    x_max_center: float
+    y_min_center: float
+    y_max_center: float
+    station_count: int
+    snap_summary: dict[str, float | int]
+
+    def manifest_payload(self) -> dict[str, object]:
+        """Return JSON-serializable target-grid diagnostics."""
+        return {
+            "target_crs": self.target_crs,
+            "resolution_m": self.resolution_m,
+            "width": self.grid.width,
+            "height": self.grid.height,
+            "cell_count": int(self.grid.width * self.grid.height),
+            "row_range": [0, int(self.grid.height - 1)],
+            "col_range": [0, int(self.grid.width - 1)],
+            "center_origin": {
+                "x_min": self.x_min_center,
+                "y_max": self.y_max_center,
+                "x_max": self.x_max_center,
+                "y_min": self.y_min_center,
+            },
+            "corner_origin": {
+                "left": float(self.grid.transform.c),
+                "top": float(self.grid.transform.f),
+            },
+            "spacing": {
+                "x": float(self.grid.transform.a),
+                "y": float(abs(self.grid.transform.e)),
+            },
+            "transform_gdal": list(self.grid.transform.to_gdal()),
+            "station_count": self.station_count,
+            "snap_residuals_m": self.snap_summary,
+        }
 
 
 def align_features_labels(
@@ -746,6 +790,91 @@ def aef_average_target_grid(dataset: Any, cells_per_side: int) -> TargetGrid:
         width=math.ceil(int(dataset.width) / cells_per_side),
         height=math.ceil(int(dataset.height) / cells_per_side),
     )
+
+
+def kelpwatch_native_target_grid(
+    labels: pd.DataFrame,
+    source_crs: str,
+    target_crs: object,
+    resolution_m: float,
+) -> KelpwatchNativeTargetGrid:
+    """Infer a Kelpwatch-native target grid from projected station centers."""
+    if labels.empty:
+        msg = "cannot build a Kelpwatch-native target grid without label stations"
+        raise ValueError(msg)
+    if resolution_m <= 0:
+        msg = "Kelpwatch-native target-grid resolution must be positive"
+        raise ValueError(msg)
+    station_locations = unique_station_locations(labels)
+    x_values, y_values = transformed_label_points(station_locations, source_crs, target_crs)
+    x_min = float(x_values.min())
+    x_max = float(x_values.max())
+    y_min = float(y_values.min())
+    y_max = float(y_values.max())
+    width = lattice_size(x_min, x_max, resolution_m, "x")
+    height = lattice_size(y_min, y_max, resolution_m, "y")
+    transform = Affine.translation(
+        x_min - resolution_m / 2.0,
+        y_max + resolution_m / 2.0,
+    ) * Affine.scale(resolution_m, -resolution_m)
+    grid = TargetGrid(transform=transform, width=width, height=height)
+    snap_summary = station_snap_residual_summary(grid, x_values, y_values)
+    return KelpwatchNativeTargetGrid(
+        grid=grid,
+        target_crs=str(target_crs),
+        resolution_m=float(resolution_m),
+        x_min_center=x_min,
+        x_max_center=x_min + float(width - 1) * resolution_m,
+        y_min_center=y_max - float(height - 1) * resolution_m,
+        y_max_center=y_max,
+        station_count=int(len(station_locations)),
+        snap_summary=snap_summary,
+    )
+
+
+def unique_station_locations(labels: pd.DataFrame) -> pd.DataFrame:
+    """Return one coordinate row per Kelpwatch station id."""
+    required = {"kelpwatch_station_id", "longitude", "latitude"}
+    missing = sorted(required - set(labels.columns))
+    if missing:
+        msg = f"label table is missing required station-location columns: {missing}"
+        raise ValueError(msg)
+    return labels[["kelpwatch_station_id", "longitude", "latitude"]].drop_duplicates(
+        "kelpwatch_station_id"
+    )
+
+
+def lattice_size(min_value: float, max_value: float, spacing: float, axis_name: str) -> int:
+    """Return the inclusive lattice size between projected station centers."""
+    span = max_value - min_value
+    if span < 0:
+        msg = f"{axis_name}-axis target-grid span must be non-negative"
+        raise ValueError(msg)
+    return int(round(span / spacing)) + 1
+
+
+def station_snap_residual_summary(
+    target_grid: TargetGrid,
+    x_values: np.ndarray,
+    y_values: np.ndarray,
+) -> dict[str, float | int]:
+    """Summarize station-center residuals after snapping to target cells."""
+    rows, cols, mask = target_pixel_indices(target_grid, x_values, y_values)
+    snap_x, snap_y = rasterio.transform.xy(target_grid.transform, rows, cols, offset="center")
+    snap_x_values = np.asarray(snap_x, dtype=np.float64)
+    snap_y_values = np.asarray(snap_y, dtype=np.float64)
+    x_residual = x_values - snap_x_values
+    y_residual = y_values - snap_y_values
+    xy_residual = np.hypot(x_residual, y_residual)
+    return {
+        "station_count": int(x_values.size),
+        "in_grid_station_count": int(mask.sum()),
+        "max_abs_x": float(np.max(np.abs(x_residual))),
+        "max_abs_y": float(np.max(np.abs(y_residual))),
+        "max_xy": float(np.max(xy_residual)),
+        "p95_xy": float(np.percentile(xy_residual, 95)),
+        "mean_xy": float(np.mean(xy_residual)),
+    }
 
 
 def target_pixel_indices(

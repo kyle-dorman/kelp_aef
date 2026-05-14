@@ -54,6 +54,8 @@ alignment:
   output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_training_table_manifest.json
   summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_training_table_summary.csv
   full_grid:
+    target_grid_policy: kelpwatch_native_utm_30m
+    station_snap_tolerance_m: 0.05
     output_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
     output_manifest: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table_manifest.json
     summary_table: /Volumes/x10pro/kelp_aef/reports/tables/aligned_full_grid_training_table_summary.csv
@@ -396,7 +398,7 @@ models:
     presence_model_name: logistic_annual_max_ge_10pct
     presence_probability_source: platt_calibrated
     presence_threshold_policy: validation_max_f1_calibrated
-    presence_threshold: 0.36
+    presence_threshold: 0.37
     presence_target_label: annual_max_ge_10pct
     presence_target_threshold_fraction: 0.10
     conditional_model_name: ridge_positive_annual_max

@@ -139,6 +139,163 @@ do not generate Big Sur artifacts in this task.
      closeout result.
 8. Update `docs/todo.md` only after Monterey has been rebuilt and reviewed.
 
+## Implementation Note
+
+Current behavior before this task: `align-full-grid` builds the full-grid target
+from the AEF raster transform scaled by the label/feature resolution ratio. For
+the current 10 m AEF and 30 m Kelpwatch pairing, that means target cells are
+AEF 3 x 3 block origins, and Kelpwatch station labels are snapped into that
+AEF-derived grid. CRM and the plausible-kelp mask then inherit those
+`aef_grid_*` row keys from the full-grid artifact.
+
+New contract for this task: `alignment.full_grid.target_grid_policy` defaults
+to `kelpwatch_native_utm_30m` for Monterey and Big Sur. Full-grid alignment
+projects the selected Kelpwatch station centers into the AEF/UTM CRS, infers
+the 30 m station lattice from projected center coordinates, snaps station
+labels to integer cells without interpolating label values, and uses Rasterio
+average resampling to map AEF bands onto that Kelpwatch-native target grid.
+The existing `aef_grid_row`, `aef_grid_col`, and `aef_grid_cell_id` columns stay
+as downstream row keys, but they now identify cells in the Kelpwatch-native
+target grid rather than AEF 3 x 3 blocks.
+
+Files to change:
+
+- `src/kelp_aef/alignment/feature_label_table.py` for a reusable
+  Kelpwatch-native target-grid builder.
+- `src/kelp_aef/alignment/full_grid.py` for full-grid policy loading, snapping,
+  AEF support diagnostics, and manifest fields.
+- `configs/monterey_smoke.yaml` and `configs/big_sur_smoke.yaml` for explicit
+  target-grid policy wiring.
+- `tests/test_full_grid_alignment.py` plus CRM/mask tests if inherited row-key
+  behavior changes.
+
+Expected validation:
+
+- Code validation:
+  `uv run ruff check .`,
+  `uv run mypy src`, and
+  `uv run pytest tests/test_full_grid_alignment.py tests/test_crm_alignment.py tests/test_domain_mask.py`.
+- Monterey artifact validation after the code path is in place:
+  rebuild labels, full-grid alignment, CRM, domain mask, model-input sample,
+  and downstream model/report artifacts only if row ids or model inputs change.
+
+How Monterey change will be determined: compare the refreshed full-grid
+manifest/summary, mask manifest, masked sample summary, and final model
+comparison table against the Task 43 outputs. If row ids or sample rows change,
+rerun the downstream model/report path and record the metric movement here.
+
+## Outcome
+
+Completed on 2026-05-14.
+
+Implementation:
+
+- Added `alignment.full_grid.target_grid_policy`, with Monterey and Big Sur set
+  to `kelpwatch_native_utm_30m`.
+- Added a reusable Kelpwatch-native target-grid builder that projects station
+  centers to the AEF/UTM CRS, infers the 30 m lattice from station centers, and
+  snaps labels to integer cells without interpolating label values.
+- Kept downstream row-key columns as `aef_grid_row`, `aef_grid_col`, and
+  `aef_grid_cell_id`, but these now identify the Kelpwatch-native target grid
+  when the policy is `kelpwatch_native_utm_30m`.
+- Mapped AEF bands onto the Kelpwatch-native grid with Rasterio
+  `WarpedVRT(..., resampling=Resampling.average)` and target-cell support
+  diagnostics.
+- Full-grid manifests now include target-grid policy, target CRS, origin,
+  spacing, transform, station snap residuals, AEF phase diagnostics, and station
+  out-of-coverage counts.
+- Monterey hurdle composition required updating the locked validation-selected
+  calibrated presence threshold from `0.36` to `0.37`, matching the refreshed
+  validation threshold table. This used validation rows only and did not tune on
+  2022 test rows.
+
+Refreshed Monterey target-grid diagnostics:
+
+- Target CRS: `EPSG:32610`.
+- Target-grid policy: `kelpwatch_native_utm_30m`.
+- Grid size: `718` columns x `2619` rows, `1,880,442` lattice cells.
+- Center origin/range:
+  - `x_min = 582089.9999999346`, `x_max = 603599.9999999346`.
+  - `y_max = 4092569.999998226`, `y_min = 4014029.999998226`.
+- Corner origin: left `582074.9999999346`, top `4092584.999998226`.
+- Spacing: `30.0 m` x `30.0 m`.
+- Snap residuals: max XY residual `8.78216077301111e-08 m`, p95
+  `7.974449545145035e-08 m`.
+- AEF phase diagnostic for 2022: target corner/center is offset about `+5 m`
+  in x and `-5 m` in y relative to the 10 m AEF source grid.
+- Stations outside selected AEF coverage: `78` per year.
+
+Refreshed Monterey artifact counts:
+
+- Full-grid rows per year:
+  - `1,512,411` assumed-background rows.
+  - `30,154` Kelpwatch-station rows.
+  - `0` missing-feature rows.
+- Plausible-kelp mask:
+  - `1,542,565` cells.
+  - `426,640` retained cells.
+  - `1,115,925` dropped cells.
+  - `58,497` Kelpwatch-positive cell-year rows retained.
+  - `0` Kelpwatch-positive cell-year rows dropped.
+- Mask-first model-input sample:
+  - `2,133,200` retained-domain population rows.
+  - `228,495` sampled rows.
+  - `5,579,625` mask-dropped full-grid rows.
+  - `0` dropped positives.
+  - Per year: `30,154` Kelpwatch-station rows retained, and `15,545`
+    assumed-background rows sampled from `396,486` retained-background rows.
+  - Background sample weights by stratum: `5.028`, `24.998353`, and
+    `99.972860`; Kelpwatch-station sample weight remains `1.0`.
+
+Report comparison against Task 43:
+
+- The Monterey report changed because the target-grid row ids, retained-domain
+  population, model-input sample, validation-selected calibrated threshold, and
+  full-grid prediction population changed.
+- Primary 2022 `full_grid_masked` / `all` rows moved from `630,151` retained
+  rows to `426,640` retained rows. Observed 2022 canopy area stayed
+  `4,163,014.0 m2`.
+- Selected expected-value hurdle:
+  - F1 at 10% changed from `0.812370` to `0.840780`.
+  - Predicted canopy area changed from `3,495,891 m2` to `3,017,791 m2`.
+  - Area bias changed from `-16.0250%` to `-27.5095%`.
+- Diagnostic hard-gated hurdle:
+  - F1 at 10% changed from `0.825024` to `0.853000`.
+  - Predicted canopy area changed from `3,494,314 m2` to `3,067,728 m2`.
+  - Area bias changed from `-16.0629%` to `-26.3099%`.
+- Ridge baseline:
+  - F1 at 10% changed from `0.475989` to `0.602267`.
+  - Predicted canopy area changed from `8,415,321 m2` to `7,753,785 m2`.
+  - Area bias changed from `+102.1449%` to `+86.2541%`.
+
+Commands run:
+
+```bash
+uv run kelp-aef build-labels --config configs/monterey_smoke.yaml
+uv run kelp-aef align-full-grid --config configs/monterey_smoke.yaml
+uv run kelp-aef align-noaa-crm --config configs/monterey_smoke.yaml
+uv run kelp-aef build-domain-mask --config configs/monterey_smoke.yaml
+uv run kelp-aef build-model-input-sample --config configs/monterey_smoke.yaml
+uv run kelp-aef train-baselines --config configs/monterey_smoke.yaml
+uv run kelp-aef predict-full-grid --config configs/monterey_smoke.yaml
+uv run kelp-aef train-binary-presence --config configs/monterey_smoke.yaml
+uv run kelp-aef calibrate-binary-presence --config configs/monterey_smoke.yaml
+uv run kelp-aef train-conditional-canopy --config configs/monterey_smoke.yaml
+uv run kelp-aef compose-hurdle-model --config configs/monterey_smoke.yaml
+uv run kelp-aef map-residuals --config configs/monterey_smoke.yaml
+uv run kelp-aef visualize-results --config configs/monterey_smoke.yaml
+uv run kelp-aef analyze-model --config configs/monterey_smoke.yaml
+```
+
+Validation passed:
+
+```bash
+uv run ruff check .
+uv run mypy src
+uv run pytest tests/test_full_grid_alignment.py tests/test_crm_alignment.py tests/test_domain_mask.py
+uv run pytest
+```
+
 ## Suggested Command Order
 
 Exact commands may change with implementation, but the intended Monterey order
