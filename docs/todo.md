@@ -195,6 +195,7 @@ Phase 2 non-goals:
     hurdle, calibrated binary support, and reference baselines.
   - Acceptance: Big Sur held-out performance is reported without Big Sur
     training-driven policy changes.
+  - Plan: `tasks/48_evaluate_monterey_transfer_on_big_sur.md`
 - [ ] P2-07: Train and evaluate Big Sur-only models.
   - Goal: Test whether training on Big Sur improves held-out Big Sur
     performance relative to Monterey transfer.
