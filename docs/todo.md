@@ -215,6 +215,7 @@ Phase 2 non-goals:
     hurdle artifacts.
   - Acceptance: thresholds and calibration use validation rows, and held-out
     Big Sur test rows remain final evaluation.
+  - Plan: `tasks/49_train_evaluate_big_sur_only_models.md`.
 - [ ] P2-08: Train and evaluate pooled Monterey+Big Sur models.
   - Goal: Test whether pooled neighboring-region training improves held-out Big
     Sur performance.
