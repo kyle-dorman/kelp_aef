@@ -233,7 +233,7 @@ Phase 2 non-goals:
     area bias. Relative to Monterey transfer, Big Sur-only training improved
     the expected-value hurdle F1 from `0.849834` to `0.859563` and area bias
     from `-22.1124%` to `-2.8414%`; the ridge-only baseline got worse.
-- [ ] P2-08: Cross-evaluate Monterey and Big Sur training regimes.
+- [x] P2-08: Cross-evaluate Monterey and Big Sur training regimes.
   - Goal: Evaluate Monterey-only, Big Sur-only, and pooled Monterey+Big Sur
     models on both Monterey and Big Sur.
   - Outputs: reciprocal transfer artifacts, pooled training artifacts, and a
@@ -243,6 +243,27 @@ Phase 2 non-goals:
     and pooled combinations on the same 2022 retained-domain evaluation scope
     for each target region.
   - Plan: `tasks/50_train_evaluate_pooled_monterey_big_sur_models.md`.
+  - Completed: added pooled-region sample building, reciprocal Big Sur-only on
+    Monterey transfer evaluation, target-specific pooled configs, and canonical
+    training-regime comparison outputs. The pooled sample has `459,840` rows
+    (`231,345` Big Sur, `228,495` Monterey) and keeps `source_region` for
+    auditing only, not as a predictor.
+  - Primary outcome: on Big Sur, Big Sur-only expected-value hurdle remained
+    best for amount calibration with F1 `0.859563` and `-2.8414%` area bias;
+    pooled Big Sur evaluation had F1 `0.850056` and `-20.1402%` area bias,
+    only slightly better than Monterey transfer area bias. On Monterey, pooled
+    expected-value hurdle improved area bias versus Monterey-only
+    (`-22.1988%` vs `-27.5095%`) and improved RMSE/R2, but F1 stayed below
+    Monterey-only. Big Sur-only transfer had the smallest Monterey area bias
+    (`-13.6822%`) with much worse F1/RMSE, so P2-09 should separate amount
+    calibration from binary/support quality in the report.
+  - Binary support note: Monterey-only transfers fairly well to Big Sur for
+    binary support (F1 `0.846453` versus Big Sur-only `0.857286`), while Big
+    Sur-only transfers less well to Monterey (F1 `0.777221` versus
+    Monterey-only `0.852555`). Pooled support is more conservative in both
+    regions, with higher precision but lower recall than the local model.
+    This supports treating binary support as relatively transferable and
+    canopy amount calibration as the larger region-specific issue.
 - [ ] P2-09: Update the model-analysis report for region and training-regime
       comparison.
   - Goal: Make Phase 2 outcomes visible without turning the report into a long

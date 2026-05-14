@@ -77,6 +77,7 @@ REQUIRED_INPUT_COLUMNS = (
     "kelp_max_y",
 )
 OPTIONAL_ID_COLUMNS = (
+    "source_region",
     "aef_grid_cell_id",
     "aef_grid_row",
     "aef_grid_col",
@@ -96,6 +97,7 @@ OPTIONAL_ID_COLUMNS = (
 HURDLE_PREDICTION_FIELDS = (
     "year",
     "split",
+    "source_region",
     "kelpwatch_station_id",
     "longitude",
     "latitude",

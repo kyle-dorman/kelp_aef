@@ -417,6 +417,28 @@ models:
     residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_residual_by_observed_bin.csv
     assumed_background_leakage: /Volumes/x10pro/kelp_aef/reports/tables/hurdle_assumed_background_leakage.csv
     map_figure: /Volumes/x10pro/kelp_aef/reports/figures/hurdle_2022_observed_predicted_residual.png
+  transfer:
+    big_sur:
+      training_regime: big_sur_only
+      model_origin_region: big_sur
+      baseline_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_big_sur_transfer_baseline_full_grid_predictions.parquet
+      baseline_prediction_manifest: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_transfer_baseline_full_grid_prediction_manifest.json
+      binary_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_big_sur_transfer_binary_presence_full_grid_predictions.parquet
+      binary_prediction_manifest: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_transfer_binary_presence_prediction_manifest.json
+      binary_metrics: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_binary_presence_metrics.csv
+      binary_full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_binary_presence_full_grid_area_summary.csv
+      hurdle_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_big_sur_transfer_hurdle_full_grid_predictions.parquet
+      hurdle_prediction_manifest: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_transfer_hurdle_prediction_manifest.json
+      hurdle_metrics: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_hurdle_metrics.csv
+      hurdle_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_hurdle_area_calibration.csv
+      hurdle_model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_hurdle_model_comparison.csv
+      hurdle_residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_hurdle_residual_by_observed_bin.csv
+      hurdle_assumed_background_leakage: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_hurdle_assumed_background_leakage.csv
+      hurdle_map_figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_transfer_hurdle_2022_observed_predicted_residual.png
+      reference_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_reference_baseline_area_calibration.masked.csv
+      model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_model_comparison.csv
+      primary_summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_primary_summary.csv
+      manifest: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_transfer_eval_manifest.json
 
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures

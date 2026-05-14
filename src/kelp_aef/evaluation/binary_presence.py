@@ -67,6 +67,7 @@ DEFAULT_MAX_ITER = 1000
 DEFAULT_C_GRID = (1.0,)
 DEFAULT_THRESHOLD_GRID = tuple(float(round(value, 2)) for value in np.linspace(0.01, 0.99, 99))
 OPTIONAL_ID_COLUMNS = (
+    "source_region",
     "aef_grid_cell_id",
     "aef_grid_row",
     "aef_grid_col",
@@ -94,6 +95,7 @@ REQUIRED_INPUT_COLUMNS = (
 BINARY_PREDICTION_FIELDS = (
     "year",
     "split",
+    "source_region",
     "kelpwatch_station_id",
     "longitude",
     "latitude",
@@ -297,6 +299,7 @@ REQUIRED_FULL_GRID_CALIBRATION_COLUMNS = (
 CALIBRATED_SAMPLE_PREDICTION_FIELDS = (
     "year",
     "split",
+    "source_region",
     "kelpwatch_station_id",
     "longitude",
     "latitude",
@@ -1784,6 +1787,9 @@ def attach_split_membership(
 def split_join_columns(dataframe: pd.DataFrame, split_manifest: pd.DataFrame) -> list[str]:
     """Return the strongest available key for joining the split manifest."""
     candidates = (
+        ("source_region", "year", "aef_grid_cell_id"),
+        ("source_region", "year", "aef_grid_row", "aef_grid_col"),
+        ("source_region", "year", "kelpwatch_station_id", "longitude", "latitude"),
         ("year", "aef_grid_cell_id"),
         ("year", "aef_grid_row", "aef_grid_col"),
         ("year", "kelpwatch_station_id", "longitude", "latitude"),
@@ -2270,16 +2276,28 @@ def predict_binary_full_grid(
 
 def full_grid_input_columns(binary_config: BinaryPresenceConfig) -> list[str]:
     """Return columns required for full-grid binary prediction."""
+    available = available_schema_names(binary_config.inference_table_path)
     columns = [
         *REQUIRED_INPUT_COLUMNS,
         *binary_config.feature_columns,
         *OPTIONAL_ID_COLUMNS,
     ]
     deduped: list[str] = []
+    required = set(REQUIRED_INPUT_COLUMNS) | set(binary_config.feature_columns)
+    missing_required = sorted(required - available)
+    if missing_required:
+        msg = f"binary full-grid inference table is missing required columns: {missing_required}"
+        raise ValueError(msg)
     for column in columns:
-        if column not in deduped:
+        if column in available and column not in deduped:
             deduped.append(column)
     return deduped
+
+
+def available_schema_names(path: Path) -> set[str]:
+    """Return available column names from a Parquet file or dataset path."""
+    dataset = ds.dataset(path, format="parquet")  # type: ignore[no-untyped-call]
+    return set(dataset.schema.names)
 
 
 def update_label_source_counts(counts: dict[str, int], predictions: pd.DataFrame) -> None:

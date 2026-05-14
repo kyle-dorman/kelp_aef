@@ -1,0 +1,157 @@
+# Monterey target evaluation for pooled Monterey+Big Sur Phase 2 models.
+
+data_root: /Volumes/x10pro/kelp_aef
+
+region:
+  name: monterey_peninsula
+
+features:
+  bands: A00-A63
+
+alignment:
+  output_table: /Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_training_table.masked.parquet
+
+splits:
+  train_years: [2018, 2019, 2020]
+  validation_years: [2021]
+  test_years: [2022]
+  output_manifest: /Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_split_manifest.monterey_target.parquet
+
+models:
+  baselines:
+    sample_policy: pooled_monterey_big_sur
+    input_table: /Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_training_table.masked.parquet
+    inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
+    target_region: monterey
+    source_region_column: source_region
+    target: kelp_fraction_y
+    features: A00-A63
+    alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
+    drop_missing_features: true
+    use_sample_weight: false
+    ridge_model: /Volumes/x10pro/kelp_aef/models/baselines/pooled_monterey_big_sur_ridge_kelp_fraction.monterey_target.joblib
+    geographic_model: /Volumes/x10pro/kelp_aef/models/baselines/pooled_monterey_big_sur_geographic_ridge_lon_lat_year.monterey_target.joblib
+    sample_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_baseline_sample_predictions.parquet
+    predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_baseline_full_grid_predictions.parquet
+    prediction_manifest: /Volumes/x10pro/kelp_aef/interim/monterey_pooled_monterey_big_sur_baseline_full_grid_prediction_manifest.json
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_baseline_metrics.csv
+    manifest: /Volumes/x10pro/kelp_aef/interim/monterey_pooled_monterey_big_sur_baseline_eval_manifest.json
+  binary_presence:
+    sample_policy: pooled_monterey_big_sur
+    input_table: /Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_training_table.masked.parquet
+    inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
+    target_label: annual_max_ge_10pct
+    target_column: kelp_fraction_y
+    target_threshold_fraction: 0.10
+    target_threshold_area: 90.0
+    features: A00-A63
+    class_weight: balanced
+    c_grid: [1.0]
+    max_iter: 1000
+    drop_missing_features: true
+    model: /Volumes/x10pro/kelp_aef/models/binary_presence/pooled_monterey_big_sur_logistic_annual_max_ge_10pct.monterey_target.joblib
+    sample_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_sample_predictions.parquet
+    full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_binary_presence_metrics.csv
+    threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_binary_presence_threshold_selection.csv
+    full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_binary_presence_full_grid_area_summary.csv
+    thresholded_model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_binary_presence_thresholded_model_comparison.csv
+    prediction_manifest: /Volumes/x10pro/kelp_aef/interim/monterey_pooled_monterey_big_sur_binary_presence_prediction_manifest.json
+    precision_recall_figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_pooled_monterey_big_sur_binary_presence_precision_recall.png
+    map_figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_pooled_monterey_big_sur_binary_presence_2022_map.png
+    calibration:
+      method: platt
+      calibration_split: validation
+      calibration_year: 2021
+      evaluation_split: test
+      evaluation_year: 2022
+      input_sample_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_sample_predictions.parquet
+      input_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+      model: /Volumes/x10pro/kelp_aef/models/binary_presence/pooled_monterey_big_sur_logistic_annual_max_ge_10pct_calibration.monterey_target.joblib
+      calibrated_sample_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_calibrated_sample_predictions.parquet
+      metrics: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_binary_presence_calibration_metrics.csv
+      threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_binary_presence_calibrated_threshold_selection.csv
+      full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_binary_presence_calibrated_full_grid_area_summary.csv
+      calibration_curve_figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_pooled_monterey_big_sur_binary_presence_calibration_curve.png
+      threshold_figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_pooled_monterey_big_sur_binary_presence_calibrated_thresholds.png
+      manifest: /Volumes/x10pro/kelp_aef/interim/monterey_pooled_monterey_big_sur_binary_presence_calibration_manifest.json
+      include_prevalence_match: true
+      reliability_bin_count: 10
+  conditional_canopy:
+    input_table: /Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_training_table.masked.parquet
+    target: kelp_fraction_y
+    target_area_column: kelp_max_y
+    positive_target_label: annual_max_ge_10pct
+    positive_target_threshold_fraction: 0.10
+    positive_target_threshold_area: 90.0
+    positive_support_policy: observed_positive_train_validation_test
+    likely_positive_policy: calibrated_probability_ge_validation_max_f1
+    likely_positive_threshold_policy: validation_max_f1_calibrated
+    features: A00-A63
+    alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0]
+    drop_missing_features: true
+    baseline_sample_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_baseline_sample_predictions.parquet
+    calibrated_binary_sample_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_calibrated_sample_predictions.parquet
+    calibrated_binary_full_grid_area_summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_binary_presence_calibrated_full_grid_area_summary.csv
+    model: /Volumes/x10pro/kelp_aef/models/conditional_canopy/pooled_monterey_big_sur_ridge_positive_annual_max.monterey_target.joblib
+    sample_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_conditional_canopy_sample_predictions.parquet
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_conditional_canopy_metrics.csv
+    positive_residuals: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_conditional_canopy_positive_residuals.csv
+    model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_conditional_canopy_model_comparison.csv
+    full_grid_likely_positive_summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_conditional_canopy_full_grid_likely_positive_summary.csv
+    residual_figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_pooled_monterey_big_sur_conditional_canopy_positive_residuals.png
+    manifest: /Volumes/x10pro/kelp_aef/interim/monterey_pooled_monterey_big_sur_conditional_canopy_manifest.json
+  hurdle:
+    sample_policy: pooled_monterey_big_sur
+    inference_table: /Volumes/x10pro/kelp_aef/interim/aligned_full_grid_training_table.parquet
+    binary_full_grid_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+    binary_calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/pooled_monterey_big_sur_logistic_annual_max_ge_10pct_calibration.monterey_target.joblib
+    binary_calibrated_threshold_selection: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_binary_presence_calibrated_threshold_selection.csv
+    conditional_model: /Volumes/x10pro/kelp_aef/models/conditional_canopy/pooled_monterey_big_sur_ridge_positive_annual_max.monterey_target.joblib
+    reference_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_reference_baseline_area_calibration.masked.csv
+    model_name: calibrated_probability_x_conditional_canopy
+    hard_gate_model_name: calibrated_hard_gate_conditional_canopy
+    presence_model_name: logistic_annual_max_ge_10pct
+    presence_probability_source: platt_calibrated
+    presence_threshold_policy: validation_max_f1_calibrated
+    presence_threshold: 0.43
+    presence_target_label: annual_max_ge_10pct
+    presence_target_threshold_fraction: 0.10
+    conditional_model_name: ridge_positive_annual_max
+    target: kelp_fraction_y
+    target_area_column: kelp_max_y
+    cell_area_m2: 900.0
+    composition_policies: [expected_value, hard_gate]
+    features: A00-A63
+    drop_missing_features: true
+    batch_size: 100000
+    predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+    prediction_manifest: /Volumes/x10pro/kelp_aef/interim/monterey_pooled_monterey_big_sur_hurdle_prediction_manifest.json
+    metrics: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_hurdle_metrics.csv
+    area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_hurdle_area_calibration.csv
+    model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_hurdle_model_comparison.csv
+    residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_hurdle_residual_by_observed_bin.csv
+    assumed_background_leakage: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_hurdle_assumed_background_leakage.csv
+    map_figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_pooled_monterey_big_sur_hurdle_2022_observed_predicted_residual.png
+  evaluation_summary:
+    training_regime: pooled_monterey_big_sur
+    model_origin_region: monterey_big_sur
+    evaluation_region: monterey
+    model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_model_comparison.csv
+    primary_summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_primary_summary.csv
+    manifest: /Volumes/x10pro/kelp_aef/interim/monterey_pooled_monterey_big_sur_eval_manifest.json
+
+reports:
+  domain_mask:
+    primary_full_grid_domain: plausible_kelp_domain
+    mask_status: plausible_kelp_domain
+    evaluation_scope: full_grid_masked
+    mask_table: /Volumes/x10pro/kelp_aef/interim/plausible_kelp_domain_mask.parquet
+    mask_manifest: /Volumes/x10pro/kelp_aef/interim/plausible_kelp_domain_mask_manifest.json
+  model_analysis:
+    year: 2022
+    observed_area_bins: [0, 1, 90, 225, 450, 810, 900]
+  outputs:
+    reference_baseline_fallback_summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_reference_baseline_fallback_summary.csv
+    reference_baseline_area_calibration: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_reference_baseline_area_calibration.csv
+    reference_baseline_area_calibration_masked: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_reference_baseline_area_calibration.masked.csv

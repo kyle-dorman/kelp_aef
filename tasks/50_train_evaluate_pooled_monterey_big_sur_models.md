@@ -265,3 +265,122 @@ document it in the task outcome.
   synthesis.
 - Do not start a broad model-family search here. Random forest or gradient
   boosting belongs in a later task if Phase 2 recommends it.
+
+## Outcome
+
+Completed on 2026-05-14.
+
+Implemented package-backed pooled-region and reciprocal transfer support:
+
+- Added `build-pooled-region-sample` to combine retained-domain Monterey and
+  Big Sur masked sample tables with a `source_region` audit column and no
+  region metadata in the model feature matrix.
+- Added target-region filtering for validation/test evaluation so pooled
+  model fitting uses both regions for 2018-2020 while ridge selection,
+  binary calibration, threshold selection, conditional amount selection, and
+  2022 final scoring use only the target region.
+- Added reciprocal Big Sur-only-on-Monterey transfer sidecars without
+  overwriting Monterey same-region outputs.
+- Added target-specific pooled configs and model payload paths for Big Sur and
+  Monterey.
+- Added `compare-training-regimes` to normalize existing same-region,
+  transfer, and pooled rows into canonical
+  `training_regime` / `model_origin_region` / `evaluation_region` labels.
+
+Primary artifacts:
+
+- `/Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_training_table.masked.parquet`
+- `/Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_split_manifest.parquet`
+- `/Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_training_manifest.json`
+- `/Volumes/x10pro/kelp_aef/reports/tables/pooled_monterey_big_sur_training_summary.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_model_comparison.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/big_sur_pooled_monterey_big_sur_model_comparison.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_model_comparison.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_training_regime_model_comparison.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_training_regime_primary_summary.csv`
+- `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_training_regime_comparison_manifest.json`
+
+Pooled sample summary:
+
+- Combined rows: `459,840`
+- Big Sur rows: `231,345`
+- Monterey rows: `228,495`
+- Fit years: `2018-2020`
+- Target-local validation year: `2021`
+- Final held-out test year: `2022`
+
+Primary 2022 retained-domain comparison:
+
+| Evaluation region | Training regime | Expected-value hurdle F1 | Expected-value area bias | Hard-gated hurdle F1 | Hard-gated area bias |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Big Sur | Monterey-only transfer | `0.849834` | `-22.1124%` | `0.849308` | `-19.2801%` |
+| Big Sur | Big Sur-only | `0.859563` | `-2.8414%` | `0.857286` | `-0.4462%` |
+| Big Sur | Pooled Monterey+Big Sur | `0.850056` | `-20.1402%` | `0.854451` | `-16.8870%` |
+| Monterey | Big Sur-only transfer | `0.779440` | `-13.6822%` | `0.777221` | `-12.2153%` |
+| Monterey | Monterey-only | `0.840780` | `-27.5095%` | `0.853000` | `-26.3099%` |
+| Monterey | Pooled Monterey+Big Sur | `0.830924` | `-22.1988%` | `0.830019` | `-21.5465%` |
+
+Interpretation:
+
+- For Big Sur, pooled training did not improve over Big Sur-only local tuning.
+  It modestly improved expected-value area bias over Monterey-only transfer
+  (`-20.1402%` versus `-22.1124%`) but remained far worse than Big Sur-only
+  (`-2.8414%`).
+- For Monterey, pooled training improved expected-value area bias relative to
+  Monterey-only (`-22.1988%` versus `-27.5095%`) and improved RMSE/R2, but it
+  reduced F1 relative to Monterey-only. Big Sur-only transfer had the smallest
+  Monterey area bias (`-13.6822%`) but much worse F1 and RMSE than the
+  Monterey-tuned and pooled models.
+- The outcome supports the Task 49 hypothesis: target-local amount tuning is
+  important. Pooled training alone did not replace target-local calibration,
+  especially for Big Sur canopy amount.
+
+Binary support follow-up:
+
+The binary-only comparison was recomputed from the 2022 retained-domain
+full-grid binary prediction tables and each policy's frozen Platt calibrator
+and recommended threshold. This keeps transfer, local, and pooled rows on the
+same `full_grid_masked`-style support-detection scope.
+
+| Evaluation region | Training regime | Binary F1 | Precision | Recall | AUPRC | Predicted positive rate |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Big Sur | Monterey-only transfer | `0.846453` | `0.829083` | `0.864566` | `0.897458` | `4.6844%` |
+| Big Sur | Big Sur-only | `0.857286` | `0.875459` | `0.839853` | `0.934899` | `4.3095%` |
+| Big Sur | Pooled Monterey+Big Sur | `0.854451` | `0.887361` | `0.823895` | `0.927124` | `4.1709%` |
+| Monterey | Big Sur-only transfer | `0.777221` | `0.866996` | `0.704293` | `0.824119` | `1.6142%` |
+| Monterey | Monterey-only | `0.852555` | `0.880181` | `0.826610` | `0.930024` | `1.8662%` |
+| Monterey | Pooled Monterey+Big Sur | `0.829966` | `0.909602` | `0.763152` | `0.920076` | `1.6672%` |
+
+Binary interpretation:
+
+- Binary support transfers much better than canopy amount. Monterey-only on
+  Big Sur is close to Big Sur-only in F1 (`0.846453` versus `0.857286`) and
+  has slightly higher recall, but lower precision and AUPRC.
+- Big Sur-only on Monterey transfers less well: F1 drops to `0.777221`,
+  mostly because recall falls to `0.704293`.
+- Pooled binary support is not a clear overall win. It is the most conservative
+  policy in both regions: highest precision, lowest predicted-positive rate,
+  and lower recall than the local model.
+- The main Phase 2 signal is therefore not binary separability. The larger
+  region-specific failure is conditional canopy amount and hurdle area
+  calibration.
+
+Command sequence run:
+
+```bash
+uv run kelp-aef build-pooled-region-sample --config configs/big_sur_smoke.yaml
+uv run kelp-aef evaluate-transfer --config configs/monterey_smoke.yaml --source-config configs/big_sur_smoke.yaml
+uv run kelp-aef train-baselines --config configs/big_sur_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef predict-full-grid --config configs/big_sur_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef train-binary-presence --config configs/big_sur_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef calibrate-binary-presence --config configs/big_sur_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef train-conditional-canopy --config configs/big_sur_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef compose-hurdle-model --config configs/big_sur_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef train-baselines --config configs/monterey_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef predict-full-grid --config configs/monterey_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef train-binary-presence --config configs/monterey_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef calibrate-binary-presence --config configs/monterey_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef train-conditional-canopy --config configs/monterey_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef compose-hurdle-model --config configs/monterey_pooled_monterey_big_sur_smoke.yaml
+uv run kelp-aef compare-training-regimes --config configs/big_sur_smoke.yaml
+```

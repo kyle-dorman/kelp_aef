@@ -109,9 +109,18 @@ class TransferOutputConfig:
     manifest_path: Path
 
 
-def evaluate_transfer(config_path: Path, source_config_path: Path) -> int:
+def evaluate_transfer(
+    config_path: Path,
+    source_config_path: Path,
+    *,
+    transfer_name: str | None = None,
+) -> int:
     """Evaluate frozen source-region models on the target-region full grid."""
-    outputs = load_transfer_output_config(config_path)
+    outputs = load_transfer_output_config(
+        config_path,
+        transfer_name=transfer_name,
+        source_config_path=source_config_path,
+    )
     LOGGER.info(
         "Evaluating %s policy transfer from %s to %s",
         outputs.model_origin_region,
@@ -278,68 +287,119 @@ def evaluate_transfer(config_path: Path, source_config_path: Path) -> int:
 
 def load_transfer_output_config(
     config_path: Path,
-    transfer_name: str = DEFAULT_TRANSFER_NAME,
+    transfer_name: str | None = None,
+    source_config_path: Path | None = None,
 ) -> TransferOutputConfig:
     """Load transfer sidecar paths and provenance labels from the target config."""
     config = load_yaml_config(config_path)
     models = require_mapping(config.get("models"), "models")
     transfer = require_mapping(models.get("transfer"), "models.transfer")
+    selected_transfer_name = select_transfer_name(
+        transfer,
+        transfer_name=transfer_name,
+        source_config_path=source_config_path,
+    )
     entry = require_mapping(
-        transfer.get(transfer_name),
-        f"models.transfer.{transfer_name}",
+        transfer.get(selected_transfer_name),
+        f"models.transfer.{selected_transfer_name}",
     )
     return TransferOutputConfig(
-        transfer_name=transfer_name,
+        transfer_name=selected_transfer_name,
         training_regime=str(entry.get("training_regime", DEFAULT_TRAINING_REGIME)),
         model_origin_region=str(entry.get("model_origin_region", DEFAULT_MODEL_ORIGIN_REGION)),
         evaluation_region=region_name(config),
         baseline_predictions_path=transfer_path(
             entry,
-            transfer_name,
+            selected_transfer_name,
             "baseline_full_grid_predictions",
         ),
-        baseline_manifest_path=transfer_path(entry, transfer_name, "baseline_prediction_manifest"),
-        binary_predictions_path=transfer_path(entry, transfer_name, "binary_full_grid_predictions"),
-        binary_manifest_path=transfer_path(entry, transfer_name, "binary_prediction_manifest"),
-        binary_metrics_path=transfer_path(entry, transfer_name, "binary_metrics"),
+        baseline_manifest_path=transfer_path(
+            entry,
+            selected_transfer_name,
+            "baseline_prediction_manifest",
+        ),
+        binary_predictions_path=transfer_path(
+            entry,
+            selected_transfer_name,
+            "binary_full_grid_predictions",
+        ),
+        binary_manifest_path=transfer_path(
+            entry,
+            selected_transfer_name,
+            "binary_prediction_manifest",
+        ),
+        binary_metrics_path=transfer_path(entry, selected_transfer_name, "binary_metrics"),
         binary_area_summary_path=transfer_path(
             entry,
-            transfer_name,
+            selected_transfer_name,
             "binary_full_grid_area_summary",
         ),
-        hurdle_predictions_path=transfer_path(entry, transfer_name, "hurdle_full_grid_predictions"),
-        hurdle_manifest_path=transfer_path(entry, transfer_name, "hurdle_prediction_manifest"),
-        hurdle_metrics_path=transfer_path(entry, transfer_name, "hurdle_metrics"),
+        hurdle_predictions_path=transfer_path(
+            entry,
+            selected_transfer_name,
+            "hurdle_full_grid_predictions",
+        ),
+        hurdle_manifest_path=transfer_path(
+            entry,
+            selected_transfer_name,
+            "hurdle_prediction_manifest",
+        ),
+        hurdle_metrics_path=transfer_path(entry, selected_transfer_name, "hurdle_metrics"),
         hurdle_area_calibration_path=transfer_path(
             entry,
-            transfer_name,
+            selected_transfer_name,
             "hurdle_area_calibration",
         ),
         hurdle_model_comparison_path=transfer_path(
             entry,
-            transfer_name,
+            selected_transfer_name,
             "hurdle_model_comparison",
         ),
         hurdle_residual_by_observed_bin_path=transfer_path(
             entry,
-            transfer_name,
+            selected_transfer_name,
             "hurdle_residual_by_observed_bin",
         ),
         hurdle_assumed_background_leakage_path=transfer_path(
             entry,
-            transfer_name,
+            selected_transfer_name,
             "hurdle_assumed_background_leakage",
         ),
         hurdle_map_figure_path=optional_transfer_path(entry, "hurdle_map_figure"),
         reference_area_calibration_path=transfer_path(
             entry,
-            transfer_name,
+            selected_transfer_name,
             "reference_area_calibration",
         ),
-        model_comparison_path=transfer_path(entry, transfer_name, "model_comparison"),
-        primary_summary_path=transfer_path(entry, transfer_name, "primary_summary"),
-        manifest_path=transfer_path(entry, transfer_name, "manifest"),
+        model_comparison_path=transfer_path(entry, selected_transfer_name, "model_comparison"),
+        primary_summary_path=transfer_path(entry, selected_transfer_name, "primary_summary"),
+        manifest_path=transfer_path(entry, selected_transfer_name, "manifest"),
     )
+
+
+def select_transfer_name(
+    transfer: dict[str, Any],
+    *,
+    transfer_name: str | None,
+    source_config_path: Path | None,
+) -> str:
+    """Choose the transfer config entry from an explicit name or source config."""
+    if transfer_name is not None:
+        return transfer_name
+    candidates: list[str] = []
+    if source_config_path is not None:
+        source_config = load_yaml_config(source_config_path)
+        source_name = region_name(source_config)
+        candidates.append(source_name)
+        if source_name.endswith("_peninsula"):
+            candidates.append(source_name.removesuffix("_peninsula"))
+    candidates.append(DEFAULT_TRANSFER_NAME)
+    for candidate in candidates:
+        if candidate in transfer:
+            return candidate
+    available = ", ".join(sorted(str(key) for key in transfer))
+    msg = f"no matching transfer config entry found; available entries: {available}"
+    raise ValueError(msg)
 
 
 def transfer_path(entry: dict[str, Any], transfer_name: str, key: str) -> Path:

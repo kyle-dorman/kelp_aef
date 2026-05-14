@@ -449,6 +449,63 @@ models:
     primary_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_only_primary_summary.csv
     manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_only_eval_manifest.json
 
+pooled_region_sample:
+  source_region_column: source_region
+  regions:
+    monterey:
+      config: monterey_smoke.yaml
+      input_table: /Volumes/x10pro/kelp_aef/interim/aligned_background_sample_training_table.masked.parquet
+    big_sur:
+      config: big_sur_smoke.yaml
+      input_table: /Volumes/x10pro/kelp_aef/interim/big_sur_aligned_background_sample_training_table.masked.parquet
+  output_table: /Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_training_table.masked.parquet
+  split_manifest: /Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_split_manifest.parquet
+  manifest: /Volumes/x10pro/kelp_aef/interim/pooled_monterey_big_sur_training_manifest.json
+  summary_table: /Volumes/x10pro/kelp_aef/reports/tables/pooled_monterey_big_sur_training_summary.csv
+  target_area_column: kelp_max_y
+  positive_threshold_fraction: 0.10
+
+training_regime_comparison:
+  primary_split: test
+  primary_year: 2022
+  primary_mask_status: plausible_kelp_domain
+  primary_evaluation_scope: full_grid_masked
+  primary_label_source: all
+  model_comparison: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_training_regime_model_comparison.csv
+  primary_summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_training_regime_primary_summary.csv
+  manifest: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_training_regime_comparison_manifest.json
+  inputs:
+    monterey_only_on_monterey:
+      path: /Volumes/x10pro/kelp_aef/reports/tables/model_analysis_phase1_model_comparison.csv
+      training_regime: monterey_only
+      model_origin_region: monterey
+      evaluation_region: monterey
+    monterey_only_on_big_sur:
+      path: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_monterey_transfer_model_comparison.csv
+      training_regime: monterey_only
+      model_origin_region: monterey
+      evaluation_region: big_sur
+    big_sur_only_on_big_sur:
+      path: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_only_model_comparison.csv
+      training_regime: big_sur_only
+      model_origin_region: big_sur
+      evaluation_region: big_sur
+    big_sur_only_on_monterey:
+      path: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_transfer_model_comparison.csv
+      training_regime: big_sur_only
+      model_origin_region: big_sur
+      evaluation_region: monterey
+    pooled_on_big_sur:
+      path: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_pooled_monterey_big_sur_model_comparison.csv
+      training_regime: pooled_monterey_big_sur
+      model_origin_region: monterey_big_sur
+      evaluation_region: big_sur
+    pooled_on_monterey:
+      path: /Volumes/x10pro/kelp_aef/reports/tables/monterey_pooled_monterey_big_sur_model_comparison.csv
+      training_regime: pooled_monterey_big_sur
+      model_origin_region: monterey_big_sur
+      evaluation_region: monterey
+
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures
   tables_dir: /Volumes/x10pro/kelp_aef/reports/tables

@@ -58,6 +58,7 @@ DEFAULT_ALPHA_GRID = (0.01, 0.1, 1.0, 10.0, 100.0)
 SELECTION_SPLIT = "validation"
 TEST_SPLIT = "test"
 OPTIONAL_ID_COLUMNS = (
+    "source_region",
     "aef_grid_cell_id",
     "aef_grid_row",
     "aef_grid_col",
@@ -85,6 +86,7 @@ REQUIRED_INPUT_COLUMNS = (
 CONDITIONAL_PREDICTION_FIELDS = (
     "year",
     "split",
+    "source_region",
     "kelpwatch_station_id",
     "longitude",
     "latitude",
@@ -788,6 +790,9 @@ def attach_split_membership(
 def split_join_columns(dataframe: pd.DataFrame, split_manifest: pd.DataFrame) -> list[str]:
     """Return the strongest available key for joining the split manifest."""
     candidates = (
+        ("source_region", "year", "aef_grid_cell_id"),
+        ("source_region", "year", "aef_grid_row", "aef_grid_col"),
+        ("source_region", "year", "kelpwatch_station_id", "longitude", "latitude"),
         ("year", "aef_grid_cell_id"),
         ("year", "aef_grid_row", "aef_grid_col"),
         ("year", "kelpwatch_station_id", "longitude", "latitude"),
@@ -982,6 +987,9 @@ def read_likely_positive_flags(
 def row_key_columns(left: pd.DataFrame, right: pd.DataFrame) -> list[str]:
     """Return stable row key columns shared by two prediction-like frames."""
     candidates = (
+        ("source_region", "year", "aef_grid_cell_id"),
+        ("source_region", "year", "aef_grid_row", "aef_grid_col"),
+        ("source_region", "year", "kelpwatch_station_id", "longitude", "latitude"),
         ("year", "aef_grid_cell_id"),
         ("year", "aef_grid_row", "aef_grid_col"),
         ("year", "kelpwatch_station_id", "longitude", "latitude"),

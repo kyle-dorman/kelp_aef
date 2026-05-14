@@ -122,6 +122,7 @@ AREA_CALIBRATION_FIELDS = (
     "f1_ge_10pct",
 )
 OPTIONAL_PROVENANCE_COLUMNS = (
+    "source_region",
     "aef_grid_cell_id",
     "aef_grid_row",
     "aef_grid_col",
@@ -164,6 +165,8 @@ class BaselineConfig:
     drop_missing_features: bool
     use_sample_weight: bool
     sample_weight_column: str
+    target_region: str | None
+    source_region_column: str
     reporting_domain_mask: ReportingDomainMask | None
 
 
@@ -508,6 +511,8 @@ def load_baseline_config(config_path: Path) -> BaselineConfig:
             default=False,
         ),
         sample_weight_column=str(baseline.get("sample_weight_column", "sample_weight")),
+        target_region=optional_string(baseline.get("target_region")),
+        source_region_column=str(baseline.get("source_region_column", "source_region")),
         reporting_domain_mask=reporting_domain_mask,
     )
 
@@ -560,6 +565,11 @@ def load_baseline_sidecar_configs(
                     area_calibration_path=baseline_sidecar_path(
                         sidecar, sidecar_name, "area_calibration"
                     ),
+                    target_region=optional_string(sidecar.get("target_region"))
+                    or base_config.target_region,
+                    source_region_column=str(
+                        sidecar.get("source_region_column", base_config.source_region_column)
+                    ),
                 ),
             )
         )
@@ -581,6 +591,16 @@ def optional_mapping(value: object, name: str) -> dict[str, Any]:
     if value is None:
         return {}
     return require_mapping(value, name)
+
+
+def optional_string(value: object) -> str | None:
+    """Return an optional string config value."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        msg = "optional config field must be a string"
+        raise ValueError(msg)
+    return value
 
 
 def read_year_list(config: dict[str, Any], key: str) -> tuple[int, ...]:
@@ -669,6 +689,7 @@ def prepare_model_frame(dataframe: pd.DataFrame, baseline_config: BaselineConfig
     split_manifest["used_for_training_eval"] = (
         split_manifest["has_complete_features"] & split_manifest["has_target"]
     )
+    apply_target_region_policy(split_manifest, baseline_config)
     split_manifest["drop_reason"] = drop_reasons(split_manifest)
     retained_mask = split_manifest["used_for_training_eval"].to_numpy(dtype=bool)
     if not baseline_config.drop_missing_features and not bool(retained_mask.all()):
@@ -686,6 +707,25 @@ def prepare_model_frame(dataframe: pd.DataFrame, baseline_config: BaselineConfig
         retained_rows=retained,
         dropped_counts_by_split=dropped_counts,
     )
+
+
+def apply_target_region_policy(
+    split_manifest: pd.DataFrame,
+    baseline_config: BaselineConfig,
+) -> None:
+    """Restrict validation/test rows to a configured target region for pooled fits."""
+    target_region = baseline_config.target_region
+    if target_region is None:
+        return
+    region_column = baseline_config.source_region_column
+    if region_column not in split_manifest.columns:
+        msg = f"target_region requires split manifest column: {region_column}"
+        raise ValueError(msg)
+    non_target_eval = (split_manifest["split"] != "train") & (
+        split_manifest[region_column].astype(str) != target_region
+    )
+    split_manifest.loc[non_target_eval, "used_for_training_eval"] = False
+    split_manifest.loc[non_target_eval, "target_region_drop"] = True
 
 
 def split_manifest_columns(dataframe: pd.DataFrame, baseline_config: BaselineConfig) -> list[str]:
@@ -734,6 +774,10 @@ def drop_reasons(split_manifest: pd.DataFrame) -> pd.Series:
     missing_target_mask = ~split_manifest["has_target"]
     reasons.loc[missing_target_mask & (reasons != "")] += ";missing_target"
     reasons.loc[missing_target_mask & (reasons == "")] = "missing_target"
+    if "target_region_drop" in split_manifest.columns:
+        target_region_mask = split_manifest["target_region_drop"].fillna(False).astype(bool)
+        reasons.loc[target_region_mask & (reasons != "")] += ";non_target_region_eval"
+        reasons.loc[target_region_mask & (reasons == "")] = "non_target_region_eval"
     return reasons
 
 

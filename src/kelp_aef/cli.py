@@ -24,6 +24,10 @@ from kelp_aef.evaluation.binary_presence import calibrate_binary_presence, train
 from kelp_aef.evaluation.conditional_canopy import train_conditional_canopy
 from kelp_aef.evaluation.hurdle import compose_hurdle_model
 from kelp_aef.evaluation.model_analysis import analyze_model
+from kelp_aef.evaluation.pooled_regions import (
+    build_pooled_region_sample,
+    write_training_regime_comparison,
+)
 from kelp_aef.evaluation.transfer import evaluate_transfer
 from kelp_aef.features.aef_catalog import query_aef_catalog
 from kelp_aef.features.aef_download import download_aef
@@ -73,6 +77,8 @@ COMMANDS: dict[str, str] = {
     "train-conditional-canopy": "Train the positive-only conditional canopy amount model.",
     "compose-hurdle-model": "Compose calibrated presence and conditional canopy predictions.",
     "evaluate-transfer": "Evaluate a frozen source-region policy on the target region.",
+    "build-pooled-region-sample": "Build a pooled sample across configured regions.",
+    "compare-training-regimes": "Combine local, transfer, and pooled training-regime summaries.",
     "map-residuals": "Map baseline predictions, residuals, and area bias.",
     "visualize-results": "Build a local interactive viewer for labels and model results.",
     "analyze-model": "Analyze model behavior and write the Phase 1 report.",
@@ -663,6 +669,11 @@ def add_evaluate_transfer_arguments(parser: argparse.ArgumentParser) -> None:
         required=True,
         help="Path to the frozen source-region workflow config.",
     )
+    parser.add_argument(
+        "--transfer-name",
+        default=None,
+        help="Optional models.transfer entry name. Defaults to a source-region match.",
+    )
 
 
 def run_scaffold_command(command: str, config_path: Path) -> int:
@@ -833,7 +844,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif command == "compose-hurdle-model":
             exit_code = compose_hurdle_model(config_path)
         elif command == "evaluate-transfer":
-            exit_code = evaluate_transfer(config_path, source_config_path=args.source_config)
+            exit_code = evaluate_transfer(
+                config_path,
+                source_config_path=args.source_config,
+                transfer_name=args.transfer_name,
+            )
+        elif command == "build-pooled-region-sample":
+            exit_code = build_pooled_region_sample(config_path)
+        elif command == "compare-training-regimes":
+            exit_code = write_training_regime_comparison(config_path)
         elif command == "map-residuals":
             exit_code = map_residuals(config_path)
         elif command == "visualize-results":
