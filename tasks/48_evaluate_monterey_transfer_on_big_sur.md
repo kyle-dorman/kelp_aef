@@ -80,6 +80,23 @@ that will be loaded. Keep the implementation package-backed and config-driven.
 8. Record the result in `docs/todo.md` after artifacts are regenerated and
    validated.
 
+## Implementation Plan
+
+- Add a package-backed transfer command:
+  `kelp-aef evaluate-transfer --config configs/big_sur_smoke.yaml --source-config configs/monterey_smoke.yaml`.
+- Add a `models.transfer.monterey` block in the Big Sur config for path-distinct
+  Monterey-transfer prediction sidecars, manifests, metrics, area summaries, and
+  compact comparison tables.
+- Load the frozen Monterey ridge, binary logistic, Platt calibration, threshold,
+  and conditional canopy artifacts directly from `configs/monterey_smoke.yaml`.
+  Do not call any training command on Big Sur rows.
+- Score the Big Sur full-grid inference table, apply the configured Big Sur
+  plausible-kelp reporting mask, write transfer-labeled artifacts, and compute
+  the primary `split = test`, `year = 2022`, `evaluation_scope =
+  full_grid_masked`, `label_source = all` rows.
+- Add a focused synthetic test for the transfer command, then run the real
+  transfer command and record the outcome in `docs/todo.md`.
+
 ## Validation Command
 
 For code changes, run the relevant subset plus the transfer command:
@@ -129,3 +146,33 @@ without retraining or overwriting Big Sur-trained artifacts.
   in P2-08.
 - Do not make narrative report updates that belong in the Phase 2 synthesis
   task, except for adding concise task outcomes and generated metric artifacts.
+
+## Outcome
+
+Completed on 2026-05-14 with:
+
+```bash
+uv run kelp-aef evaluate-transfer --config configs/big_sur_smoke.yaml --source-config configs/monterey_smoke.yaml
+```
+
+Primary Big Sur transfer artifacts:
+
+- `/Volumes/x10pro/kelp_aef/processed/big_sur_monterey_transfer_baseline_full_grid_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/processed/big_sur_monterey_transfer_binary_presence_full_grid_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/processed/big_sur_monterey_transfer_hurdle_full_grid_predictions.parquet`
+- `/Volumes/x10pro/kelp_aef/reports/tables/big_sur_monterey_transfer_primary_summary.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/big_sur_monterey_transfer_binary_presence_metrics.csv`
+- `/Volumes/x10pro/kelp_aef/interim/big_sur_monterey_transfer_eval_manifest.json`
+
+Primary `test`/2022 `full_grid_masked`/`all` result:
+
+- AEF ridge transfer: F1 `0.771748`, area bias `+5.5720%`.
+- Expected-value hurdle transfer: F1 `0.849834`, area bias `-22.1124%`.
+- Hard-gated hurdle transfer: F1 `0.849308`, area bias `-19.2801%`.
+- Frozen Monterey calibrated binary support: threshold `0.37`, AUROC
+  `0.992484`, AUPRC `0.897458`, precision `0.829083`, recall `0.864566`,
+  F1 `0.846453`.
+
+The transfer manifest records no Big Sur ridge refit, binary-model refit,
+binary-calibrator refit, conditional-canopy refit, or use of Big Sur test rows
+for training, calibration, or threshold selection.

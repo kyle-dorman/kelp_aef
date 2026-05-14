@@ -188,7 +188,7 @@ Phase 2 non-goals:
     `>= 0.10`, and TP/FP/FN visible in the binary outcome review layer. The
     Monterey visualizer artifacts were refreshed and the Task 46 inspection
     export remains `9,467` rows.
-- [ ] P2-06: Evaluate Monterey-trained transfer on Big Sur.
+- [x] P2-06: Evaluate Monterey-trained transfer on Big Sur.
   - Goal: Apply the closed Monterey Phase 1 policy to Big Sur as the transfer
     baseline.
   - Outputs: Big Sur metrics for AEF ridge, expected-value hurdle, hard-gated
@@ -196,6 +196,18 @@ Phase 2 non-goals:
   - Acceptance: Big Sur held-out performance is reported without Big Sur
     training-driven policy changes.
   - Plan: `tasks/48_evaluate_monterey_transfer_on_big_sur.md`
+  - Completed: added `kelp-aef evaluate-transfer --config
+    configs/big_sur_smoke.yaml --source-config configs/monterey_smoke.yaml`
+    and wrote path-distinct `big_sur_monterey_transfer_*` sidecars. The primary
+    Big Sur `test`/2022 `full_grid_masked`/`all` row has 272,030 retained
+    cells and 6,504,325 m2 observed canopy. Monterey-transfer AEF ridge reached
+    F1 `0.771748` with `+5.5720%` area bias; expected-value hurdle reached F1
+    `0.849834` with `-22.1124%` area bias; hard-gated hurdle reached F1
+    `0.849308` with `-19.2801%` area bias. Frozen Monterey calibrated binary
+    support used threshold `0.37` and reached AUROC `0.992484`, AUPRC
+    `0.897458`, precision `0.829083`, recall `0.864566`, and F1 `0.846453`.
+    The transfer manifest records no Big Sur model, calibrator, threshold, or
+    conditional-model refit.
 - [ ] P2-07: Train and evaluate Big Sur-only models.
   - Goal: Test whether training on Big Sur improves held-out Big Sur
     performance relative to Monterey transfer.

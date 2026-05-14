@@ -24,6 +24,7 @@ from kelp_aef.evaluation.binary_presence import calibrate_binary_presence, train
 from kelp_aef.evaluation.conditional_canopy import train_conditional_canopy
 from kelp_aef.evaluation.hurdle import compose_hurdle_model
 from kelp_aef.evaluation.model_analysis import analyze_model
+from kelp_aef.evaluation.transfer import evaluate_transfer
 from kelp_aef.features.aef_catalog import query_aef_catalog
 from kelp_aef.features.aef_download import download_aef
 from kelp_aef.labels.kelpwatch import inspect_kelpwatch
@@ -71,6 +72,7 @@ COMMANDS: dict[str, str] = {
     "calibrate-binary-presence": "Calibrate binary annual-max probabilities and thresholds.",
     "train-conditional-canopy": "Train the positive-only conditional canopy amount model.",
     "compose-hurdle-model": "Compose calibrated presence and conditional canopy predictions.",
+    "evaluate-transfer": "Evaluate a frozen source-region policy on the target region.",
     "map-residuals": "Map baseline predictions, residuals, and area bias.",
     "visualize-results": "Build a local interactive viewer for labels and model results.",
     "analyze-model": "Analyze model behavior and write the Phase 1 report.",
@@ -197,6 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
             add_build_model_input_sample_arguments(subparser)
         if command == "predict-full-grid":
             add_predict_full_grid_arguments(subparser)
+        if command == "evaluate-transfer":
+            add_evaluate_transfer_arguments(subparser)
 
     return parser
 
@@ -651,6 +655,16 @@ def add_predict_full_grid_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_evaluate_transfer_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add transfer-evaluation options to the evaluate-transfer subcommand."""
+    parser.add_argument(
+        "--source-config",
+        type=existing_config_path,
+        required=True,
+        help="Path to the frozen source-region workflow config.",
+    )
+
+
 def run_scaffold_command(command: str, config_path: Path) -> int:
     """Run a CLI command scaffold until the pipeline step is implemented."""
     LOGGER.info("%s: using config %s", command, config_path)
@@ -818,6 +832,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_code = train_conditional_canopy(config_path)
         elif command == "compose-hurdle-model":
             exit_code = compose_hurdle_model(config_path)
+        elif command == "evaluate-transfer":
+            exit_code = evaluate_transfer(config_path, source_config_path=args.source_config)
         elif command == "map-residuals":
             exit_code = map_residuals(config_path)
         elif command == "visualize-results":
