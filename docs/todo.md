@@ -3,7 +3,7 @@
 ## Active Phase 2 Plan
 
 Status: Phase 2 selected on 2026-05-14. P2-01 through P2-13 and the P2-11a
-through P2-11f follow-up diagnostics have task plans; P2-14 closeout is still a
+through P2-11k follow-up tasks have task plans; P2-14 closeout is still a
 planning stub until its `tasks/` file is written.
 
 Phase 2 theme: test whether the closed Monterey Phase 1 annual-max policy
@@ -67,6 +67,8 @@ Phase 2 non-goals:
   held-out visual QA observations into model predictors or tuned policy choices
   inside Phase 2.
 - Do not write implementation code in task-plan-only passes.
+- Do not let report-only wording or layout edits force slow diagnostic rebuilds
+  when a fresh Phase 2 diagnostics cache exists.
 
 ## Phase 2 Checklist
 
@@ -552,6 +554,17 @@ Phase 2 non-goals:
     where available, and the report states whether FNs look like a
     calibration/threshold tradeoff or low-confidence feature/label ambiguity.
   - Plan: `tasks/65_fn_probability_margin_diagnostics.md`.
+- [ ] P2-11k: Fix Phase 2 diagnostics cache invalidation.
+  - Goal: Make report-only Phase 2 iteration reuse fresh diagnostics instead of
+    invalidating the expensive cache whenever report prose, layout, rendering,
+    or unrelated config fields change.
+  - Outputs: narrowed diagnostic freshness payload, updated cache-reuse tests,
+    and regenerated report manifest showing cache reuse on the fast path.
+  - Acceptance: report-only edits no longer invalidate the Phase 2 diagnostics
+    cache; true diagnostic input, setting, output-schema, or diagnostic-builder
+    changes still invalidate or refresh it explicitly; cached Big Sur report
+    iteration remains under `15s`.
+  - Plan: `tasks/66_fix_phase2_diagnostics_cache_invalidation.md`.
 - [ ] P2-12: Test transformed positive-canopy amount targets.
   - Goal: Test whether a small log/logit-style positive-canopy target
     transformation reduces high-canopy shrinkage before escalating to random
@@ -581,8 +594,9 @@ Phase 2 non-goals:
     performance, Big Sur-only performance, pooled performance, the P2-09 report
     synthesis, visual QA, component failure analysis, pooled context
     diagnostics, hex-map binary diagnostics, report simplification, explicit FP
-    subtype, crossed-context, patch-component, and FN margin diagnostics,
-    transformed-target diagnostics, and AEF embedding visual QA.
+    subtype, crossed-context, patch-component, FN margin diagnostics, fast
+    report-cache iteration, transformed-target diagnostics, and AEF embedding
+    visual QA.
 
 ## Closed Phase 1 TODO
 
