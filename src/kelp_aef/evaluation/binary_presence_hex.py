@@ -269,8 +269,7 @@ def binary_presence_hex_input(
         ),
         training_regime=require_string(
             entry.get("training_regime"),
-            f"training_regime_comparison.pooled_binary_hex_map.inputs.{context_id}."
-            "training_regime",
+            f"training_regime_comparison.pooled_binary_hex_map.inputs.{context_id}.training_regime",
         ),
         model_origin_region=require_string(
             entry.get("model_origin_region"),

@@ -263,9 +263,7 @@ def test_analyze_model_writes_phase2_report_sections(tmp_path: Path) -> None:
     assert "Pooled Data Distribution" not in report
     assert "Kelpwatch-style annual maximum reproduction" in report
     assert "Phase 1 Closeout Decision" not in report
-    assert report.index("Phase 2 Training-Regime Gate") < report.index(
-        "Compact Baseline Grounding"
-    )
+    assert report.index("Phase 2 Training-Regime Gate") < report.index("Compact Baseline Grounding")
     assert "<title>Big Sur Phase 2 Model Analysis</title>" in html_report
     assert set(binary_rows["evaluation_region"]) == {"big_sur", "monterey"}
     assert set(binary_rows["training_regime"]) == {
@@ -418,8 +416,7 @@ def test_analyze_model_writes_pooled_context_outputs(tmp_path: Path) -> None:
     assert "ridge panels show RMSE" in report
     assert "observed-positive rows in each bin" in report
     assert (
-        "| Model | Role | F1 >=10% | Precision | Recall | "
-        "Predicted positive | FP | FN |"
+        "| Model | Role | F1 >=10% | Precision | Recall | Predicted positive | FP | FN |"
     ) in report
     assert "| Binary model | Pooled calibrated support |" in report
     assert "| Train mean |" not in report

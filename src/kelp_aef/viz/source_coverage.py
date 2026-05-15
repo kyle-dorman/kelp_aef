@@ -226,8 +226,7 @@ def ensure_footprint(qa_config: SourceCoverageConfig) -> tuple[BaseGeometry, boo
     if not qa_config.footprint_path.exists():
         if qa_config.footprint_bbox is None:
             msg = (
-                f"region footprint is missing and no bbox is configured: "
-                f"{qa_config.footprint_path}"
+                f"region footprint is missing and no bbox is configured: {qa_config.footprint_path}"
             )
             raise FileNotFoundError(msg)
         write_bbox_footprint(qa_config)
@@ -916,17 +915,13 @@ def build_svg(viewport: SvgViewport, source_layers: list[SourceLayer]) -> str:
     rects = []
     for layer in source_layers:
         color = (
-            "#111827"
-            if layer.source == "footprint"
-            else SOURCE_COLORS.get(layer.source, "#64748b")
+            "#111827" if layer.source == "footprint" else SOURCE_COLORS.get(layer.source, "#64748b")
         )
         width = "2.8" if layer.source == "footprint" else "1.8"
         rects.append(svg_rect(viewport, layer, color=color, stroke_width=width))
     return (
         f'<svg viewBox="0 0 {viewport.width} {viewport.height}" '
-        'role="img" aria-label="Source coverage bounds">'
-        + "\n".join(rects)
-        + "</svg>"
+        'role="img" aria-label="Source coverage bounds">' + "\n".join(rects) + "</svg>"
     )
 
 

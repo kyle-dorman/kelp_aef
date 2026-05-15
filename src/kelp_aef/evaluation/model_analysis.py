@@ -691,6 +691,8 @@ PHASE2_BASELINE_GROUNDING_MODELS = (
     "grid_cell_climatology",
     "calibrated_probability_x_conditional_canopy",
 )
+
+
 @dataclass(frozen=True)
 class Phase2BinarySupportInput:
     """Configured binary-support input for one train/evaluate cell."""
@@ -5828,6 +5830,7 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
                 analysis_config.phase2_report.component_failure,
             )
 
+
 def write_csv(rows: list[dict[str, object]], output_path: Path, fields: tuple[str, ...]) -> None:
     """Write rows to CSV with a stable field order."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -6426,9 +6429,7 @@ def write_pooled_context_metric_breakdown_figure(
                 axis.legend(fontsize=7, loc="lower right")
             if column_index == 0:
                 axis.set_ylabel(phase2_context_type_label(context_type), fontsize=10)
-    fig.suptitle(
-        "Combined pooled context metrics across Monterey + Big Sur rows"
-    )
+    fig.suptitle("Combined pooled context metrics across Monterey + Big Sur rows")
     fig.savefig(output_path, dpi=180)
     plt.close(fig)
 
@@ -6541,9 +6542,7 @@ def pooled_context_count_lookup(
         value: {
             "context_value": value,
             "row_count": sum(row_int(row, "row_count") for row in rows),
-            "observed_positive_count": sum(
-                row_int(row, "observed_positive_count") for row in rows
-            ),
+            "observed_positive_count": sum(row_int(row, "observed_positive_count") for row in rows),
         }
         for value, rows in rows_by_value.items()
     }
@@ -6883,7 +6882,9 @@ def write_pooled_mean_max_binary_f1_figure(analysis_config: ModelAnalysisConfig)
                 f"{compact_count_label(row_int(row, 'row_count'))}"
             )
             text_color = "white" if np.isfinite(f1) and f1 > 0.55 else "black"
-            axis.text(x_index, y_index, label, ha="center", va="center", fontsize=7, color=text_color)
+            axis.text(
+                x_index, y_index, label, ha="center", va="center", fontsize=7, color=text_color
+            )
     axis.set_xticks(
         np.arange(len(max_bins)),
         [pooled_context_value_label("observed_annual_max_bin", value) for value in max_bins],
@@ -9351,7 +9352,9 @@ def phase2_combined_binary_support_row(
         "recall": recall,
         "f1": safe_ratio(2.0 * precision * recall, precision + recall),
         "false_positive_count": false_positive_count,
-        "false_positive_rate": safe_ratio(false_positive_count, false_positive_count + true_negative_count),
+        "false_positive_rate": safe_ratio(
+            false_positive_count, false_positive_count + true_negative_count
+        ),
         "false_negative_count": false_negative_count,
         "false_negative_rate": safe_ratio(false_negative_count, positive_count),
     }
@@ -9502,6 +9505,7 @@ def phase2_short_model_label(model_name: str) -> str:
     }
     return labels.get(model_name, model_name.replace("_", " "))
 
+
 def phase2_pooled_amount_hurdle_failures_markdown(tables: AnalysisTables) -> str:
     """Build one combined pooled amount-underprediction and hurdle-composition table."""
     if tables.pooled_context is None:
@@ -9635,6 +9639,7 @@ def phase2_pooled_context_diagnostics_markdown(
             ]
         )
     return "\n".join(lines)
+
 
 def phase2_pooled_remaining_failure_modes_markdown(
     tables: AnalysisTables,

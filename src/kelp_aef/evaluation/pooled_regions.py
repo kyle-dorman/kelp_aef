@@ -181,9 +181,7 @@ def pooled_region_input(
     return PooledRegionInput(
         name=region_name,
         config_path=(
-            resolve_config_path(config_value, config_path)
-            if config_value is not None
-            else None
+            resolve_config_path(config_value, config_path) if config_value is not None else None
         ),
         input_table_path=config_path_value(region, "input_table", config_path),
     )
@@ -234,9 +232,7 @@ def pooled_split_manifest(
     target_complete = pooled[pooled_config.target_column].notna()
     manifest["has_complete_features"] = feature_complete.to_numpy(dtype=bool)
     manifest["has_target"] = target_complete.to_numpy(dtype=bool)
-    manifest["used_for_training_eval"] = (
-        manifest["has_complete_features"] & manifest["has_target"]
-    )
+    manifest["used_for_training_eval"] = manifest["has_complete_features"] & manifest["has_target"]
     manifest["drop_reason"] = pooled_drop_reasons(manifest)
     return manifest
 

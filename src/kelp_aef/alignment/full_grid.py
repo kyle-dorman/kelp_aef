@@ -1707,8 +1707,7 @@ def write_full_grid_manifest(
             },
         },
         "aef_phase_diagnostics": {
-            str(year): payload
-            for year, payload in sorted(counters.aef_phase_diagnostics.items())
+            str(year): payload for year, payload in sorted(counters.aef_phase_diagnostics.items())
         },
         "stations_outside_selected_aef_coverage": {
             str(year): count
