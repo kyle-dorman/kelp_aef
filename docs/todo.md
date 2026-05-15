@@ -3,7 +3,7 @@
 ## Active Phase 2 Plan
 
 Status: Phase 2 selected on 2026-05-14. P2-01 through P2-13 and the P2-11a
-through P2-11c follow-up diagnostics have task plans; P2-14 closeout is still a
+through P2-11f follow-up diagnostics have task plans; P2-14 closeout is still a
 planning stub until its `tasks/` file is written.
 
 Phase 2 theme: test whether the closed Monterey Phase 1 annual-max policy
@@ -492,6 +492,18 @@ Phase 2 non-goals:
     `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png`,
     and
     `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_mean_max_binary_f1.png`.
+- [ ] P2-11f: Polish the pooled Phase 2 report and add attribution diagnostics.
+  - Goal: Keep the completed pooled report focused and readable while preserving
+    one data-distribution histogram and one compact baseline grounding view.
+  - Outputs: regenerated Phase 2 Markdown/HTML/PDF report, revised hex-map
+    color scheme, concise pooled-diagnostic interpretation, shortened artifact
+    index, and optional compact attribution tables from existing diagnostics.
+  - Acceptance: stale same-region prose/maps and broad `retained_depth_0_60m`
+    framing are removed; the separate visualizer owns map inspection; the report
+    still grounds the model against useful baselines; one-quarter spike,
+    persistence, fine-depth, prediction-distribution, and support-vs-amount
+    findings are interpreted from generated tables.
+  - Plan: `tasks/61_polish_pooled_phase2_report_and_attribution.md`.
 - [ ] P2-12: Test transformed positive-canopy amount targets.
   - Goal: Test whether a small log/logit-style positive-canopy target
     transformation reduces high-canopy shrinkage before escalating to random
