@@ -61,6 +61,15 @@ from kelp_aef.evaluation.component_failure import (
     load_component_failure_config,
     write_component_failure_outputs,
 )
+from kelp_aef.evaluation.pooled_context import (
+    PooledContextDiagnosticsConfig,
+    PooledContextDiagnosticsTables,
+    build_pooled_context_tables,
+    load_pooled_context_config,
+    pooled_context_report_markdown,
+    pooled_context_row_counts,
+    write_pooled_context_outputs,
+)
 from kelp_aef.labels.kelpwatch import NETCDF_ENGINE
 
 matplotlib.use("Agg")
@@ -664,6 +673,7 @@ class Phase2ReportConfig:
     training_regime_manifest_path: Path
     binary_support_primary_summary_path: Path
     binary_support_inputs: tuple[Phase2BinarySupportInput, ...]
+    pooled_context: PooledContextDiagnosticsConfig | None
     component_failure: ComponentFailureConfig | None
     primary_split: str
     primary_year: int
@@ -820,6 +830,7 @@ class AnalysisTables:
     reference_area_calibration: list[dict[str, object]]
     phase2_training_regime_primary: list[dict[str, object]]
     phase2_binary_support: list[dict[str, object]]
+    pooled_context: PooledContextDiagnosticsTables | None
     component_failure: ComponentFailureTables | None
 
 
@@ -1328,6 +1339,17 @@ def load_phase2_report_config(
         binary_support_inputs=tuple(
             phase2_binary_support_input(input_name, value, config_path)
             for input_name, value in sorted(binary_inputs.items(), key=lambda item: str(item[0]))
+        ),
+        pooled_context=load_pooled_context_config(
+            comparison,
+            outputs,
+            tables_dir,
+            config_path,
+            primary_split=primary_split,
+            primary_year=primary_year,
+            primary_mask_status=primary_mask_status,
+            primary_evaluation_scope=primary_evaluation_scope,
+            primary_label_source=primary_label_source,
         ),
         component_failure=load_component_failure_config(
             comparison,
@@ -1861,6 +1883,12 @@ def build_analysis_tables(
     quarter_mapping = build_quarter_mapping(analysis_config)
     phase2_training_regime_primary = read_phase2_training_regime_primary(analysis_config)
     phase2_binary_support = build_phase2_binary_support_summary(analysis_config)
+    pooled_context = (
+        build_pooled_context_tables(analysis_config.phase2_report.pooled_context)
+        if analysis_config.phase2_report is not None
+        and analysis_config.phase2_report.pooled_context is not None
+        else None
+    )
     component_failure = (
         build_component_failure_tables(analysis_config.phase2_report.component_failure)
         if analysis_config.phase2_report is not None
@@ -1895,6 +1923,7 @@ def build_analysis_tables(
         reference_area_calibration=reference_area_calibration,
         phase2_training_regime_primary=phase2_training_regime_primary,
         phase2_binary_support=phase2_binary_support,
+        pooled_context=pooled_context,
         component_failure=component_failure,
     )
 
@@ -5128,6 +5157,14 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
             PHASE2_BINARY_SUPPORT_FIELDS,
         )
         if (
+            analysis_config.phase2_report.pooled_context is not None
+            and tables.pooled_context is not None
+        ):
+            write_pooled_context_outputs(
+                tables.pooled_context,
+                analysis_config.phase2_report.pooled_context,
+            )
+        if (
             analysis_config.phase2_report.component_failure is not None
             and tables.component_failure is not None
         ):
@@ -5862,6 +5899,10 @@ def write_phase2_report(
         "### Binary Support Transfer",
         "",
         phase2_binary_support_markdown(tables, analysis_config),
+        "",
+        "### Pooled Phase 2 Context Diagnostics",
+        "",
+        phase2_pooled_context_markdown(tables, analysis_config),
         "",
         "### Deep Component-Failure Analysis",
         "",
@@ -7374,6 +7415,21 @@ def phase2_binary_support_markdown(
     return "\n".join(lines)
 
 
+def phase2_pooled_context_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the optional pooled-context diagnostics report section."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None or phase2_config.pooled_context is None:
+        return "Pooled context diagnostics are not configured for this report run."
+    if tables.pooled_context is None:
+        return "Pooled context diagnostics are configured, but no rows were produced."
+    return pooled_context_report_markdown(
+        tables.pooled_context,
+        phase2_config.pooled_context,
+    )
+
+
 def phase2_component_failure_markdown(
     tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> str:
@@ -7506,6 +7562,21 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
                         f"`{component.edge_effect_path}`"
                     ),
                     f"- Phase 2 component-failure manifest: `{component.manifest_path}`",
+                ]
+            )
+        if phase2_config.pooled_context is not None:
+            pooled = phase2_config.pooled_context
+            lines.extend(
+                [
+                    (
+                        "- Phase 2 pooled context model performance: "
+                        f"`{pooled.performance_path}`"
+                    ),
+                    (
+                        "- Phase 2 pooled prediction distributions: "
+                        f"`{pooled.prediction_distribution_path}`"
+                    ),
+                    f"- Phase 2 pooled context manifest: `{pooled.manifest_path}`",
                 ]
             )
     return "\n".join(line for line in lines if line)
@@ -9438,6 +9509,25 @@ def write_manifest(
     }
     if (
         analysis_config.phase2_report is not None
+        and analysis_config.phase2_report.pooled_context is not None
+    ):
+        pooled_config = analysis_config.phase2_report.pooled_context
+        cast(dict[str, object], payload["outputs"]).update(
+            {
+                "pooled_context_model_performance": str(pooled_config.performance_path),
+                "pooled_binary_context_diagnostics": str(pooled_config.binary_context_path),
+                "pooled_amount_context_diagnostics": str(pooled_config.amount_context_path),
+                "pooled_prediction_distribution_by_context": str(
+                    pooled_config.prediction_distribution_path
+                ),
+                "pooled_context_diagnostics_manifest": str(pooled_config.manifest_path),
+            }
+        )
+        cast(dict[str, object], payload["row_counts"]).update(
+            pooled_context_row_counts(tables.pooled_context)
+        )
+    if (
+        analysis_config.phase2_report is not None
         and analysis_config.phase2_report.component_failure is not None
     ):
         component_config = analysis_config.phase2_report.component_failure
@@ -9538,6 +9628,37 @@ def phase2_manifest_payload(analysis_config: ModelAnalysisConfig) -> dict[str, o
             "pdf_report": str(analysis_config.pdf_report_path),
         },
     }
+    if phase2_config.pooled_context is not None:
+        pooled = phase2_config.pooled_context
+        cast(dict[str, object], payload["inputs"])["pooled_context"] = [
+            {
+                "context_id": input_config.context_id,
+                "training_regime": input_config.training_regime,
+                "model_origin_region": input_config.model_origin_region,
+                "evaluation_region": input_config.evaluation_region,
+                "baseline_predictions": str(input_config.baseline_predictions_path),
+                "binary_predictions": str(input_config.binary_predictions_path),
+                "binary_calibration_model": str(input_config.binary_calibration_model_path),
+                "hurdle_predictions": str(input_config.hurdle_predictions_path),
+                "label_path": str(input_config.label_path)
+                if input_config.label_path is not None
+                else None,
+                "threshold_policy": input_config.threshold_policy,
+                "required": input_config.required,
+            }
+            for input_config in pooled.inputs
+        ]
+        cast(dict[str, object], payload["outputs"]).update(
+            {
+                "pooled_context_model_performance": str(pooled.performance_path),
+                "pooled_binary_context_diagnostics": str(pooled.binary_context_path),
+                "pooled_amount_context_diagnostics": str(pooled.amount_context_path),
+                "pooled_prediction_distribution_by_context": str(
+                    pooled.prediction_distribution_path
+                ),
+                "pooled_context_diagnostics_manifest": str(pooled.manifest_path),
+            }
+        )
     if phase2_config.component_failure is not None:
         component = phase2_config.component_failure
         cast(dict[str, object], payload["inputs"])["component_failure"] = [

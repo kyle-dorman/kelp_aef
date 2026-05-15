@@ -550,6 +550,40 @@ training_regime_comparison:
         model_origin_region: monterey_big_sur
         evaluation_region: monterey
         threshold_policy: validation_max_f1_calibrated
+  pooled_context:
+    performance: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_context_model_performance.csv
+    binary_context: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_binary_context_diagnostics.csv
+    amount_context: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_amount_context_diagnostics.csv
+    prediction_distribution: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_prediction_distribution_by_context.csv
+    manifest: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_pooled_context_diagnostics_manifest.json
+    tolerance_m2: 90.0
+    grid_cell_size_m: 30.0
+    observed_area_bins: [0, 1, 90, 225, 450, 810, 900]
+    inputs:
+      pooled_monterey_big_sur_on_big_sur:
+        baseline_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_baseline_full_grid_predictions.parquet
+        binary_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+        binary_calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/pooled_monterey_big_sur_logistic_annual_max_ge_10pct_calibration.big_sur_target.joblib
+        hurdle_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+        label_path: /Volumes/x10pro/kelp_aef/interim/big_sur_labels_annual.parquet
+        config_path: configs/big_sur_smoke.yaml
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        evaluation_region: big_sur
+        threshold_policy: validation_max_f1_calibrated
+        required: true
+      pooled_monterey_big_sur_on_monterey:
+        baseline_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_baseline_full_grid_predictions.parquet
+        binary_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+        binary_calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/pooled_monterey_big_sur_logistic_annual_max_ge_10pct_calibration.monterey_target.joblib
+        hurdle_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+        label_path: /Volumes/x10pro/kelp_aef/interim/labels_annual.parquet
+        config_path: configs/monterey_smoke.yaml
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        evaluation_region: monterey
+        threshold_policy: validation_max_f1_calibrated
+        required: true
   component_failure:
     summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_component_failure_summary.csv
     by_label_context: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_component_failure_by_label_context.csv

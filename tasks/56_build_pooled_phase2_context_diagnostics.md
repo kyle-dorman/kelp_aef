@@ -92,6 +92,35 @@ the PR/commit message that confirms:
 - how binary, ridge, and hurdle metrics are aligned into one comparison;
 - how prediction distributions are summarized without changing model policy.
 
+Implementation note:
+
+- Owner: the Big Sur Phase 2 `kelp-aef analyze-model --config
+  configs/big_sur_smoke.yaml` report pass owns these diagnostics, matching the
+  existing training-regime and component-failure report path.
+- Pooled prediction files loaded: the Big Sur and Monterey pooled baseline
+  full-grid prediction parquet datasets, pooled binary full-grid prediction
+  parquet datasets, and pooled expected-value hurdle full-grid prediction
+  parquet datasets listed in the Inputs section. The binary calibration payloads
+  already configured under `training_regime_comparison.binary_support` provide
+  the validation-selected calibrated threshold.
+- Context bins: observed annual max uses `[0, 1, 90, 225, 450, 810, 900]`
+  `m2` bins with zero isolated; temporal context uses assumed background plus
+  quarterly station classes when Kelpwatch quarterly labels are available;
+  fine depth uses derived `crm_depth_m_bin` values `(0, 10m]`, `(10, 20m]`,
+  `(20, 40m]`, `(40, 60m]`; elevation uses the existing `elevation_bin`.
+- Shared denominator: `amount_under_rate` and `composition_shrink_rate` both
+  divide by observed-positive rows where calibrated binary support is detected
+  for the pooled expected-value hurdle surface.
+- Metric alignment: context rows are anchored on the pooled expected-value
+  hurdle retained-domain rows, then joined to same-cell pooled ridge and
+  calibrated binary predictions by `year` and `aef_grid_cell_id`; output rows
+  carry `evaluation_region`, `training_regime`, `model_origin_region`, and
+  `model_surface`.
+- Prediction distributions: summarize observed/predicted quantiles, low-bin
+  mass, high-canopy compression, and clipping/saturation counts by context only;
+  no thresholds, labels, masks, samples, predictors, or model policy are tuned
+  from held-out rows.
+
 ## Required Analysis
 
 Use the three primary model surfaces:
@@ -194,6 +223,36 @@ empty bins, and binary/amount metric alignment.
   whether the problem points more directly at model capacity.
 - Held-out test rows are diagnostic only. No thresholds, sample quotas, masks,
   labels, features, or model policy are tuned from these diagnostics.
+
+## Outcome
+
+Completed in the Big Sur Phase 2 `analyze-model` report pass. The run wrote:
+
+- `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_context_model_performance.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_binary_context_diagnostics.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_amount_context_diagnostics.csv`
+- `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_prediction_distribution_by_context.csv`
+- `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_pooled_context_diagnostics_manifest.json`
+
+The generated tables contain `216` aligned performance rows, `72` binary
+context rows, `144` amount-context rows, and `144` prediction-distribution
+rows. The Phase 2 report and model-analysis manifest link the new outputs.
+
+Primary pooled retained-domain 2022 outcome:
+
+- Big Sur pooled binary support: F1 `0.854451`, recall `0.823895`.
+- Big Sur pooled expected-value hurdle: area bias `-20.1402%`,
+  amount-underprediction rate `58.5717%`, composition-shrink rate `11.9984%`
+  among detected observed positives.
+- Monterey pooled binary support: F1 `0.829966`, recall `0.763152`.
+- Monterey pooled expected-value hurdle: area bias `-22.1988%`,
+  amount-underprediction rate `53.7713%`, composition-shrink rate `9.2427%`
+  among detected observed positives.
+
+This keeps the top-level six-context comparison intact and gives follow-on
+report simplification enough evidence to focus on pooled binary support,
+ridge/hurdle amount behavior, high-canopy compression, and fine
+depth/elevation/temporal context without changing model policy.
 
 ## Known Constraints / Non-Goals
 

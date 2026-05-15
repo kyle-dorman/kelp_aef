@@ -311,6 +311,85 @@ def test_analyze_model_writes_component_failure_outputs(tmp_path: Path) -> None:
     assert sidecar_manifest["definitions"]["binary_target"] == "annual_max_ge_10pct"
 
 
+def test_analyze_model_writes_pooled_context_outputs(tmp_path: Path) -> None:
+    """Verify Phase 2 pooled diagnostics align binary, ridge, and hurdle rows."""
+    fixture = write_model_analysis_fixture(
+        tmp_path,
+        include_domain_mask=True,
+        include_training_mask_columns=True,
+        include_reference_area_calibration=True,
+    )
+    phase2_primary = tmp_path / "reports/tables/phase2_training_regime_primary.csv"
+    phase2_model_comparison = tmp_path / "reports/tables/phase2_training_regime_all.csv"
+    phase2_manifest = tmp_path / "interim/phase2_training_regime_manifest.json"
+    binary_summary = tmp_path / "reports/tables/phase2_binary_support.csv"
+    binary_predictions = tmp_path / "processed/phase2_binary_predictions.parquet"
+    calibration_model = tmp_path / "models/phase2_binary_calibration.joblib"
+    pooled_baseline = tmp_path / "processed/pooled_baseline_predictions.parquet"
+    pooled_binary = tmp_path / "processed/pooled_binary_predictions.parquet"
+    pooled_hurdle = tmp_path / "processed/pooled_hurdle_predictions.parquet"
+    write_phase2_training_regime_rows(phase2_primary)
+    write_phase2_training_regime_rows(phase2_model_comparison)
+    phase2_manifest.parent.mkdir(parents=True, exist_ok=True)
+    phase2_manifest.write_text(json.dumps({"command": "compare-training-regimes"}))
+    write_phase2_binary_predictions(binary_predictions)
+    write_phase2_calibration_payload(calibration_model)
+    write_pooled_context_baseline_predictions(pooled_baseline)
+    write_pooled_context_binary_predictions(pooled_binary)
+    write_component_failure_hurdle_predictions(pooled_hurdle)
+    append_phase2_config(
+        fixture["config_path"],
+        phase2_primary=phase2_primary,
+        phase2_model_comparison=phase2_model_comparison,
+        phase2_manifest=phase2_manifest,
+        binary_summary=binary_summary,
+        binary_predictions=binary_predictions,
+        calibration_model=calibration_model,
+    )
+    append_pooled_context_config(
+        fixture["config_path"],
+        paths=fixture,
+        baseline_predictions=pooled_baseline,
+        binary_predictions=pooled_binary,
+        calibration_model=calibration_model,
+        hurdle_predictions=pooled_hurdle,
+        label_path=tmp_path / "interim/labels_annual.parquet",
+    )
+
+    assert main(["analyze-model", "--config", str(fixture["config_path"])]) == 0
+
+    report = fixture["report"].read_text()
+    performance = pd.read_csv(fixture["pooled_context_performance"])
+    binary = pd.read_csv(fixture["pooled_binary_context"])
+    amount = pd.read_csv(fixture["pooled_amount_context"])
+    distribution = pd.read_csv(fixture["pooled_prediction_distribution"])
+    manifest = json.loads(fixture["manifest"].read_text())
+    sidecar_manifest = json.loads(fixture["pooled_context_manifest"].read_text())
+    assert "Pooled Phase 2 Context Diagnostics" in report
+    assert {"binary", "ridge", "hurdle_expected_value"} <= set(performance["model_surface"])
+    assert {"observed_annual_max_bin", "crm_depth_m_bin", "component_failure_class"} <= set(
+        amount["context_type"]
+    )
+    overall_hurdle = amount.query(
+        "context_type == 'overall' and model_surface == 'hurdle_expected_value'"
+    ).iloc[0]
+    assert int(overall_hurdle["amount_rate_denominator_count"]) == 1
+    assert float(overall_hurdle["amount_under_rate"]) == 1.0
+    assert float(overall_hurdle["composition_shrink_rate"]) == 1.0
+    overall_binary = binary.query("context_type == 'overall'").iloc[0]
+    assert int(overall_binary["false_positive_count"]) == 1
+    assert int(overall_binary["false_negative_count"]) == 1
+    assert "observed_ge_450m2_prediction_p95" in distribution.columns
+    assert (
+        manifest["phase2"]["outputs"]["pooled_context_model_performance"]
+        == str(fixture["pooled_context_performance"])
+    )
+    assert (
+        sidecar_manifest["definitions"]["amount_rate_denominator"]
+        == "observed-positive rows where calibrated binary support is detected"
+    )
+
+
 def test_component_spatial_context_classifies_edges_and_distances() -> None:
     """Verify retained-grid neighborhoods classify interiors, edges, and exterior rings."""
     rows = []
@@ -983,6 +1062,103 @@ def append_component_failure_config(
         )
 
 
+def append_pooled_context_config(
+    config_path: Path,
+    *,
+    paths: dict[str, Path],
+    baseline_predictions: Path,
+    binary_predictions: Path,
+    calibration_model: Path,
+    hurdle_predictions: Path,
+    label_path: Path,
+) -> None:
+    """Append a pooled-context diagnostic block to a synthetic config."""
+    with config_path.open("a") as file:
+        file.write(
+            f"""
+  pooled_context:
+    performance: {paths["pooled_context_performance"]}
+    binary_context: {paths["pooled_binary_context"]}
+    amount_context: {paths["pooled_amount_context"]}
+    prediction_distribution: {paths["pooled_prediction_distribution"]}
+    manifest: {paths["pooled_context_manifest"]}
+    tolerance_m2: 90.0
+    grid_cell_size_m: 30.0
+    inputs:
+      pooled_fixture_context:
+        baseline_predictions: {baseline_predictions}
+        binary_predictions: {binary_predictions}
+        binary_calibration_model: {calibration_model}
+        hurdle_predictions: {hurdle_predictions}
+        label_path: {label_path}
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        evaluation_region: big_sur
+        threshold_policy: validation_max_f1_calibrated
+        required: true
+"""
+        )
+
+
+def write_pooled_context_baseline_predictions(path: Path) -> None:
+    """Write tiny ridge predictions matching the pooled hurdle fixture cells."""
+    rows = [
+        pooled_context_baseline_row(cell_id=1, observed_area=900.0, predicted_area=500.0),
+        pooled_context_baseline_row(cell_id=2, observed_area=450.0, predicted_area=100.0),
+        pooled_context_baseline_row(cell_id=3, observed_area=0.0, predicted_area=300.0),
+        pooled_context_baseline_row(cell_id=4, observed_area=0.0, predicted_area=30.0),
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_parquet(path, index=False)
+
+
+def pooled_context_baseline_row(
+    *,
+    cell_id: int,
+    observed_area: float,
+    predicted_area: float,
+) -> dict[str, object]:
+    """Build one tiny pooled ridge prediction row."""
+    return {
+        "year": 2022,
+        "split": "test",
+        "aef_grid_cell_id": cell_id,
+        "model_name": "ridge_regression",
+        "kelp_max_y": observed_area,
+        "pred_kelp_max_y": predicted_area,
+        "pred_kelp_fraction_y_clipped": predicted_area / 900.0,
+    }
+
+
+def write_pooled_context_binary_predictions(path: Path) -> None:
+    """Write tiny binary predictions matching the pooled hurdle fixture cells."""
+    rows = [
+        pooled_context_binary_row(cell_id=1, observed=True, probability=0.80),
+        pooled_context_binary_row(cell_id=2, observed=True, probability=0.20),
+        pooled_context_binary_row(cell_id=3, observed=False, probability=0.90),
+        pooled_context_binary_row(cell_id=4, observed=False, probability=0.10),
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_parquet(path, index=False)
+
+
+def pooled_context_binary_row(
+    *,
+    cell_id: int,
+    observed: bool,
+    probability: float,
+) -> dict[str, object]:
+    """Build one tiny pooled binary prediction row."""
+    return {
+        "year": 2022,
+        "split": "test",
+        "aef_grid_cell_id": cell_id,
+        "binary_observed_y": observed,
+        "pred_binary_probability": probability,
+        "target_label": "annual_max_ge_10pct",
+    }
+
+
 def write_component_failure_hurdle_predictions(path: Path) -> None:
     """Write small expected-value hurdle rows for component-failure tests."""
     rows = []
@@ -1267,6 +1443,16 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/tables/monterey_big_sur_temporal_label_context.csv",
         "component_failure_manifest": tmp_path
         / "interim/monterey_big_sur_component_failure_manifest.json",
+        "pooled_context_performance": tmp_path
+        / "reports/tables/monterey_big_sur_pooled_context_model_performance.csv",
+        "pooled_binary_context": tmp_path
+        / "reports/tables/monterey_big_sur_pooled_binary_context_diagnostics.csv",
+        "pooled_amount_context": tmp_path
+        / "reports/tables/monterey_big_sur_pooled_amount_context_diagnostics.csv",
+        "pooled_prediction_distribution": tmp_path
+        / "reports/tables/monterey_big_sur_pooled_prediction_distribution_by_context.csv",
+        "pooled_context_manifest": tmp_path
+        / "interim/monterey_big_sur_pooled_context_diagnostics_manifest.json",
     }
 
 

@@ -356,7 +356,7 @@ Phase 2 non-goals:
     observed positives. Active errors concentrate in retained `0_40m` depth
     contexts, while retained `40_60m` rows contribute essentially no binary
     FP/FN events in the primary contexts.
-- [ ] P2-11a: Build pooled cross-model context diagnostics.
+- [x] P2-11a: Build pooled cross-model context diagnostics.
   - Goal: Make the report's deeper diagnostics focus on pooled Monterey+Big
     Sur evaluation, comparing calibrated binary support, AEF ridge amount, and
     expected-value hurdle behavior across observed canopy, temporal
@@ -367,6 +367,24 @@ Phase 2 non-goals:
     the same binary, ridge, and hurdle context bins, with amount-underprediction
     and composition-shrinkage rates using the same denominator.
   - Plan: `tasks/56_build_pooled_phase2_context_diagnostics.md`.
+  - Completed: added pooled-context diagnostics to the Big Sur Phase 2
+    `analyze-model` report pass and configured pooled-on-Big-Sur plus
+    pooled-on-Monterey baseline, binary, calibration, hurdle, and label inputs.
+    The regenerated report links
+    `monterey_big_sur_pooled_context_model_performance.csv`,
+    `monterey_big_sur_pooled_binary_context_diagnostics.csv`,
+    `monterey_big_sur_pooled_amount_context_diagnostics.csv`,
+    `monterey_big_sur_pooled_prediction_distribution_by_context.csv`, and
+    `monterey_big_sur_pooled_context_diagnostics_manifest.json`. The tables
+    contain `216` aligned performance rows, `72` binary context rows, `144`
+    amount context rows, and `144` prediction-distribution rows. Primary pooled
+    retained-domain 2022 results: Big Sur binary F1 `0.854451`, recall
+    `0.823895`, expected-value hurdle area bias `-20.1402%`,
+    amount-underprediction `58.5717%`, and composition shrink `11.9984%` among
+    detected observed positives; Monterey binary F1 `0.829966`, recall
+    `0.763152`, expected-value hurdle area bias `-22.1988%`,
+    amount-underprediction `53.7713%`, and composition shrink `9.2427%` on the
+    same denominator.
 - [ ] P2-11b: Replace the binary-presence diagnostic map with 1 km hex
       summaries.
   - Goal: Make pooled binary support errors spatially readable by aggregating
