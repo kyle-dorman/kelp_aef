@@ -492,18 +492,64 @@ Phase 2 non-goals:
     `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png`,
     and
     `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_mean_max_binary_f1.png`.
-- [ ] P2-11f: Polish the pooled Phase 2 report and add attribution diagnostics.
+- [x] P2-11f: Polish the pooled Phase 2 report.
   - Goal: Keep the completed pooled report focused and readable while preserving
-    one data-distribution histogram and one compact baseline grounding view.
-  - Outputs: regenerated Phase 2 Markdown/HTML/PDF report, revised hex-map
-    color scheme, concise pooled-diagnostic interpretation, shortened artifact
-    index, and optional compact attribution tables from existing diagnostics.
+    a compact baseline grounding chart plus combined binary and continuous
+    grounding tables.
+  - Outputs: regenerated Phase 2 Markdown/HTML/PDF report, concise
+    pooled-diagnostic interpretation, shortened artifact index, and compact
+    baseline grounding figure.
   - Acceptance: stale same-region prose/maps and broad `retained_depth_0_60m`
     framing are removed; the separate visualizer owns map inspection; the report
-    still grounds the model against useful baselines; one-quarter spike,
-    persistence, fine-depth, prediction-distribution, and support-vs-amount
-    findings are interpreted from generated tables.
+    still grounds the model against useful baselines; support-vs-amount and
+    pooled context findings are interpreted from generated tables.
   - Plan: `tasks/61_polish_pooled_phase2_report_and_attribution.md`.
+  - Completed: rewrote the Phase 2 report into a compact pooled diagnostic
+    decision artifact with a top training-regime gate, compact baseline
+    grounding chart plus combined binary and continuous tables; FP/FN counts now
+    live in the binary grounding table instead of a repeated pooled-binary
+    section. Removed stale same-region report sections, pooled binary support
+    repeat, attribution diagnostics, pooled data distribution, remaining-failure
+    prose, embedded residual maps, and the active 1 km hex-map report config;
+    regenerated the Markdown/HTML/PDF report and manifest without the hex map.
+- [ ] P2-11g: Split false positives into true-zero and low-canopy cases.
+  - Goal: Stop treating every binary FP as the same failure. Separate true-zero
+    FPs from observed low-canopy-below-threshold FPs, because `annual_max_ge_10pct`
+    means `kelp_max_y >= 90 m2`, not necessarily nonzero canopy.
+  - Outputs: report-visible FP subtype table and regenerated Phase 2 report.
+  - Acceptance: pooled Big Sur and pooled Monterey FPs are split into true-zero
+    support leakage versus `(0, 90 m2)` low-canopy/threshold cases, with shares
+    stated in the report and threshold semantics made explicit.
+  - Plan: `tasks/62_split_fp_true_zero_low_canopy.md`.
+- [ ] P2-11h: Add crossed context diagnostics for pooled failures.
+  - Goal: Move beyond one-way bins by crossing the contexts most likely to
+    explain conditional failures.
+  - Outputs: crossed diagnostic tables for observed canopy x persistence,
+    observed canopy x edge class, CRM depth x observed canopy, and observed
+    canopy x fine CRM depth, plus regenerated Phase 2 report text.
+  - Acceptance: the report identifies whether high annual max plus
+    intermittent/persistent context, edge status, or shallow depth concentrates
+    binary misses, amount-underprediction, or hurdle residuals.
+  - Plan: `tasks/63_crossed_context_diagnostics.md`.
+- [ ] P2-11i: Add patch-level component evaluation.
+  - Goal: Distinguish whole observed-patch misses from boundary shifts, and
+    classify predicted patches by whether they overlap observed positives,
+    low-canopy-below-threshold cells, or true-zero cells.
+  - Outputs: observed-patch detection table, predicted-patch overlap table,
+    patch-component summary table, and regenerated Phase 2 report text.
+  - Acceptance: component-level recall is reported by patch count and observed
+    canopy area, and the report states whether misses are mostly whole-patch
+    misses or boundary shifts.
+  - Plan: `tasks/64_patch_component_level_evaluation.md`.
+- [ ] P2-11j: Add FN probability-margin diagnostics.
+  - Goal: Determine whether false negatives by persistence and previous-year
+    class sit just below the calibrated threshold or far below it.
+  - Outputs: FN margin tables by persistence and previous-year class, summary
+    table, manifest entries, and regenerated Phase 2 report text.
+  - Acceptance: new-positive and one-quarter spike cases are explicitly visible
+    where available, and the report states whether FNs look like a
+    calibration/threshold tradeoff or low-confidence feature/label ambiguity.
+  - Plan: `tasks/65_fn_probability_margin_diagnostics.md`.
 - [ ] P2-12: Test transformed positive-canopy amount targets.
   - Goal: Test whether a small log/logit-style positive-canopy target
     transformation reduces high-canopy shrinkage before escalating to random
@@ -532,7 +578,8 @@ Phase 2 non-goals:
   - Acceptance: the decision is grounded in Big Sur source coverage, transfer
     performance, Big Sur-only performance, pooled performance, the P2-09 report
     synthesis, visual QA, component failure analysis, pooled context
-    diagnostics, hex-map binary diagnostics, report simplification,
+    diagnostics, hex-map binary diagnostics, report simplification, explicit FP
+    subtype, crossed-context, patch-component, and FN margin diagnostics,
     transformed-target diagnostics, and AEF embedding visual QA.
 
 ## Closed Phase 1 TODO
