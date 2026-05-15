@@ -2,9 +2,8 @@
 
 ## Active Phase 2 Plan
 
-Status: Phase 2 selected on 2026-05-14. P2-01 through P2-10 have task plans;
-later checklist items are still planning stubs until their `tasks/` files are
-written.
+Status: Phase 2 selected on 2026-05-14. P2-01 through P2-13 have task plans;
+P2-14 closeout is still a planning stub until its `tasks/` file is written.
 
 Phase 2 theme: test whether the closed Monterey Phase 1 annual-max policy
 generalizes to neighboring Big Sur before choosing a broader Phase 3 direction.
@@ -39,6 +38,13 @@ Phase 2 should:
 - compare Big Sur against Monterey on AEF ridge, previous-year persistence,
   expected-value hurdle, and hard-gated diagnostic policy;
 - generate a Big Sur results visualizer;
+- run deeper model-component failure analysis before closeout, including
+  binary support, conditional amount, hurdle composition, label-derived context,
+  bathymetry/domain context, and spatial edge/interior context;
+- test a small transformed-target positive-canopy diagnostic before deciding
+  that simple non-linear tabular models are needed;
+- build an AEF embedding visualizer so feature-space structure can be compared
+  against labels, residuals, and failure classes;
 - reserve space for report and visualizer changes, including region/year
   selection if that becomes the cleanest review path;
 - close with a Phase 3 recommendation: broader scale-up, simple non-linear
@@ -53,6 +59,9 @@ Phase 2 non-goals:
   held-out Big Sur test rows. Validation-driven Big Sur-only and pooled
   training comparisons are in scope.
 - Do not add bathymetry/DEM as predictors without a later decision.
+- Do not promote AEF embedding visualizations, t-SNE/UMAP coordinates, or
+  held-out visual QA observations into model predictors or tuned policy choices
+  inside Phase 2.
 - Do not write implementation code in task-plan-only passes.
 
 ## Phase 2 Checklist
@@ -308,7 +317,36 @@ Phase 2 non-goals:
     as the aggregate manifest. Context labels are carried into each HTML file,
     manifest, and inspection CSV; pooled Monterey and Big Sur evaluation rows
     remain separated rather than forming one unlabeled point cloud.
-- [ ] P2-11: Close Phase 2 and recommend Phase 3.
+- [ ] P2-11: Deep model-component failure analysis.
+  - Goal: Break down binary support, conditional canopy amount, expected-value
+    hurdle, and hard-gated hurdle failures by label-derived context,
+    bathymetry/domain context, and spatial edge/interior context.
+  - Outputs: component failure tables and report sections for Big Sur local,
+    Monterey local, pooled-on-Big-Sur, and pooled-on-Monterey contexts.
+  - Acceptance: the report can say whether failures are mostly support misses,
+    support leakage, amount shrinkage, edge effects, depth/domain effects,
+    temporal-label effects, or model/regime-specific effects.
+  - Plan: `tasks/53_deep_model_component_failure_analysis.md`.
+- [ ] P2-12: Test transformed positive-canopy amount targets.
+  - Goal: Test whether a small log/logit-style positive-canopy target
+    transformation reduces high-canopy shrinkage before escalating to random
+    forest or gradient boosting.
+  - Outputs: sidecar transformed conditional-canopy model artifacts, hurdle
+    composition comparisons, and report-visible bin diagnostics.
+  - Acceptance: transformed-target results are compared against the current raw
+    positive-only ridge on validation and held-out rows without overwriting the
+    current default models.
+  - Plan: `tasks/54_test_transformed_positive_canopy_targets.md`.
+- [ ] P2-13: Build an AEF embedding visualizer.
+  - Goal: Make AEF feature-space structure visually inspectable against
+    labels, residuals, binary outcomes, region, year, and domain context.
+  - Outputs: feature-derived RGB maps or interactive layers, dimensionality
+    reduction tables/manifests, and labeled overlays for Monterey and Big Sur.
+  - Acceptance: reviewers can inspect whether FP/FN edge pixels and
+    high-canopy residuals occupy distinct or ambiguous AEF embedding
+    neighborhoods without using the visualization as a tuned predictor.
+  - Plan: `tasks/55_build_aef_embedding_visualizer.md`.
+- [ ] P2-14: Close Phase 2 and recommend Phase 3.
   - Goal: Decide whether Phase 3 should broaden geography, test simple
     non-linear tabular models such as random forest or gradient boosting,
     explore deferred temporal labels, harden ingestion/domain coverage, or
@@ -316,7 +354,8 @@ Phase 2 non-goals:
   - Outputs: Phase 2 closeout decision note and updated docs.
   - Acceptance: the decision is grounded in Big Sur source coverage, transfer
     performance, Big Sur-only performance, pooled performance, the P2-09 report
-    synthesis, and visual QA.
+    synthesis, visual QA, component failure analysis, transformed-target
+    diagnostics, and AEF embedding visual QA.
 
 ## Closed Phase 1 TODO
 

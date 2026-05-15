@@ -1,7 +1,8 @@
 # Phase 2 Big Sur Generalization
 
-Status: selected on 2026-05-14; planning only. P2-01 has a numbered task plan;
-later implementation task plans are still pending.
+Status: selected on 2026-05-14. P2-01 through P2-13 have numbered task
+plans. Phase 2 closeout is deferred until the deeper component, transformed
+target, and AEF embedding diagnostics are complete.
 
 ## Goal
 
@@ -61,6 +62,15 @@ In scope:
   evaluation.
 - Generate Big Sur model-analysis outputs and compare them against Monterey.
 - Generate a Big Sur interactive visualizer output.
+- Run deeper model-component failure analysis before closeout, including
+  binary support, calibrated probability, conditional amount, hurdle
+  composition, label-derived context, bathymetry/domain context, and spatial
+  edge/interior context.
+- Test a small transformed-target positive-canopy diagnostic before deciding
+  that simple non-linear tabular models are necessary.
+- Build an AEF embedding visualizer so feature-space structure can be compared
+  against labels, residuals, binary outcomes, domain context, region, year, and
+  edge/interior classes.
 - Leave room for visualizer changes such as region and year selection.
 - Leave room for report changes needed to show multi-region comparisons
   clearly.
@@ -72,6 +82,8 @@ Out of scope:
   winter-only, or multi-season persistence.
 - Deep spatial models or 10 m label experiments.
 - Adding CRM bathymetry, elevation, depth bins, or mask reasons as predictors.
+- Promoting AEF embedding projections, t-SNE/UMAP coordinates, or visual QA
+  observations into model predictors or tuned policy variables.
 - Choosing final thresholds, quotas, or model policy by tuning on held-out Big
   Sur test rows.
 - Treating Kelpwatch-style reproduction as independent field-truth biomass
@@ -101,7 +113,15 @@ The expected sequence is:
 8. Generate the Big Sur results visualizer and decide whether the visualizer
    should support selecting region and year in one interface or should write
    separate region-specific viewers for now.
-9. Close Phase 2 with a short decision note that recommends a Phase 3 path.
+9. Run deep component failure analysis across local and pooled Monterey/Big Sur
+   contexts. Break failures down by model component, label context,
+   bathymetry/domain context, and spatial edge/interior context.
+10. Test transformed positive-canopy amount targets, such as log-transformed
+    positive canopy area, as sidecar diagnostics against the current raw
+    positive-only ridge.
+11. Build an AEF embedding visualizer using deterministic feature-only RGB
+    projection plus optional sampled t-SNE/UMAP diagnostics.
+12. Close Phase 2 with a short decision note that recommends a Phase 3 path.
 
 ## Evaluation Questions
 
@@ -136,6 +156,18 @@ The report should answer:
   or does a new failure mode appear?
 - Does the visualizer make those failures inspectable without manual table
   digging?
+- Are binary-support errors, conditional-amount errors, and hurdle-composition
+  errors separable, or are they concentrated in the same pixels?
+- Are false positives and false negatives mostly kelp-mat edge pixels, positive
+  interiors, adjacent exterior pixels, or far-background pixels?
+- Are failures concentrated by observed annual-max bin, previous-year
+  persistence, annual mean/max seasonality diagnostics, label source, depth,
+  domain-mask reason, or region/training regime?
+- Does a transformed positive-canopy target reduce high-canopy shrinkage
+  without increasing low-canopy overprediction or background leakage?
+- Do AEF embedding projections show distinct feature neighborhoods for
+  observed kelp, edge FP/FN pixels, high-canopy underpredictions, and
+  region-specific failure clusters?
 
 ## Visualizer And Report Allowance
 
@@ -169,6 +201,16 @@ Phase 2 should close by choosing one Phase 3 direction:
   experiments such as annual mean, fall-only, winter-only, or persistence
   targets. A small model-capacity pass is reasonable before deep spatial models
   if the failure looks like underfit rather than target mismatch.
+- If FP/FN errors are mostly edge-adjacent and AEF embeddings look blurred
+  around mat boundaries, Phase 3 should prioritize evaluation tooling,
+  edge-aware diagnostics, and temporal/label-support interpretation before
+  assuming that a more complex model is the right next move.
+- If annual-max misses concentrate in one-quarter spike cells or low-persistence
+  labels, Phase 3 should prioritize deferred temporal-label experiments before
+  broader scale-up.
+- If transformed positive-canopy targets materially reduce high-canopy
+  shrinkage without new leakage, Phase 3 can compare that simpler target-scale
+  change against non-linear tabular models before escalating model complexity.
 - If Big Sur fails because domain-source coverage, mask retention, or
   source-alignment assumptions break, Phase 3 should harden ingestion and
   domain-source coverage before more modeling.
@@ -192,6 +234,12 @@ Phase 2 is ready to close when:
   comparison context.
 - The Big Sur visualizer exists, or a multi-region visualizer clearly supports
   Big Sur selection.
+- The model-component failure analysis separates support misses, support
+  leakage, amount shrinkage, hurdle composition, edge/interior behavior,
+  label-derived context, and bathymetry/domain context.
+- The transformed positive-canopy diagnostic has been run or explicitly ruled
+  out as unnecessary before recommending non-linear tabular models.
+- The AEF embedding visualizer exists or its blocker is documented.
 - The closeout decision states whether Phase 3 should be scale-up,
   non-linear tabular modeling, temporal-label exploration, ingestion/domain
   hardening, or evaluation tooling.
