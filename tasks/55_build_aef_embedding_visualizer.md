@@ -29,6 +29,10 @@ policy from held-out rows.
   - retained full-grid inference tables;
   - retained model-input samples;
   - AEF annual embedding bands `A00-A63`.
+- Source-resolution AEF assets for the same selected regions and years:
+  - existing downloaded 10 m AEF rasters or VRTs from the configured tile
+    manifests;
+  - no new AEF downloads.
 - Label and context columns:
   - `kelp_fraction_y`;
   - `kelp_max_y`;
@@ -65,8 +69,9 @@ Exact names can vary, but expected outputs are:
   - `/Volumes/x10pro/kelp_aef/reports/tables/aef_embedding_projection_sample.csv`
   - `/Volumes/x10pro/kelp_aef/interim/aef_embedding_visualizer_manifest.json`
 - Feature-derived RGB outputs for Monterey and Big Sur:
-  - PCA RGB table or raster/PNG for 2022 retained-domain cells;
-  - optional t-SNE or UMAP RGB sample table for review points;
+  - 30 m PCA RGB table or raster/PNG for 2022 retained-domain cells;
+  - 10 m PCA RGB raster/PNG or tile/sample export for source AEF pixels;
+  - optional t-SNE or UMAP sample table for review points;
   - per-year RGB outputs if temporal feature drift is easy to compare.
 - Interactive HTML visualizer or result-viewer extension:
   - `/Volumes/x10pro/kelp_aef/reports/interactive/aef_embedding_visualizer.html`
@@ -96,9 +101,13 @@ the PR/commit message that confirms:
 - whether the tool is a new command or an extension of `visualize-results`;
 - which dimensionality reductions are used for full-grid RGB and which are used
   only for sampled points;
+- how 10 m source AEF pixels and 30 m aggregated rows are rendered together or
+  compared without treating 10 m cells as independent Kelpwatch truth;
 - how RGB values are normalized consistently across Monterey and Big Sur;
-- whether labels are used only as overlays or also for a supervised diagnostic
-  projection;
+- whether labels are used only as overlays or also for supervised diagnostic
+  channel ranking;
+- how supervised channel ranking is fit on training rows only and held out from
+  2022 test-row tuning;
 - sample caps for t-SNE/UMAP or other expensive reductions;
 - how stochastic projections are seeded and recorded;
 - how the visualizer avoids treating projected coordinates as model predictors
@@ -112,12 +121,42 @@ Start with deterministic feature-only projections:
 - Use the first three PCA components as RGB after robust percentile scaling.
 - Apply the same PCA/RGB mapping to Monterey and Big Sur so color differences
   are comparable across regions.
+- Apply the same scaler/PCA/RGB mapping to both 30 m aggregated AEF rows and
+  10 m source AEF pixels.
+- Where feasible, aggregate 10 m PCA component values back to the 30 m grid as a
+  consistency check against PCA applied directly to 30 m mean embeddings.
 - Record explained variance and feature scaling metadata.
-- Produce 2022 retained-domain RGB maps for both regions.
+- Produce 2022 retained-domain 30 m RGB maps and matching 10 m source-resolution
+  RGB views for both regions.
+
+Add supervised diagnostic projection modes, without making them model policy:
+
+- Fit channel-importance diagnostics on training rows only, using existing or
+  simple classifiers/regressors against:
+  - binary presence such as `annual_max_ge_10pct`;
+  - continuous annual max or conditional positive canopy;
+  - residual or failure classes only when they can be derived without held-out
+    visual tuning.
+- Keep the first implementation lightweight. A simple training-only importance
+  ranking is enough for the initial diagnostic, as long as its limitations are
+  recorded.
+- Build and expose four projection modes:
+  - all-channel PCA over `A00-A63`;
+  - classifier-weighted PCA, where training-only importance weights scale AEF
+    channels before PCA;
+  - top-k classifier-channel PCA, where the selected `k` and channel list are
+    recorded in the manifest;
+  - optional sampled UMAP or t-SNE diagnostic.
+- Apply the same selected channels, channel weights, scaler, and PCA mapping to
+  Monterey, Big Sur, 30 m aggregated rows, and 10 m source AEF pixels.
+- Record importance method, target, split policy, selected channels, weights,
+  and random seeds in the manifest.
 
 Add a non-linear sampled projection if feasible:
 
 - Use t-SNE or UMAP on a capped, documented sample of retained-domain cells.
+- Prefer UMAP over t-SNE when an out-of-sample transform is needed for a sampled
+  10 m/30 m comparison.
 - Include labels, residuals, binary outcomes, region, year, depth/domain, and
   edge/interior classes as point metadata.
 - Keep the non-linear projection as a sample diagnostic. Do not imply it is a
@@ -156,7 +195,9 @@ Analyze these questions explicitly:
 The visualizer should support practical QA actions:
 
 - switch region and year;
-- switch projection mode such as PCA RGB versus sampled t-SNE/UMAP;
+- switch resolution between 30 m aggregated rows and 10 m source AEF pixels;
+- switch projection mode among all-channel PCA, classifier-weighted PCA,
+  top-k classifier-channel PCA, and sampled UMAP/t-SNE;
 - overlay observed labels, binary outcomes, residuals, depth/domain context,
   and edge/interior classes;
 - click a point or cell to inspect AEF projection values, label values, model
@@ -174,8 +215,9 @@ git diff --check
 ```
 
 If a new command is added, include focused tests for config parsing, projection
-metadata, RGB scaling, sample caps, and generated HTML controls. Run the new
-command against `configs/big_sur_smoke.yaml`.
+metadata, RGB scaling, 10 m/30 m mode handling, training-only importance
+selection, sample caps, and generated HTML controls. Run the new command
+against `configs/big_sur_smoke.yaml`.
 
 If raster or PNG outputs are produced, inspect dimensions and verify nonblank
 pixel values with a lightweight image check.
@@ -187,13 +229,20 @@ pixel values with a lightweight image check.
   temporal feature drift is cheap to render.
 - Evaluation scope: retained plausible-kelp-domain full grid.
 - Features: AEF annual embedding bands `A00-A63`.
+- Resolutions: 30 m aggregated model rows and existing 10 m source AEF pixels.
 - Labels: Kelpwatch-style annual max canopy.
 
 ## Acceptance Criteria
 
 - Monterey and Big Sur AEF embeddings can be inspected with a shared projection
   or explicitly documented region-specific projection.
+- Reviewers can switch between 30 m aggregated views and 10 m source-resolution
+  AEF views.
+- Reviewers can switch among all-channel PCA, classifier-weighted PCA, top-k
+  classifier-channel PCA, and optional sampled UMAP/t-SNE modes.
 - The RGB mapping and projection parameters are recorded in a manifest.
+- Supervised channel weights or selections are fit from training rows only and
+  are recorded as diagnostics, not model-selection decisions.
 - Reviewers can compare AEF feature colors/projection neighborhoods against
   observed labels, binary outcomes, residuals, depth/domain context, and
   edge/interior classes.
@@ -209,8 +258,18 @@ pixel values with a lightweight image check.
 - Do not train or select a predictive model from PCA, t-SNE, UMAP, or RGB
   projection coordinates.
 - Do not use labels to fit the primary feature-only RGB projection.
+- Do not use held-out 2022 visual inspection to choose supervised channel
+  weights, selected channels, projection mode, thresholds, masks, or model
+  policy.
+- Do not interpret 10 m AEF views as independent 10 m Kelpwatch truth; 10 m
+  cells may only link to or inherit parent 30 m labels for context.
 - Do not tune thresholds, masks, sample quotas, or model policy from held-out
   visual inspection.
 - Do not make t-SNE the only visualization path; it is stochastic and does not
   provide a simple full-grid transform.
 - Do not collapse Monterey and Big Sur rows without explicit region labels.
+- Do not make cross-validated permutation importance, random forest importance,
+  histogram-gradient importance, or other heavier channel-ranking methods part
+  of the first implementation. If the initial visualizer does not reveal useful
+  AEF structure, record a follow-on task to compare more robust importance
+  methods before revising the supervised projection modes.
