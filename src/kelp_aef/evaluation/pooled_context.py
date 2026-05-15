@@ -35,6 +35,7 @@ from kelp_aef.evaluation.component_failure import (
     binary_outcomes,
     component_failure_classes,
     margin_bin_labels,
+    parquet_safe_cache_frame,
     probability_bin_labels,
     read_component_failure_frame,
 )
@@ -435,6 +436,14 @@ def build_pooled_context_tables(
 ) -> PooledContextDiagnosticsTables:
     """Build all pooled-context diagnostic tables."""
     frames = [read_pooled_context_frame(input_config, config) for input_config in config.inputs]
+    return build_pooled_context_tables_from_frames(frames, config)
+
+
+def build_pooled_context_tables_from_frames(
+    frames: list[pd.DataFrame],
+    config: PooledContextDiagnosticsConfig,
+) -> PooledContextDiagnosticsTables:
+    """Build pooled-context diagnostics from annotated context frames."""
     frames = [frame for frame in frames if not frame.empty]
     if not frames:
         return PooledContextDiagnosticsTables([], [], [], [])
@@ -453,6 +462,8 @@ def build_pooled_context_tables(
 def read_pooled_context_frame(
     input_config: PooledContextInput,
     config: PooledContextDiagnosticsConfig,
+    *,
+    component_frame: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Read, filter, and align one pooled context across all model surfaces."""
     component_input = ComponentFailureInput(
@@ -467,7 +478,11 @@ def read_pooled_context_frame(
         required=input_config.required,
     )
     component_config = component_config_from_pooled(config, component_input)
-    frame = read_component_failure_frame(component_input, component_config)
+    frame = (
+        read_component_failure_frame(component_input, component_config)
+        if component_frame is None
+        else component_frame.copy()
+    )
     if frame.empty:
         return frame
     ridge = read_ridge_predictions(input_config, config)
@@ -493,6 +508,66 @@ def read_pooled_context_frame(
         )
         raise ValueError(msg)
     return annotate_aligned_pooled_context(merged, config)
+
+
+def pooled_context_frame_cache_path(cache_dir: Path, input_config: PooledContextInput) -> Path:
+    """Return the cache file path for one pooled-context frame."""
+    return cache_dir / f"{input_config.context_id}.parquet"
+
+
+def write_pooled_context_frame_cache(
+    config: PooledContextDiagnosticsConfig,
+    cache_dir: Path,
+    *,
+    component_frames_by_context: Mapping[str, pd.DataFrame] | None = None,
+) -> tuple[list[pd.DataFrame], list[dict[str, object]]]:
+    """Write annotated pooled-context frames and return frame metadata."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    frames: list[pd.DataFrame] = []
+    metadata: list[dict[str, object]] = []
+    for input_config in config.inputs:
+        component_frame = (
+            component_frames_by_context.get(input_config.context_id)
+            if component_frames_by_context is not None
+            else None
+        )
+        frame = read_pooled_context_frame(
+            input_config,
+            config,
+            component_frame=component_frame,
+        )
+        frames.append(frame)
+        output_path = pooled_context_frame_cache_path(cache_dir, input_config)
+        wrote_frame = not frame.empty
+        if wrote_frame:
+            parquet_safe_cache_frame(frame).to_parquet(output_path, index=False)
+        metadata.append(
+            {
+                "context_id": input_config.context_id,
+                "output_path": str(output_path),
+                "row_count": int(len(frame)),
+                "wrote_frame": wrote_frame,
+            }
+        )
+    return frames, metadata
+
+
+def read_pooled_context_frame_cache(
+    config: PooledContextDiagnosticsConfig,
+    cache_dir: Path,
+) -> list[pd.DataFrame]:
+    """Read annotated pooled-context frames from the configured cache."""
+    frames: list[pd.DataFrame] = []
+    for input_config in config.inputs:
+        path = pooled_context_frame_cache_path(cache_dir, input_config)
+        if not path.exists():
+            if input_config.required:
+                msg = f"required pooled-context cache frame is missing: {path}"
+                raise FileNotFoundError(msg)
+            frames.append(pd.DataFrame())
+            continue
+        frames.append(cast(pd.DataFrame, pd.read_parquet(path)))
+    return frames
 
 
 def component_config_from_pooled(
@@ -1282,9 +1357,7 @@ def pooled_context_report_markdown(
     """Build compact report prose for pooled Phase 2 context diagnostics."""
     if not tables.performance:
         return "Pooled context diagnostics are configured, but no primary rows were available."
-    overall = [
-        row for row in tables.performance if str(row.get("context_type")) == "overall"
-    ]
+    overall = [row for row in tables.performance if str(row.get("context_type")) == "overall"]
     binary_rows = {
         str(row.get("evaluation_region")): row
         for row in overall

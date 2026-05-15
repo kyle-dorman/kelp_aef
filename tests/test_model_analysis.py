@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import joblib  # type: ignore[import-untyped]
 import pandas as pd  # type: ignore[import-untyped]
+import pytest
 
 from kelp_aef import main
 from kelp_aef.evaluation.component_failure import add_component_spatial_context
@@ -412,18 +413,93 @@ def test_analyze_model_writes_pooled_context_outputs(tmp_path: Path) -> None:
     assert int(overall_binary["false_positive_count"]) == 1
     assert int(overall_binary["false_negative_count"]) == 1
     assert "observed_ge_450m2_prediction_p95" in distribution.columns
-    assert (
-        manifest["phase2"]["outputs"]["pooled_context_model_performance"]
-        == str(fixture["pooled_context_performance"])
+    assert manifest["phase2"]["outputs"]["pooled_context_model_performance"] == str(
+        fixture["pooled_context_performance"]
     )
-    assert (
-        manifest["phase2"]["outputs"]["pooled_context_metric_breakdown_figure"]
-        == str(fixture["pooled_context_metric_breakdown_figure"])
+    assert manifest["phase2"]["outputs"]["pooled_context_metric_breakdown_figure"] == str(
+        fixture["pooled_context_metric_breakdown_figure"]
     )
     assert (
         sidecar_manifest["definitions"]["amount_rate_denominator"]
         == "observed-positive rows where calibrated binary support is detected"
     )
+
+
+def test_phase2_diagnostics_cache_preserves_report_rows(tmp_path: Path) -> None:
+    """Verify cached Phase 2 diagnostics preserve uncached diagnostic rows."""
+    fixture = write_phase2_diagnostics_cache_fixture(tmp_path)
+
+    assert main(["analyze-model", "--config", str(fixture["config_path"])]) == 0
+
+    component_summary = pd.read_csv(fixture["component_failure_summary"])
+    pooled_performance = pd.read_csv(fixture["pooled_context_performance"])
+
+    assert main(["build-phase2-diagnostics", "--config", str(fixture["config_path"])]) == 0
+
+    assert (fixture["phase2_component_frame_cache"] / "fixture_component_context.parquet").exists()
+    assert (
+        fixture["phase2_pooled_context_frame_cache"] / "pooled_fixture_context.parquet"
+    ).exists()
+    cache_manifest = json.loads(fixture["phase2_diagnostics_cache_manifest"].read_text())
+    assert cache_manifest["status"] == "rebuilt"
+    assert cache_manifest["row_counts"]["component_failure_summary"] == 1
+    assert cache_manifest["row_counts"]["pooled_context_model_performance"] > 0
+
+    pd.testing.assert_frame_equal(
+        component_summary,
+        pd.read_csv(fixture["component_failure_summary"]),
+        check_dtype=False,
+    )
+    pd.testing.assert_frame_equal(
+        pooled_performance,
+        pd.read_csv(fixture["pooled_context_performance"]),
+        check_dtype=False,
+    )
+
+    assert (
+        main(
+            [
+                "analyze-model",
+                "--config",
+                str(fixture["config_path"]),
+                "--reuse-phase2-diagnostics",
+            ]
+        )
+        == 0
+    )
+
+    manifest = json.loads(fixture["manifest"].read_text())
+    assert manifest["phase2"]["diagnostics_cache"]["status"] == "reused"
+    pd.testing.assert_frame_equal(
+        component_summary,
+        pd.read_csv(fixture["component_failure_summary"]),
+        check_dtype=False,
+    )
+    pd.testing.assert_frame_equal(
+        pooled_performance,
+        pd.read_csv(fixture["pooled_context_performance"]),
+        check_dtype=False,
+    )
+
+
+def test_phase2_diagnostics_cache_rejects_stale_manifest(tmp_path: Path) -> None:
+    """Verify report-iteration mode rejects stale Phase 2 diagnostics caches."""
+    fixture = write_phase2_diagnostics_cache_fixture(tmp_path)
+
+    assert main(["build-phase2-diagnostics", "--config", str(fixture["config_path"])]) == 0
+    fixture["config_path"].write_text(
+        fixture["config_path"].read_text() + "\n# invalidate diagnostics cache\n"
+    )
+
+    with pytest.raises(ValueError, match="Phase 2 diagnostics cache is not fresh"):
+        main(
+            [
+                "analyze-model",
+                "--config",
+                str(fixture["config_path"]),
+                "--reuse-phase2-diagnostics",
+            ]
+        )
 
 
 def test_component_spatial_context_classifies_edges_and_distances() -> None:
@@ -1143,6 +1219,61 @@ def append_pooled_context_config(
         )
 
 
+def write_phase2_diagnostics_cache_fixture(tmp_path: Path) -> dict[str, Path]:
+    """Write a synthetic Phase 2 diagnostics fixture with cache paths configured."""
+    fixture = write_model_analysis_fixture(
+        tmp_path,
+        include_domain_mask=True,
+        include_training_mask_columns=True,
+        include_reference_area_calibration=True,
+    )
+    phase2_primary = tmp_path / "reports/tables/phase2_training_regime_primary.csv"
+    phase2_model_comparison = tmp_path / "reports/tables/phase2_training_regime_all.csv"
+    phase2_manifest = tmp_path / "interim/phase2_training_regime_manifest.json"
+    binary_summary = tmp_path / "reports/tables/phase2_binary_support.csv"
+    binary_predictions = tmp_path / "processed/phase2_binary_predictions.parquet"
+    calibration_model = tmp_path / "models/phase2_binary_calibration.joblib"
+    component_hurdle = tmp_path / "processed/component_hurdle_predictions.parquet"
+    pooled_baseline = tmp_path / "processed/pooled_baseline_predictions.parquet"
+    pooled_binary = tmp_path / "processed/pooled_binary_predictions.parquet"
+    pooled_hurdle = tmp_path / "processed/pooled_hurdle_predictions.parquet"
+    write_phase2_training_regime_rows(phase2_primary)
+    write_phase2_training_regime_rows(phase2_model_comparison)
+    phase2_manifest.parent.mkdir(parents=True, exist_ok=True)
+    phase2_manifest.write_text(json.dumps({"command": "compare-training-regimes"}))
+    write_phase2_binary_predictions(binary_predictions)
+    write_phase2_calibration_payload(calibration_model)
+    write_component_failure_hurdle_predictions(component_hurdle)
+    write_pooled_context_baseline_predictions(pooled_baseline)
+    write_pooled_context_binary_predictions(pooled_binary)
+    write_component_failure_hurdle_predictions(pooled_hurdle)
+    append_phase2_config(
+        fixture["config_path"],
+        phase2_primary=phase2_primary,
+        phase2_model_comparison=phase2_model_comparison,
+        phase2_manifest=phase2_manifest,
+        binary_summary=binary_summary,
+        binary_predictions=binary_predictions,
+        calibration_model=calibration_model,
+    )
+    append_component_failure_config(
+        fixture["config_path"],
+        paths=fixture,
+        hurdle_predictions=component_hurdle,
+        label_path=tmp_path / "interim/labels_annual.parquet",
+    )
+    append_pooled_context_config(
+        fixture["config_path"],
+        paths=fixture,
+        baseline_predictions=pooled_baseline,
+        binary_predictions=pooled_binary,
+        calibration_model=calibration_model,
+        hurdle_predictions=pooled_hurdle,
+        label_path=tmp_path / "interim/labels_annual.parquet",
+    )
+    return fixture
+
+
 def append_binary_hex_map_config(
     config_path: Path,
     *,
@@ -1533,6 +1664,12 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/tables/monterey_big_sur_pooled_prediction_distribution_by_context.csv",
         "pooled_context_manifest": tmp_path
         / "interim/monterey_big_sur_pooled_context_diagnostics_manifest.json",
+        "phase2_component_frame_cache": tmp_path
+        / "interim/monterey_big_sur_phase2_component_failure_frames",
+        "phase2_pooled_context_frame_cache": tmp_path
+        / "interim/monterey_big_sur_phase2_pooled_context_frames",
+        "phase2_diagnostics_cache_manifest": tmp_path
+        / "interim/monterey_big_sur_phase2_diagnostics_cache_manifest.json",
         "binary_hex_figure": tmp_path
         / "reports/figures/monterey_big_sur_pooled_binary_presence_hex_1km.png",
         "binary_hex_table": tmp_path
@@ -1635,6 +1772,9 @@ reports:
     model_analysis_html_report: {paths["html_report"]}
     model_analysis_pdf_report: {paths["pdf_report"]}
     model_analysis_manifest: {paths["manifest"]}
+    phase2_component_failure_frame_cache: {paths["phase2_component_frame_cache"]}
+    phase2_pooled_context_frame_cache: {paths["phase2_pooled_context_frame_cache"]}
+    phase2_diagnostics_cache_manifest: {paths["phase2_diagnostics_cache_manifest"]}
     model_analysis_label_distribution_by_stage: {paths["stage_distribution"]}
     model_analysis_target_framing_summary: {paths["target_framing"]}
     model_analysis_residual_by_observed_bin: {paths["residual_by_bin"]}

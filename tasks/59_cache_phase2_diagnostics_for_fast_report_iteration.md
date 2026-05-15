@@ -137,6 +137,43 @@ description that confirms:
 - how report-only iteration is invoked;
 - the validation timing target.
 
+## Design Note
+
+- Cache schema and partitioning: write one annotated Parquet frame per
+  configured context under a component-failure cache directory and one
+  annotated Parquet frame per pooled evaluation context under a pooled-context
+  cache directory. File names are `<context_id>.parquet`. Component frames keep
+  the existing row-level component-failure columns needed to rebuild summary,
+  label, domain, spatial, model, edge, and temporal tables. Pooled frames start
+  from the matching component frame and add pooled ridge predictions,
+  calibrated binary probabilities, refreshed binary outcomes, failure classes,
+  and pooled temporal context fields needed to rebuild pooled performance,
+  binary, amount, and prediction-distribution tables.
+- Freshness check: use a manifest freshness hash built from the config file
+  hash, relevant source-code file hashes, primary filters, tolerance/bin/grid
+  settings, configured cache/table output paths, and input path metadata
+  (`exists`, file size, mtime; recursive file count/size/max-mtime for Parquet
+  directories). Heavy Parquet inputs are not content-hashed.
+- Component functions: expose component-frame build/write/read helpers and a
+  `build_component_failure_tables_from_frames` path so table aggregation no
+  longer requires raw prediction reads once frames are cached.
+- Pooled functions: expose pooled-frame build/write/read helpers and allow
+  `read_pooled_context_frame` to reuse the matching cached component frame
+  before joining ridge and calibrated binary surfaces.
+- `analyze-model` behavior: the default path remains the uncached rebuild path.
+  `--reuse-phase2-diagnostics` loads cached CSV diagnostic tables only when the
+  manifest proves freshness; stale or missing caches fail explicitly. The
+  `--refresh-phase2-diagnostics` path rebuilds frames, tables, and the cache
+  manifest before rendering.
+- Report-only iteration: run
+  `uv run kelp-aef build-phase2-diagnostics --config configs/big_sur_smoke.yaml`
+  after model/input changes, then run
+  `uv run kelp-aef analyze-model --config configs/big_sur_smoke.yaml --reuse-phase2-diagnostics`
+  for text, layout, and plot iteration.
+- Timing target: cached Big Sur report iteration should avoid component and
+  pooled row annotation and target under 15 seconds for `analyze-model` when
+  diagnostic inputs have not changed.
+
 ## Implementation Notes
 
 The current profiling points to two concrete issues:
@@ -233,6 +270,44 @@ Focused validation:
 uv run ruff check src/kelp_aef/evaluation/model_analysis.py src/kelp_aef/evaluation/component_failure.py src/kelp_aef/evaluation/pooled_context.py tests/test_model_analysis.py
 uv run mypy src
 uv run pytest tests/test_model_analysis.py
+uv run kelp-aef build-phase2-diagnostics --config configs/big_sur_smoke.yaml
+uv run kelp-aef analyze-model --config configs/big_sur_smoke.yaml --reuse-phase2-diagnostics
+git diff --check
+```
+
+## Outcome
+
+Completed. The implementation adds:
+
+- `kelp-aef build-phase2-diagnostics --config configs/big_sur_smoke.yaml`
+  to build or validate Phase 2 component-failure and pooled-context caches.
+- `kelp-aef analyze-model --config configs/big_sur_smoke.yaml --reuse-phase2-diagnostics`
+  for report-only iteration against a fresh manifest.
+- `kelp-aef analyze-model --config configs/big_sur_smoke.yaml --refresh-phase2-diagnostics`
+  to rebuild the cache during report generation.
+- Config-declared cache paths:
+  - `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_component_failure_frames/`
+  - `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_pooled_context_frames/`
+  - `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_diagnostics_cache_manifest.json`
+
+The real Big Sur cache build wrote six component context frames and two pooled
+context frames. The cache manifest row counts match the current diagnostic
+tables: `6` component summary rows, `267` component label-context rows, `1,510`
+component model-context rows, `216` pooled performance rows, `72` pooled binary
+context rows, `144` pooled amount rows, and `144` pooled prediction-distribution
+rows.
+
+The cached report iteration path was validated with the current Big Sur config.
+After the first post-build report run refreshed ordinary sidecars, a second
+steady-state cached rerun completed from `12:53:06` to `12:53:16` and the
+model-analysis manifest recorded `phase2.diagnostics_cache.status = "reused"`.
+
+Validation passed:
+
+```bash
+uv run ruff check src/kelp_aef/evaluation/model_analysis.py src/kelp_aef/evaluation/component_failure.py src/kelp_aef/evaluation/pooled_context.py src/kelp_aef/evaluation/phase2_diagnostics_cache.py src/kelp_aef/cli.py tests/test_model_analysis.py
+uv run mypy src
+uv run pytest tests/test_model_analysis.py -q
 uv run kelp-aef build-phase2-diagnostics --config configs/big_sur_smoke.yaml
 uv run kelp-aef analyze-model --config configs/big_sur_smoke.yaml --reuse-phase2-diagnostics
 git diff --check

@@ -65,17 +65,29 @@ from kelp_aef.evaluation.component_failure import (
     ComponentFailureConfig,
     ComponentFailureTables,
     build_component_failure_tables,
+    build_component_failure_tables_from_frames,
     component_failure_report_markdown,
     load_component_failure_config,
+    write_component_failure_frame_cache,
     write_component_failure_outputs,
+)
+from kelp_aef.evaluation.phase2_diagnostics_cache import (
+    Phase2CacheFreshness,
+    Phase2DiagnosticsCacheConfig,
+    path_metadata,
+    stable_payload_hash,
+    validate_cache_manifest,
+    write_cache_manifest,
 )
 from kelp_aef.evaluation.pooled_context import (
     PooledContextDiagnosticsConfig,
     PooledContextDiagnosticsTables,
     build_pooled_context_tables,
+    build_pooled_context_tables_from_frames,
     load_pooled_context_config,
     pooled_context_report_markdown,
     pooled_context_row_counts,
+    write_pooled_context_frame_cache,
     write_pooled_context_outputs,
 )
 from kelp_aef.labels.kelpwatch import NETCDF_ENGINE
@@ -698,6 +710,7 @@ class Phase2ReportConfig:
     pooled_context: PooledContextDiagnosticsConfig | None
     binary_hex_map: BinaryPresenceHexMapConfig | None
     component_failure: ComponentFailureConfig | None
+    diagnostics_cache: Phase2DiagnosticsCacheConfig | None
     primary_split: str
     primary_year: int
     primary_mask_status: str
@@ -803,6 +816,8 @@ class ModelAnalysisConfig:
     top_residual_count: int
     domain_mask: ReportingDomainMask | None
     phase2_report: Phase2ReportConfig | None
+    reuse_phase2_diagnostics: bool
+    refresh_phase2_diagnostics: bool
 
 
 @dataclass(frozen=True)
@@ -858,6 +873,7 @@ class AnalysisTables:
     pooled_context: PooledContextDiagnosticsTables | None
     binary_hex_map: BinaryPresenceHexMapTables | None
     component_failure: ComponentFailureTables | None
+    phase2_diagnostics_cache: dict[str, object] | None
 
 
 @dataclass(frozen=True)
@@ -875,9 +891,18 @@ class AnalysisData:
     prediction_targets: pd.DataFrame
 
 
-def analyze_model(config_path: Path) -> int:
+def analyze_model(
+    config_path: Path,
+    *,
+    reuse_phase2_diagnostics: bool | None = None,
+    refresh_phase2_diagnostics: bool = False,
+) -> int:
     """Analyze the smoke-test model and write report artifacts."""
-    analysis_config = load_model_analysis_config(config_path)
+    analysis_config = load_model_analysis_config(
+        config_path,
+        reuse_phase2_diagnostics=reuse_phase2_diagnostics,
+        refresh_phase2_diagnostics=refresh_phase2_diagnostics,
+    )
     LOGGER.info("Loading model-analysis inputs")
     data = load_analysis_data(analysis_config)
     reference_area_calibration = build_or_load_reference_area_calibration(analysis_config)
@@ -893,7 +918,12 @@ def analyze_model(config_path: Path) -> int:
     return 0
 
 
-def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
+def load_model_analysis_config(
+    config_path: Path,
+    *,
+    reuse_phase2_diagnostics: bool | None = None,
+    refresh_phase2_diagnostics: bool = False,
+) -> ModelAnalysisConfig:
     """Load model-analysis settings from the workflow config."""
     config = load_yaml_config(config_path)
     data_root = Path(require_string(config.get("data_root"), "data_root"))
@@ -1322,7 +1352,18 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             outputs,
             figures_dir,
             tables_dir,
+            data_root,
         ),
+        reuse_phase2_diagnostics=(
+            optional_bool(
+                settings.get("reuse_phase2_diagnostics"),
+                "reports.model_analysis.reuse_phase2_diagnostics",
+                False,
+            )
+            if reuse_phase2_diagnostics is None
+            else reuse_phase2_diagnostics
+        ),
+        refresh_phase2_diagnostics=refresh_phase2_diagnostics,
     )
 
 
@@ -1332,6 +1373,7 @@ def load_phase2_report_config(
     outputs: dict[str, Any],
     figures_dir: Path,
     tables_dir: Path,
+    data_root: Path,
 ) -> Phase2ReportConfig | None:
     """Load optional Phase 2 report comparison settings from config."""
     comparison = optional_mapping(
@@ -1417,12 +1459,77 @@ def load_phase2_report_config(
             primary_evaluation_scope=primary_evaluation_scope,
             primary_label_source=primary_label_source,
         ),
+        diagnostics_cache=load_phase2_diagnostics_cache_config(
+            comparison,
+            outputs,
+            data_root,
+            config_path,
+        ),
         primary_split=primary_split,
         primary_year=primary_year,
         primary_mask_status=primary_mask_status,
         primary_evaluation_scope=primary_evaluation_scope,
         primary_label_source=primary_label_source,
     )
+
+
+def load_phase2_diagnostics_cache_config(
+    comparison: dict[str, Any],
+    outputs: dict[str, Any],
+    data_root: Path,
+    config_path: Path,
+) -> Phase2DiagnosticsCacheConfig | None:
+    """Load optional Phase 2 diagnostics cache output paths."""
+    settings = optional_mapping(
+        comparison.get("diagnostics_cache"),
+        "training_regime_comparison.diagnostics_cache",
+    )
+    component_value = settings.get(
+        "component_frame_cache",
+        outputs.get("phase2_component_failure_frame_cache"),
+    )
+    pooled_value = settings.get(
+        "pooled_context_frame_cache",
+        outputs.get("phase2_pooled_context_frame_cache"),
+    )
+    manifest_value = settings.get(
+        "manifest",
+        outputs.get("phase2_diagnostics_cache_manifest"),
+    )
+    if component_value is None and pooled_value is None and manifest_value is None:
+        return None
+    return Phase2DiagnosticsCacheConfig(
+        component_frame_dir=config_relative_or_default_path(
+            component_value,
+            "phase2_component_failure_frame_cache",
+            config_path,
+            data_root / "interim/phase2_component_failure_frames",
+        ),
+        pooled_context_frame_dir=config_relative_or_default_path(
+            pooled_value,
+            "phase2_pooled_context_frame_cache",
+            config_path,
+            data_root / "interim/phase2_pooled_context_frames",
+        ),
+        manifest_path=config_relative_or_default_path(
+            manifest_value,
+            "phase2_diagnostics_cache_manifest",
+            config_path,
+            data_root / "interim/phase2_diagnostics_cache_manifest.json",
+        ),
+    )
+
+
+def config_relative_or_default_path(
+    value: object,
+    name: str,
+    config_path: Path,
+    default: Path,
+) -> Path:
+    """Resolve an optional path value relative to the config file."""
+    if value is None:
+        return default
+    return config_relative_path(value, name, config_path)
 
 
 def phase2_binary_support_output_path(
@@ -1938,8 +2045,13 @@ def build_analysis_tables(
     quarter_mapping = build_quarter_mapping(analysis_config)
     phase2_training_regime_primary = read_phase2_training_regime_primary(analysis_config)
     phase2_binary_support = build_phase2_binary_support_summary(analysis_config)
+    cached_pooled_context, cached_component_failure, phase2_cache_status = (
+        phase2_diagnostic_tables_for_analysis(analysis_config)
+    )
     pooled_context = (
-        build_pooled_context_tables(analysis_config.phase2_report.pooled_context)
+        cached_pooled_context
+        if cached_pooled_context is not None
+        else build_pooled_context_tables(analysis_config.phase2_report.pooled_context)
         if analysis_config.phase2_report is not None
         and analysis_config.phase2_report.pooled_context is not None
         else None
@@ -1951,7 +2063,9 @@ def build_analysis_tables(
         else None
     )
     component_failure = (
-        build_component_failure_tables(analysis_config.phase2_report.component_failure)
+        cached_component_failure
+        if cached_component_failure is not None
+        else build_component_failure_tables(analysis_config.phase2_report.component_failure)
         if analysis_config.phase2_report is not None
         and analysis_config.phase2_report.component_failure is not None
         else None
@@ -1987,7 +2101,460 @@ def build_analysis_tables(
         pooled_context=pooled_context,
         binary_hex_map=binary_hex_map,
         component_failure=component_failure,
+        phase2_diagnostics_cache=phase2_cache_status,
     )
+
+
+def build_phase2_diagnostics(config_path: Path, *, force: bool = False) -> int:
+    """Build or validate cached Phase 2 diagnostic frames and tables."""
+    analysis_config = load_model_analysis_config(config_path)
+    if not force:
+        freshness = phase2_cache_freshness(analysis_config)
+        if freshness.fresh:
+            _, cache_config = require_phase2_cache(analysis_config)
+            LOGGER.info("Phase 2 diagnostics cache is fresh: %s", cache_config.manifest_path)
+            return 0
+        LOGGER.info("Rebuilding Phase 2 diagnostics cache: %s", freshness.reason)
+    rebuild_phase2_diagnostics_cache(analysis_config, command="build-phase2-diagnostics")
+    return 0
+
+
+def phase2_diagnostic_tables_for_analysis(
+    analysis_config: ModelAnalysisConfig,
+) -> tuple[
+    PooledContextDiagnosticsTables | None,
+    ComponentFailureTables | None,
+    dict[str, object] | None,
+]:
+    """Return cached Phase 2 tables when requested by model analysis."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None or phase2_config.diagnostics_cache is None:
+        return None, None, None
+    if analysis_config.refresh_phase2_diagnostics:
+        return rebuild_phase2_diagnostics_cache(
+            analysis_config,
+            command="analyze-model --refresh-phase2-diagnostics",
+        )
+    if analysis_config.reuse_phase2_diagnostics:
+        return load_phase2_diagnostic_tables_from_cache(analysis_config)
+    return (
+        None,
+        None,
+        {
+            "cache_configured": True,
+            "reuse_requested": False,
+            "refresh_requested": False,
+            "status": "not_used",
+            "paths": phase2_cache_paths_payload(phase2_config.diagnostics_cache),
+        },
+    )
+
+
+def rebuild_phase2_diagnostics_cache(
+    analysis_config: ModelAnalysisConfig,
+    *,
+    command: str,
+) -> tuple[
+    PooledContextDiagnosticsTables | None,
+    ComponentFailureTables | None,
+    dict[str, object],
+]:
+    """Rebuild Phase 2 diagnostic frame caches, tables, and cache manifest."""
+    phase2_config, cache_config = require_phase2_cache(analysis_config)
+    component_tables: ComponentFailureTables | None = None
+    pooled_tables: PooledContextDiagnosticsTables | None = None
+    component_frame_metadata: list[dict[str, object]] = []
+    pooled_frame_metadata: list[dict[str, object]] = []
+    component_frames_by_context: dict[str, pd.DataFrame] = {}
+    if phase2_config.component_failure is not None:
+        component_frames, component_frame_metadata = write_component_failure_frame_cache(
+            phase2_config.component_failure,
+            cache_config.component_frame_dir,
+        )
+        component_frames_by_context = {
+            input_config.context_id: frame
+            for input_config, frame in zip(
+                phase2_config.component_failure.inputs,
+                component_frames,
+                strict=True,
+            )
+        }
+        component_tables = build_component_failure_tables_from_frames(
+            component_frames,
+            phase2_config.component_failure,
+        )
+        write_component_failure_outputs(component_tables, phase2_config.component_failure)
+    if phase2_config.pooled_context is not None:
+        pooled_frames, pooled_frame_metadata = write_pooled_context_frame_cache(
+            phase2_config.pooled_context,
+            cache_config.pooled_context_frame_dir,
+            component_frames_by_context=component_frames_by_context,
+        )
+        pooled_tables = build_pooled_context_tables_from_frames(
+            pooled_frames,
+            phase2_config.pooled_context,
+        )
+        write_pooled_context_outputs(pooled_tables, phase2_config.pooled_context)
+    freshness_payload = phase2_cache_freshness_payload(analysis_config)
+    freshness_hash = stable_payload_hash(freshness_payload)
+    manifest_payload = {
+        "command": command,
+        "diagnostic": "phase2_diagnostics_cache",
+        "cache_schema_version": 1,
+        "freshness_hash": freshness_hash,
+        "freshness_payload": freshness_payload,
+        "primary_filters": phase2_cache_primary_filters(phase2_config),
+        "paths": phase2_cache_paths_payload(cache_config),
+        "outputs": phase2_cache_outputs_payload(phase2_config),
+        "frame_outputs": {
+            "component_failure": component_frame_metadata,
+            "pooled_context": pooled_frame_metadata,
+        },
+        "row_counts": {
+            **component_failure_row_counts(component_tables),
+            **pooled_context_row_counts(pooled_tables),
+        },
+        "reuse_allowed": True,
+        "status": "rebuilt",
+    }
+    write_cache_manifest(cache_config.manifest_path, manifest_payload)
+    status = {
+        "cache_configured": True,
+        "reuse_requested": analysis_config.reuse_phase2_diagnostics,
+        "refresh_requested": analysis_config.refresh_phase2_diagnostics,
+        "status": "rebuilt",
+        "freshness_hash": freshness_hash,
+        "paths": phase2_cache_paths_payload(cache_config),
+        "row_counts": manifest_payload["row_counts"],
+    }
+    return pooled_tables, component_tables, status
+
+
+def load_phase2_diagnostic_tables_from_cache(
+    analysis_config: ModelAnalysisConfig,
+) -> tuple[
+    PooledContextDiagnosticsTables | None,
+    ComponentFailureTables | None,
+    dict[str, object],
+]:
+    """Load cached Phase 2 diagnostic tables after manifest validation."""
+    phase2_config, cache_config = require_phase2_cache(analysis_config)
+    freshness = phase2_cache_freshness(analysis_config)
+    if not freshness.fresh:
+        msg = (
+            "Phase 2 diagnostics cache is not fresh "
+            f"({freshness.reason}). Run `uv run kelp-aef build-phase2-diagnostics "
+            f"--config {analysis_config.config_path}` or rerun analyze-model with "
+            "--refresh-phase2-diagnostics."
+        )
+        raise ValueError(msg)
+    pooled_tables = (
+        read_pooled_context_tables_from_outputs(phase2_config.pooled_context)
+        if phase2_config.pooled_context is not None
+        else None
+    )
+    component_tables = (
+        read_component_failure_tables_from_outputs(phase2_config.component_failure)
+        if phase2_config.component_failure is not None
+        else None
+    )
+    manifest = freshness.manifest or {}
+    status = {
+        "cache_configured": True,
+        "reuse_requested": True,
+        "refresh_requested": False,
+        "status": "reused",
+        "freshness_hash": str(manifest.get("freshness_hash", "")),
+        "manifest": str(cache_config.manifest_path),
+        "paths": phase2_cache_paths_payload(cache_config),
+        "row_counts": {
+            **component_failure_row_counts(component_tables),
+            **pooled_context_row_counts(pooled_tables),
+        },
+    }
+    return pooled_tables, component_tables, status
+
+
+def require_phase2_cache(
+    analysis_config: ModelAnalysisConfig,
+) -> tuple[Phase2ReportConfig, Phase2DiagnosticsCacheConfig]:
+    """Return Phase 2 cache config or raise a clear workflow error."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None:
+        msg = "Phase 2 diagnostics cache requires training_regime_comparison config."
+        raise ValueError(msg)
+    cache_config = phase2_config.diagnostics_cache
+    if cache_config is None:
+        msg = "Phase 2 diagnostics cache paths are not configured."
+        raise ValueError(msg)
+    return phase2_config, cache_config
+
+
+def phase2_cache_freshness(analysis_config: ModelAnalysisConfig) -> Phase2CacheFreshness:
+    """Validate whether the configured Phase 2 diagnostics cache is fresh."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None or phase2_config.diagnostics_cache is None:
+        return Phase2CacheFreshness(False, "cache_not_configured", None)
+    freshness_payload = phase2_cache_freshness_payload(analysis_config)
+    expected_hash = stable_payload_hash(freshness_payload)
+    freshness = validate_cache_manifest(
+        phase2_config.diagnostics_cache.manifest_path,
+        expected_hash,
+        phase2_cache_required_paths(phase2_config),
+    )
+    if not freshness.fresh:
+        return freshness
+    missing_frames = [
+        str(path)
+        for path in phase2_cache_manifest_frame_paths(freshness.manifest)
+        if not path.exists()
+    ]
+    if missing_frames:
+        manifest = freshness.manifest or {}
+        manifest["missing_required_paths"] = missing_frames
+        return Phase2CacheFreshness(False, "missing_required_paths", manifest)
+    return freshness
+
+
+def phase2_cache_freshness_payload(
+    analysis_config: ModelAnalysisConfig,
+) -> dict[str, object]:
+    """Build the payload used to fingerprint Phase 2 diagnostics freshness."""
+    phase2_config, cache_config = require_phase2_cache(analysis_config)
+    return {
+        "schema_version": 1,
+        "config": path_metadata(analysis_config.config_path, content_hash=True),
+        "code": [
+            path_metadata(path, content_hash=True)
+            for path in sorted(phase2_cache_code_paths(), key=str)
+        ],
+        "primary_filters": phase2_cache_primary_filters(phase2_config),
+        "settings": phase2_cache_settings_payload(phase2_config),
+        "inputs": phase2_cache_inputs_payload(phase2_config),
+        "outputs": phase2_cache_outputs_payload(phase2_config),
+        "paths": phase2_cache_paths_payload(cache_config),
+    }
+
+
+def phase2_cache_code_paths() -> set[Path]:
+    """Return source files whose changes invalidate Phase 2 diagnostic caches."""
+    return {
+        Path(__file__),
+        Path(build_component_failure_tables.__code__.co_filename),
+        Path(build_pooled_context_tables.__code__.co_filename),
+        Path(build_binary_presence_hex_map_tables.__code__.co_filename),
+    }
+
+
+def phase2_cache_primary_filters(phase2_config: Phase2ReportConfig) -> dict[str, object]:
+    """Return primary Phase 2 report filters for cache metadata."""
+    return {
+        "split": phase2_config.primary_split,
+        "year": phase2_config.primary_year,
+        "mask_status": phase2_config.primary_mask_status,
+        "evaluation_scope": phase2_config.primary_evaluation_scope,
+        "label_source": phase2_config.primary_label_source,
+    }
+
+
+def phase2_cache_settings_payload(phase2_config: Phase2ReportConfig) -> dict[str, object]:
+    """Return tolerance and bin settings that affect cached diagnostics."""
+    settings: dict[str, object] = {}
+    if phase2_config.component_failure is not None:
+        component = phase2_config.component_failure
+        settings["component_failure"] = {
+            "observed_area_bins": list(component.observed_area_bins),
+            "tolerance_m2": component.tolerance_m2,
+            "grid_cell_size_m": component.grid_cell_size_m,
+        }
+    if phase2_config.pooled_context is not None:
+        pooled = phase2_config.pooled_context
+        settings["pooled_context"] = {
+            "observed_area_bins": list(pooled.observed_area_bins),
+            "tolerance_m2": pooled.tolerance_m2,
+            "grid_cell_size_m": pooled.grid_cell_size_m,
+        }
+    return settings
+
+
+def phase2_cache_inputs_payload(phase2_config: Phase2ReportConfig) -> dict[str, object]:
+    """Return input path metadata for Phase 2 diagnostics."""
+    payload: dict[str, object] = {}
+    if phase2_config.component_failure is not None:
+        payload["component_failure"] = [
+            {
+                "context_id": input_config.context_id,
+                "training_regime": input_config.training_regime,
+                "model_origin_region": input_config.model_origin_region,
+                "evaluation_region": input_config.evaluation_region,
+                "required": input_config.required,
+                "hurdle_predictions": path_metadata(input_config.hurdle_predictions_path),
+                "binary_predictions": path_metadata(input_config.binary_predictions_path)
+                if input_config.binary_predictions_path is not None
+                else None,
+                "label_path": path_metadata(input_config.label_path)
+                if input_config.label_path is not None
+                else None,
+                "config_path": path_metadata(input_config.config_path, content_hash=True)
+                if input_config.config_path is not None
+                else None,
+            }
+            for input_config in phase2_config.component_failure.inputs
+        ]
+    if phase2_config.pooled_context is not None:
+        payload["pooled_context"] = [
+            {
+                "context_id": input_config.context_id,
+                "training_regime": input_config.training_regime,
+                "model_origin_region": input_config.model_origin_region,
+                "evaluation_region": input_config.evaluation_region,
+                "threshold_policy": input_config.threshold_policy,
+                "required": input_config.required,
+                "baseline_predictions": path_metadata(input_config.baseline_predictions_path),
+                "binary_predictions": path_metadata(input_config.binary_predictions_path),
+                "binary_calibration_model": path_metadata(
+                    input_config.binary_calibration_model_path
+                ),
+                "hurdle_predictions": path_metadata(input_config.hurdle_predictions_path),
+                "label_path": path_metadata(input_config.label_path)
+                if input_config.label_path is not None
+                else None,
+                "config_path": path_metadata(input_config.config_path, content_hash=True)
+                if input_config.config_path is not None
+                else None,
+            }
+            for input_config in phase2_config.pooled_context.inputs
+        ]
+    return payload
+
+
+def phase2_cache_outputs_payload(phase2_config: Phase2ReportConfig) -> dict[str, object]:
+    """Return configured diagnostic table output paths."""
+    outputs: dict[str, object] = {}
+    if phase2_config.component_failure is not None:
+        component = phase2_config.component_failure
+        outputs["component_failure"] = {
+            "summary": str(component.summary_path),
+            "by_label_context": str(component.by_label_context_path),
+            "by_domain_context": str(component.by_domain_context_path),
+            "by_spatial_context": str(component.by_spatial_context_path),
+            "by_model_context": str(component.by_model_context_path),
+            "edge_effect_diagnostics": str(component.edge_effect_path),
+            "temporal_label_context": str(component.temporal_label_context_path),
+            "manifest": str(component.manifest_path),
+        }
+    if phase2_config.pooled_context is not None:
+        pooled = phase2_config.pooled_context
+        outputs["pooled_context"] = {
+            "performance": str(pooled.performance_path),
+            "binary_context": str(pooled.binary_context_path),
+            "amount_context": str(pooled.amount_context_path),
+            "prediction_distribution": str(pooled.prediction_distribution_path),
+            "manifest": str(pooled.manifest_path),
+        }
+    return outputs
+
+
+def phase2_cache_paths_payload(
+    cache_config: Phase2DiagnosticsCacheConfig,
+) -> dict[str, object]:
+    """Return cache frame and manifest paths for metadata."""
+    return {
+        "component_frame_dir": str(cache_config.component_frame_dir),
+        "pooled_context_frame_dir": str(cache_config.pooled_context_frame_dir),
+        "manifest": str(cache_config.manifest_path),
+    }
+
+
+def phase2_cache_required_paths(phase2_config: Phase2ReportConfig) -> list[Path]:
+    """Return paths that must exist before cached diagnostics can be reused."""
+    cache_config = phase2_config.diagnostics_cache
+    if cache_config is None:
+        return []
+    required: list[Path] = [cache_config.manifest_path]
+    if phase2_config.component_failure is not None:
+        component = phase2_config.component_failure
+        required.extend(
+            [
+                component.summary_path,
+                component.by_label_context_path,
+                component.by_domain_context_path,
+                component.by_spatial_context_path,
+                component.by_model_context_path,
+                component.edge_effect_path,
+                component.temporal_label_context_path,
+                component.manifest_path,
+            ]
+        )
+    if phase2_config.pooled_context is not None:
+        pooled = phase2_config.pooled_context
+        required.extend(
+            [
+                pooled.performance_path,
+                pooled.binary_context_path,
+                pooled.amount_context_path,
+                pooled.prediction_distribution_path,
+                pooled.manifest_path,
+            ]
+        )
+    return required
+
+
+def phase2_cache_manifest_frame_paths(manifest: dict[str, Any] | None) -> list[Path]:
+    """Return frame paths that the cache manifest says were written."""
+    if manifest is None:
+        return []
+    frame_outputs = manifest.get("frame_outputs", {})
+    if not isinstance(frame_outputs, dict):
+        return []
+    paths: list[Path] = []
+    for key in ("component_failure", "pooled_context"):
+        entries = frame_outputs.get(key, [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict) or not bool(entry.get("wrote_frame", False)):
+                continue
+            output_path = entry.get("output_path")
+            if isinstance(output_path, str):
+                paths.append(Path(output_path))
+    return paths
+
+
+def read_component_failure_tables_from_outputs(
+    config: ComponentFailureConfig,
+) -> ComponentFailureTables:
+    """Read component-failure tables from configured CSV outputs."""
+    return ComponentFailureTables(
+        summary=read_required_csv_rows(config.summary_path),
+        by_label_context=read_required_csv_rows(config.by_label_context_path),
+        by_domain_context=read_required_csv_rows(config.by_domain_context_path),
+        by_spatial_context=read_required_csv_rows(config.by_spatial_context_path),
+        by_model_context=read_required_csv_rows(config.by_model_context_path),
+        edge_effect=read_required_csv_rows(config.edge_effect_path),
+        temporal_label_context=read_required_csv_rows(config.temporal_label_context_path),
+    )
+
+
+def read_pooled_context_tables_from_outputs(
+    config: PooledContextDiagnosticsConfig,
+) -> PooledContextDiagnosticsTables:
+    """Read pooled-context diagnostic tables from configured CSV outputs."""
+    return PooledContextDiagnosticsTables(
+        performance=read_required_csv_rows(config.performance_path),
+        binary_context=read_required_csv_rows(config.binary_context_path),
+        amount_context=read_required_csv_rows(config.amount_context_path),
+        prediction_distribution=read_required_csv_rows(config.prediction_distribution_path),
+    )
+
+
+def read_required_csv_rows(path: Path) -> list[dict[str, object]]:
+    """Read a required CSV table, preserving cached string values."""
+    if not path.exists():
+        msg = f"required cached Phase 2 diagnostic table is missing: {path}"
+        raise FileNotFoundError(msg)
+    frame = pd.read_csv(path, keep_default_na=False)
+    return cast(list[dict[str, object]], frame.to_dict("records"))
 
 
 def read_phase2_training_regime_primary(
@@ -5790,14 +6357,8 @@ def write_pooled_context_metric_breakdown_figure(
         plt.close(fig)
         return
 
-    panels = [
-        (region, surface)
-        for region in regions
-        for surface in POOLED_CONTEXT_METRIC_SURFACES
-    ]
-    row_heights = [
-        max(2.4, 0.44 * len(values) + 1.2) for values in context_values.values()
-    ]
+    panels = [(region, surface) for region in regions for surface in POOLED_CONTEXT_METRIC_SURFACES]
+    row_heights = [max(2.4, 0.44 * len(values) + 1.2) for values in context_values.values()]
     fig, axes = plt.subplots(
         len(context_values),
         len(panels),
@@ -5813,8 +6374,7 @@ def write_pooled_context_metric_breakdown_figure(
             axis = axes[row_index][column_index]
             row_lookup = pooled_context_metric_lookup(tables, context_type, region, surface)
             metric_values = [
-                pooled_context_metric_value(row_lookup.get(value, {}), surface)
-                for value in values
+                pooled_context_metric_value(row_lookup.get(value, {}), surface) for value in values
             ]
             plot_values = [
                 plot_fraction(value) if surface == "binary" else plot_area(value)
@@ -5846,8 +6406,7 @@ def write_pooled_context_metric_breakdown_figure(
             if column_index == 0:
                 axis.set_ylabel(phase2_context_type_label(context_type), fontsize=10)
     fig.suptitle(
-        "Pooled context error metrics by model surface | "
-        "binary uses F1, ridge and hurdle use RMSE"
+        "Pooled context error metrics by model surface | binary uses F1, ridge and hurdle use RMSE"
     )
     fig.savefig(output_path, dpi=180)
     plt.close(fig)
@@ -5859,17 +6418,11 @@ def pooled_context_metric_regions(tables: AnalysisTables) -> list[str]:
         return []
     rows = tables.pooled_context.binary_context + tables.pooled_context.amount_context
     return pooled_distribution_regions(
-        [
-            row
-            for row in rows
-            if str(row.get("training_regime", "")) == "pooled_monterey_big_sur"
-        ]
+        [row for row in rows if str(row.get("training_regime", "")) == "pooled_monterey_big_sur"]
     )
 
 
-def pooled_context_metric_values(
-    tables: AnalysisTables, context_type: str
-) -> list[str]:
+def pooled_context_metric_values(tables: AnalysisTables, context_type: str) -> list[str]:
     """Return context values with pooled binary F1 or continuous RMSE rows."""
     if tables.pooled_context is None:
         return []
@@ -6042,13 +6595,9 @@ def write_pooled_prediction_distribution_figure(
     plt.close(fig)
 
 
-def write_pooled_binary_probability_panel(
-    axis: Any, rows: list[dict[str, object]]
-) -> None:
+def write_pooled_binary_probability_panel(axis: Any, rows: list[dict[str, object]]) -> None:
     """Write the binary probability distribution panel."""
-    binary_rows = [
-        row for row in rows if str(row.get("model_surface", "")) == "binary"
-    ]
+    binary_rows = [row for row in rows if str(row.get("model_surface", "")) == "binary"]
     regions = pooled_distribution_regions(binary_rows)
     if not regions:
         write_empty_plot_panel(axis, "No binary probability rows")
@@ -6056,12 +6605,10 @@ def write_pooled_binary_probability_panel(
     lookup = {str(row.get("evaluation_region", "")): row for row in binary_rows}
     x_values = np.arange(len(regions), dtype=float)
     mean_values = [
-        plot_fraction(row_float(lookup.get(region, {}), "predicted_mean"))
-        for region in regions
+        plot_fraction(row_float(lookup.get(region, {}), "predicted_mean")) for region in regions
     ]
     p95_values = [
-        plot_fraction(row_float(lookup.get(region, {}), "predicted_p95"))
-        for region in regions
+        plot_fraction(row_float(lookup.get(region, {}), "predicted_p95")) for region in regions
     ]
     width = 0.34
     axis.bar(x_values - width / 2, mean_values, width=width, label="Mean", color="#3b7ea1")
@@ -6078,12 +6625,12 @@ def write_pooled_binary_probability_panel(
     axis.legend()
 
 
-def write_pooled_overall_amount_p95_panel(
-    axis: Any, rows: list[dict[str, object]]
-) -> None:
+def write_pooled_overall_amount_p95_panel(axis: Any, rows: list[dict[str, object]]) -> None:
     """Write the full-grid amount p95 panel."""
     amount_rows = [
-        row for row in rows if str(row.get("model_surface", "")) in {"ridge", "hurdle_expected_value"}
+        row
+        for row in rows
+        if str(row.get("model_surface", "")) in {"ridge", "hurdle_expected_value"}
     ]
     regions = pooled_distribution_regions(amount_rows)
     if not regions:
@@ -6119,19 +6666,21 @@ def write_pooled_overall_amount_p95_panel(
     )
     axis.scatter(x_values, observed_values, color="black", marker="D", label="Observed", zorder=3)
     axis.set_xticks(x_values, [phase2_region_label(region) for region in regions])
-    axis.set_ylim(0.0, pooled_amount_axis_upper(ridge_values + hurdle_values + observed_values, 100.0))
+    axis.set_ylim(
+        0.0, pooled_amount_axis_upper(ridge_values + hurdle_values + observed_values, 100.0)
+    )
     axis.set_title("Full-grid p95")
     axis.set_ylabel("Canopy area (m2)")
     axis.grid(axis="y", color="#d9d9d9", linewidth=0.6)
     axis.legend()
 
 
-def write_pooled_high_canopy_p95_panel(
-    axis: Any, rows: list[dict[str, object]]
-) -> None:
+def write_pooled_high_canopy_p95_panel(axis: Any, rows: list[dict[str, object]]) -> None:
     """Write the high-canopy prediction p95 panel."""
     amount_rows = [
-        row for row in rows if str(row.get("model_surface", "")) in {"ridge", "hurdle_expected_value"}
+        row
+        for row in rows
+        if str(row.get("model_surface", "")) in {"ridge", "hurdle_expected_value"}
     ]
     regions = pooled_distribution_regions(amount_rows)
     if not regions:
@@ -6184,7 +6733,7 @@ def pooled_distribution_regions(rows: list[dict[str, object]]) -> list[str]:
 
 
 def pooled_surface_lookup(
-    rows: list[dict[str, object]]
+    rows: list[dict[str, object]],
 ) -> dict[tuple[str, str], dict[str, object]]:
     """Return pooled distribution rows keyed by evaluation region and model surface."""
     return {
@@ -6193,9 +6742,7 @@ def pooled_surface_lookup(
     }
 
 
-def first_pooled_region_row(
-    rows: list[dict[str, object]], region: str
-) -> dict[str, object]:
+def first_pooled_region_row(rows: list[dict[str, object]], region: str) -> dict[str, object]:
     """Return the first pooled distribution row for one evaluation region."""
     for row in rows:
         if str(row.get("evaluation_region", "")) == region:
@@ -8433,7 +8980,9 @@ def phase2_pooled_context_diagnostics_markdown(
 def phase2_pooled_remaining_failure_modes_markdown(tables: AnalysisTables) -> str:
     """Build the focused pooled-diagnostics failure-mode synthesis."""
     if tables.pooled_context is None:
-        return "Pooled diagnostics are not available, so remaining failure modes are not summarized."
+        return (
+            "Pooled diagnostics are not available, so remaining failure modes are not summarized."
+        )
     hurdle_rows = phase2_pooled_overall_lookup(
         tables.pooled_context.performance,
         "hurdle_expected_value",
@@ -8524,9 +9073,7 @@ def phase2_pooled_edge_lookup(
     return lookup
 
 
-def phase2_top_pooled_amount_context_rows(
-    rows: list[dict[str, object]]
-) -> list[dict[str, object]]:
+def phase2_top_pooled_amount_context_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     """Pick the largest amount-under row per pooled context family and region."""
     context_types = {
         "observed_annual_max_bin",
@@ -8650,7 +9197,9 @@ def phase2_count_percent(row: dict[str, object], count_key: str, rate_key: str) 
     """Format a count plus fractional rate for compact Phase 2 tables."""
     if not row:
         return "n/a"
-    return f"{format_integer(row_int(row, count_key))} ({format_percent(row_float(row, rate_key), 1)})"
+    return (
+        f"{format_integer(row_int(row, count_key))} ({format_percent(row_float(row, rate_key), 1)})"
+    )
 
 
 def phase2_optional_decimal(row: dict[str, object], key: str, digits: int) -> str:
@@ -8804,10 +9353,7 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
             pooled = phase2_config.pooled_context
             lines.extend(
                 [
-                    (
-                        "- Phase 2 pooled context model performance: "
-                        f"`{pooled.performance_path}`"
-                    ),
+                    (f"- Phase 2 pooled context model performance: `{pooled.performance_path}`"),
                     (
                         "- Phase 2 pooled context metric-breakdown figure: "
                         f"`{analysis_config.pooled_context_metric_breakdown_figure}`"
@@ -10761,6 +11307,9 @@ def write_manifest(
             **binary_presence_hex_row_counts(tables.binary_hex_map),
         },
     }
+    phase2_payload = payload.get("phase2")
+    if isinstance(phase2_payload, dict) and tables.phase2_diagnostics_cache is not None:
+        phase2_payload["diagnostics_cache"] = tables.phase2_diagnostics_cache
     if (
         analysis_config.phase2_report is not None
         and analysis_config.phase2_report.pooled_context is not None
@@ -10806,12 +11355,8 @@ def write_manifest(
         cast(dict[str, object], payload["outputs"]).update(
             {
                 "component_failure_summary": str(component_config.summary_path),
-                "component_failure_by_label_context": str(
-                    component_config.by_label_context_path
-                ),
-                "component_failure_by_domain_context": str(
-                    component_config.by_domain_context_path
-                ),
+                "component_failure_by_label_context": str(component_config.by_label_context_path),
+                "component_failure_by_domain_context": str(component_config.by_domain_context_path),
                 "component_failure_by_spatial_context": str(
                     component_config.by_spatial_context_path
                 ),

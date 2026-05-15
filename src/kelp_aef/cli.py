@@ -23,7 +23,7 @@ from kelp_aef.evaluation.baselines import (
 from kelp_aef.evaluation.binary_presence import calibrate_binary_presence, train_binary_presence
 from kelp_aef.evaluation.conditional_canopy import train_conditional_canopy
 from kelp_aef.evaluation.hurdle import compose_hurdle_model
-from kelp_aef.evaluation.model_analysis import analyze_model
+from kelp_aef.evaluation.model_analysis import analyze_model, build_phase2_diagnostics
 from kelp_aef.evaluation.pooled_regions import (
     build_pooled_region_sample,
     write_training_regime_comparison,
@@ -79,6 +79,7 @@ COMMANDS: dict[str, str] = {
     "evaluate-transfer": "Evaluate a frozen source-region policy on the target region.",
     "build-pooled-region-sample": "Build a pooled sample across configured regions.",
     "compare-training-regimes": "Combine local, transfer, and pooled training-regime summaries.",
+    "build-phase2-diagnostics": "Build cached Phase 2 diagnostic frames and tables.",
     "map-residuals": "Map baseline predictions, residuals, and area bias.",
     "visualize-results": "Build a local interactive viewer for labels and model results.",
     "analyze-model": "Analyze model behavior and write the Phase 1 report.",
@@ -207,6 +208,10 @@ def build_parser() -> argparse.ArgumentParser:
             add_predict_full_grid_arguments(subparser)
         if command == "evaluate-transfer":
             add_evaluate_transfer_arguments(subparser)
+        if command == "build-phase2-diagnostics":
+            add_build_phase2_diagnostics_arguments(subparser)
+        if command == "analyze-model":
+            add_analyze_model_arguments(subparser)
 
     return parser
 
@@ -676,6 +681,30 @@ def add_evaluate_transfer_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_build_phase2_diagnostics_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add cache-building options to the build-phase2-diagnostics subcommand."""
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Rebuild Phase 2 diagnostic frames even when the cache manifest is fresh.",
+    )
+
+
+def add_analyze_model_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add model-analysis report iteration options."""
+    parser.add_argument(
+        "--reuse-phase2-diagnostics",
+        action="store_true",
+        default=None,
+        help="Reuse a fresh Phase 2 diagnostics cache instead of rebuilding row annotations.",
+    )
+    parser.add_argument(
+        "--refresh-phase2-diagnostics",
+        action="store_true",
+        help="Rebuild Phase 2 diagnostic frame caches before rendering the report.",
+    )
+
+
 def run_scaffold_command(command: str, config_path: Path) -> int:
     """Run a CLI command scaffold until the pipeline step is implemented."""
     LOGGER.info("%s: using config %s", command, config_path)
@@ -853,12 +882,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_code = build_pooled_region_sample(config_path)
         elif command == "compare-training-regimes":
             exit_code = write_training_regime_comparison(config_path)
+        elif command == "build-phase2-diagnostics":
+            exit_code = build_phase2_diagnostics(config_path, force=bool(args.force))
         elif command == "map-residuals":
             exit_code = map_residuals(config_path)
         elif command == "visualize-results":
             exit_code = visualize_results(config_path)
         elif command == "analyze-model":
-            exit_code = analyze_model(config_path)
+            if args.reuse_phase2_diagnostics is True and bool(args.refresh_phase2_diagnostics):
+                msg = (
+                    "--reuse-phase2-diagnostics and --refresh-phase2-diagnostics "
+                    "cannot be used together"
+                )
+                raise ValueError(msg)
+            exit_code = analyze_model(
+                config_path,
+                reuse_phase2_diagnostics=args.reuse_phase2_diagnostics,
+                refresh_phase2_diagnostics=bool(args.refresh_phase2_diagnostics),
+            )
         else:
             exit_code = run_scaffold_command(command, config_path)
     except Exception:

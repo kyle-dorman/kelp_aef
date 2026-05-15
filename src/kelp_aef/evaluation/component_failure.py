@@ -434,6 +434,14 @@ def read_float_tuple(value: object, default: tuple[float, ...]) -> tuple[float, 
 def build_component_failure_tables(config: ComponentFailureConfig) -> ComponentFailureTables:
     """Build all component-failure aggregates for configured contexts."""
     frames = [read_component_failure_frame(input_config, config) for input_config in config.inputs]
+    return build_component_failure_tables_from_frames(frames, config)
+
+
+def build_component_failure_tables_from_frames(
+    frames: list[pd.DataFrame],
+    config: ComponentFailureConfig,
+) -> ComponentFailureTables:
+    """Build component-failure aggregates from annotated context frames."""
     frames = [frame for frame in frames if not frame.empty]
     if not frames:
         return ComponentFailureTables([], [], [], [], [], [], [])
@@ -499,6 +507,72 @@ def build_component_failure_tables(config: ComponentFailureConfig) -> ComponentF
             fields=COMPONENT_TEMPORAL_FIELDS,
         ),
     )
+
+
+def component_failure_frame_cache_path(
+    cache_dir: Path, input_config: ComponentFailureInput
+) -> Path:
+    """Return the cache file path for one component-failure context frame."""
+    return cache_dir / f"{input_config.context_id}.parquet"
+
+
+def write_component_failure_frame_cache(
+    config: ComponentFailureConfig,
+    cache_dir: Path,
+) -> tuple[list[pd.DataFrame], list[dict[str, object]]]:
+    """Write annotated component-failure frames and return frame metadata."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    frames: list[pd.DataFrame] = []
+    metadata: list[dict[str, object]] = []
+    for input_config in config.inputs:
+        frame = read_component_failure_frame(input_config, config)
+        frames.append(frame)
+        output_path = component_failure_frame_cache_path(cache_dir, input_config)
+        wrote_frame = not frame.empty
+        if wrote_frame:
+            parquet_safe_cache_frame(frame).to_parquet(output_path, index=False)
+        metadata.append(
+            {
+                "context_id": input_config.context_id,
+                "output_path": str(output_path),
+                "row_count": int(len(frame)),
+                "wrote_frame": wrote_frame,
+            }
+        )
+    return frames, metadata
+
+
+def read_component_failure_frame_cache(
+    config: ComponentFailureConfig,
+    cache_dir: Path,
+) -> list[pd.DataFrame]:
+    """Read annotated component-failure frames from the configured cache."""
+    frames: list[pd.DataFrame] = []
+    for input_config in config.inputs:
+        path = component_failure_frame_cache_path(cache_dir, input_config)
+        if not path.exists():
+            if input_config.required:
+                msg = f"required component-failure cache frame is missing: {path}"
+                raise FileNotFoundError(msg)
+            frames.append(pd.DataFrame())
+            continue
+        frames.append(cast(pd.DataFrame, pd.read_parquet(path)))
+    return frames
+
+
+def parquet_safe_cache_frame(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Return a frame whose mixed object columns can be serialized to Parquet."""
+    output = dataframe.copy()
+    for column in output.columns:
+        if not pd.api.types.is_object_dtype(output[column]):
+            continue
+        values = output[column].dropna()
+        value_types = {type(value) for value in values}
+        if len(value_types) > 1:
+            output[column] = output[column].map(
+                lambda value: None if pd.isna(value) else str(value)
+            )
+    return output
 
 
 def read_component_failure_frame(
@@ -1028,20 +1102,19 @@ def add_failure_flags(frame: pd.DataFrame, tolerance_m2: float) -> None:
     detected_observed_positive = observed_positive & predicted_positive
     frame["support_miss_positive"] = observed_positive & ~predicted_positive
     frame["support_leakage_zero"] = (observed == 0) & predicted_positive
-    frame["amount_underprediction_detected_positive"] = (
-        detected_observed_positive & (expected_residual > tolerance_m2)
+    frame["amount_underprediction_detected_positive"] = detected_observed_positive & (
+        expected_residual > tolerance_m2
     )
-    frame["amount_overprediction_low_or_zero"] = (
-        (observed < ANNUAL_MAX_10PCT_AREA_M2) & ((expected - observed) > tolerance_m2)
+    frame["amount_overprediction_low_or_zero"] = (observed < ANNUAL_MAX_10PCT_AREA_M2) & (
+        (expected - observed) > tolerance_m2
     )
     frame["composition_shrinkage"] = (
         detected_observed_positive
         & (conditional - expected >= tolerance_m2)
         & (conditional >= ANNUAL_MAX_50PCT_AREA_M2 / 2)
     )
-    frame["high_confidence_wrong"] = (
-        ((probability >= 0.90) & ~observed_positive)
-        | ((probability < 0.10) & observed_positive)
+    frame["high_confidence_wrong"] = ((probability >= 0.90) & ~observed_positive) | (
+        (probability < 0.10) & observed_positive
     )
     frame["near_correct"] = frame["expected_value_residual"].abs() <= tolerance_m2
 
@@ -1093,9 +1166,7 @@ def add_component_spatial_context(dataframe: pd.DataFrame, grid_cell_size_m: flo
     observed_grid = np.zeros(shape, dtype=bool)
     predicted_grid = np.zeros(shape, dtype=bool)
     retained_grid[row_offsets, col_offsets] = True
-    observed_grid[row_offsets, col_offsets] = frame["observed_binary_positive"].to_numpy(
-        dtype=bool
-    )
+    observed_grid[row_offsets, col_offsets] = frame["observed_binary_positive"].to_numpy(dtype=bool)
     predicted_grid[row_offsets, col_offsets] = frame["predicted_binary_positive"].to_numpy(
         dtype=bool
     )
@@ -1360,9 +1431,7 @@ def component_aggregate_row(
             "observed_positive_count": int(np.count_nonzero(observed_positive)),
             "observed_zero_count": int(np.count_nonzero(observed == 0)),
             "predicted_positive_count": int(np.count_nonzero(predicted_positive)),
-            "detected_observed_positive_count": int(
-                np.count_nonzero(detected_observed_positive)
-            ),
+            "detected_observed_positive_count": int(np.count_nonzero(detected_observed_positive)),
             "observed_canopy_area": observed_area,
             "conditional_predicted_area": float(np.nansum(conditional)),
             "expected_value_predicted_area": expected_area,
@@ -1659,8 +1728,7 @@ def component_failure_manifest(
             "near_correct_tolerance_m2": config.tolerance_m2,
             "grid_cell_size_m": config.grid_cell_size_m,
             "edge_class": (
-                "derived from retained-grid 3x3 and 5x5 observed "
-                "annual_max_ge_10pct neighborhoods"
+                "derived from retained-grid 3x3 and 5x5 observed annual_max_ge_10pct neighborhoods"
             ),
             "distance": (
                 "Euclidean grid-cell distance to nearest observed or predicted "
@@ -1722,9 +1790,11 @@ def component_failure_report_markdown(
     rows = required_rows if required_rows else tables.summary
     dominant = sorted(
         rows,
-        key=lambda row: row_number(row, "amount_underprediction_detected_positive_count")
-        + row_number(row, "support_miss_positive_count")
-        + row_number(row, "support_leakage_zero_count"),
+        key=lambda row: (
+            row_number(row, "amount_underprediction_detected_positive_count")
+            + row_number(row, "support_miss_positive_count")
+            + row_number(row, "support_leakage_zero_count")
+        ),
         reverse=True,
     )
     edge_rows = {str(row.get("context_id")): row for row in tables.edge_effect}

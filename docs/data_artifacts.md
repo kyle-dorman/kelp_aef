@@ -336,6 +336,9 @@ Expected Big Sur artifact categories:
 | Big Sur model outputs | `/Volumes/x10pro/kelp_aef/processed/*big_sur*.parquet` and `/Volumes/x10pro/kelp_aef/models/*big_sur*` | Region-scoped predictions and model payloads keyed by training regime, such as Monterey-trained transfer, Big Sur-only, or pooled Monterey+Big Sur. | Not tracked |
 | Big Sur report outputs | `/Volumes/x10pro/kelp_aef/reports/tables/*big_sur*`, `/Volumes/x10pro/kelp_aef/reports/figures/*big_sur*`, and `/Volumes/x10pro/kelp_aef/reports/model_analysis/*big_sur*` | Big Sur and Monterey-vs-Big-Sur comparison tables, figures, and reports. | Not tracked |
 | Big Sur visualizer | `/Volumes/x10pro/kelp_aef/reports/interactive/big_sur_results_visualizer.html` or a multi-region visualizer path declared in config | Local qualitative review of Big Sur retained-domain labels, predictions, residuals, and binary outcomes. | Not tracked |
+| Phase 2 component-failure frame cache | `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_component_failure_frames/` | Per-context annotated row frames used to rebuild component-failure diagnostic tables without rereading and reannotating full-grid prediction artifacts. | Not tracked |
+| Phase 2 pooled-context frame cache | `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_pooled_context_frames/` | Per-context annotated pooled rows with aligned binary, ridge, and expected-value hurdle surfaces for fast report iteration. | Not tracked |
+| Phase 2 diagnostics cache manifest | `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_diagnostics_cache_manifest.json` | Input path freshness metadata, config/code hashes, primary filters, cache paths, row counts, and cache-reuse status for component-failure and pooled-context diagnostics. | Not tracked |
 
 If Phase 2 promotes a multi-region visualizer, its manifest must record which
 regions and years are included so downstream review does not confuse Monterey

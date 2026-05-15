@@ -903,6 +903,9 @@ reports:
     model_analysis_html_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.html
     model_analysis_pdf_report: /Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.pdf
     model_analysis_manifest: /Volumes/x10pro/kelp_aef/interim/big_sur_model_analysis_manifest.json
+    phase2_component_failure_frame_cache: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_component_failure_frames
+    phase2_pooled_context_frame_cache: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_pooled_context_frames
+    phase2_diagnostics_cache_manifest: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_diagnostics_cache_manifest.json
     model_analysis_label_distribution_by_stage: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_label_distribution_by_stage.csv
     model_analysis_target_framing_summary: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_target_framing_summary.csv
     model_analysis_residual_by_observed_bin: /Volumes/x10pro/kelp_aef/reports/tables/big_sur_model_analysis_residual_by_observed_bin.csv

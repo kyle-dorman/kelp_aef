@@ -74,6 +74,7 @@ kelp-aef compose-hurdle-model --config configs/monterey_smoke.yaml
 kelp-aef map-residuals --config configs/monterey_smoke.yaml
 kelp-aef visualize-results --config configs/monterey_smoke.yaml
 kelp-aef analyze-model --config configs/monterey_smoke.yaml
+kelp-aef build-phase2-diagnostics --config configs/big_sur_smoke.yaml
 kelp-aef query-noaa-cudem --config configs/monterey_smoke.yaml
 kelp-aef download-noaa-cudem --config configs/monterey_smoke.yaml
 kelp-aef query-noaa-cusp --config configs/monterey_smoke.yaml

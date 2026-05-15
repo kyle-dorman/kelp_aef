@@ -439,7 +439,7 @@ Phase 2 non-goals:
     `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png`
     and
     `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_prediction_distribution.png`.
-- [ ] P2-11d: Cache Phase 2 diagnostics for fast report iteration.
+- [x] P2-11d: Cache Phase 2 diagnostics for fast report iteration.
   - Goal: Split expensive Phase 2 diagnostic derivation from report rendering
     so report text, layout, and plot iterations can reuse valid component-
     failure and pooled-context diagnostics instead of rebuilding full-grid row
@@ -453,6 +453,19 @@ Phase 2 non-goals:
     failure and pooled-context row annotation; stale caches are rebuilt or
     rejected explicitly; cached Big Sur report iteration targets under `15s`.
   - Plan: `tasks/59_cache_phase2_diagnostics_for_fast_report_iteration.md`.
+  - Completed: added a `build-phase2-diagnostics` command plus
+    `analyze-model --reuse-phase2-diagnostics` and
+    `--refresh-phase2-diagnostics`. The Big Sur config now declares component
+    and pooled frame caches under `/Volumes/x10pro/kelp_aef/interim/` plus a
+    combined freshness manifest. The first cache build wrote six component
+    frames, two pooled-context frames, all existing component/pooled CSV tables,
+    and
+    `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_diagnostics_cache_manifest.json`.
+    The manifest records path/size/mtime input metadata, config/code hashes,
+    primary filters, cache paths, and row counts. A cached report rerun reused
+    the manifest and regenerated the Big Sur report in about `10s` on the
+    second steady-state run, avoiding the former component/pooled row
+    annotation rebuild.
 - [ ] P2-11e: Refine pooled context diagnostic plots after report caching.
   - Goal: Redesign the `Pooled Context Diagnostics` plot for combined
     Monterey+Big Sur pooled evaluation rows, using meaningful context-value
