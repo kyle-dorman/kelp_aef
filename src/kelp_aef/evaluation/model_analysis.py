@@ -111,6 +111,20 @@ PERSISTENCE_CLASS_ORDER = (
     "persistent_all_valid_quarters",
     "missing_quarters",
 )
+POOLED_CONTEXT_METRIC_FAMILIES = (
+    "observed_annual_max_bin",
+    "temporal_label_class",
+    "previous_year_class",
+    "crm_depth_m_bin",
+    "elevation_bin",
+    "binary_outcome",
+    "component_failure_class",
+)
+POOLED_CONTEXT_METRIC_SURFACES = (
+    "binary",
+    "ridge",
+    "hurdle_expected_value",
+)
 PHASE1_MODEL_DISPLAY_ORDER = (
     "no_skill_train_mean",
     "previous_year_annual_max",
@@ -782,6 +796,8 @@ class ModelAnalysisConfig:
     class_balance_figure: Path
     binary_threshold_comparison_figure: Path
     residual_domain_context_figure: Path
+    pooled_context_metric_breakdown_figure: Path
+    pooled_prediction_distribution_figure: Path
     observed_predicted_residual_map_figure: Path
     residual_interactive_html: Path
     top_residual_count: int
@@ -1269,6 +1285,16 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             outputs,
             "model_analysis_residual_by_domain_context_figure",
             figures_dir / "model_analysis_residual_by_domain_context.png",
+        ),
+        pooled_context_metric_breakdown_figure=output_path(
+            outputs,
+            "model_analysis_phase2_pooled_context_metric_breakdown_figure",
+            figures_dir / "monterey_big_sur_pooled_context_metric_breakdown.png",
+        ),
+        pooled_prediction_distribution_figure=output_path(
+            outputs,
+            "model_analysis_phase2_pooled_prediction_distribution_figure",
+            figures_dir / "monterey_big_sur_pooled_prediction_distribution.png",
         ),
         observed_predicted_residual_map_figure=masked_output_path(
             outputs,
@@ -5246,6 +5272,8 @@ def write_analysis_figures(
     write_class_balance_figure(tables, analysis_config)
     write_binary_threshold_comparison_figure(tables, analysis_config)
     write_residual_domain_context_figure(tables, analysis_config)
+    write_pooled_context_metric_breakdown_figure(tables, analysis_config)
+    write_pooled_prediction_distribution_figure(tables, analysis_config)
 
 
 def write_label_distribution_figure(
@@ -5738,6 +5766,471 @@ def write_residual_domain_context_figure(
     plt.close(fig)
 
 
+def write_pooled_context_metric_breakdown_figure(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> None:
+    """Write full pooled context metric bar charts by model surface."""
+    if tables.pooled_context is None:
+        return
+    output_path = analysis_config.pooled_context_metric_breakdown_figure
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    context_values = {
+        context_type: pooled_context_metric_values(tables, context_type)
+        for context_type in POOLED_CONTEXT_METRIC_FAMILIES
+    }
+    context_values = {
+        context_type: values for context_type, values in context_values.items() if values
+    }
+    regions = pooled_context_metric_regions(tables)
+    if not context_values or not regions:
+        fig, axis = plt.subplots(figsize=(8, 4), constrained_layout=True)
+        axis.text(0.5, 0.5, "No pooled context metric rows", ha="center", va="center")
+        axis.set_axis_off()
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+        return
+
+    panels = [
+        (region, surface)
+        for region in regions
+        for surface in POOLED_CONTEXT_METRIC_SURFACES
+    ]
+    row_heights = [
+        max(2.4, 0.44 * len(values) + 1.2) for values in context_values.values()
+    ]
+    fig, axes = plt.subplots(
+        len(context_values),
+        len(panels),
+        figsize=(4.2 * len(panels), sum(row_heights)),
+        squeeze=False,
+        constrained_layout=True,
+        gridspec_kw={"height_ratios": row_heights},
+    )
+    for row_index, (context_type, values) in enumerate(context_values.items()):
+        rmse_limit = pooled_context_rmse_axis_upper(tables, context_type, values)
+        y_positions = np.arange(len(values), dtype=float)
+        for column_index, (region, surface) in enumerate(panels):
+            axis = axes[row_index][column_index]
+            row_lookup = pooled_context_metric_lookup(tables, context_type, region, surface)
+            metric_values = [
+                pooled_context_metric_value(row_lookup.get(value, {}), surface)
+                for value in values
+            ]
+            plot_values = [
+                plot_fraction(value) if surface == "binary" else plot_area(value)
+                for value in metric_values
+            ]
+            axis.barh(
+                y_positions,
+                plot_values,
+                color=pooled_context_metric_color(surface),
+                height=0.72,
+            )
+            annotate_pooled_context_metric_bars(axis, metric_values, y_positions, surface)
+            axis.set_yticks(y_positions)
+            if column_index % len(POOLED_CONTEXT_METRIC_SURFACES) == 0:
+                axis.set_yticklabels(
+                    [pooled_context_value_label(value) for value in values],
+                    fontsize=8,
+                )
+            else:
+                axis.set_yticklabels([])
+            axis.invert_yaxis()
+            configure_pooled_context_metric_axis(axis, surface, rmse_limit)
+            if row_index == 0:
+                axis.set_title(
+                    f"{phase2_region_label(region)}\n"
+                    f"{pooled_context_metric_surface_label(surface)}",
+                    fontsize=10,
+                )
+            if column_index == 0:
+                axis.set_ylabel(phase2_context_type_label(context_type), fontsize=10)
+    fig.suptitle(
+        "Pooled context error metrics by model surface | "
+        "binary uses F1, ridge and hurdle use RMSE"
+    )
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def pooled_context_metric_regions(tables: AnalysisTables) -> list[str]:
+    """Return evaluation regions represented in pooled context metric rows."""
+    if tables.pooled_context is None:
+        return []
+    rows = tables.pooled_context.binary_context + tables.pooled_context.amount_context
+    return pooled_distribution_regions(
+        [
+            row
+            for row in rows
+            if str(row.get("training_regime", "")) == "pooled_monterey_big_sur"
+        ]
+    )
+
+
+def pooled_context_metric_values(
+    tables: AnalysisTables, context_type: str
+) -> list[str]:
+    """Return context values with pooled binary F1 or continuous RMSE rows."""
+    if tables.pooled_context is None:
+        return []
+    values = {
+        str(row.get("context_value", ""))
+        for row in tables.pooled_context.binary_context
+        if pooled_context_metric_row_matches(row, context_type, "binary")
+    }
+    values.update(
+        str(row.get("context_value", ""))
+        for row in tables.pooled_context.amount_context
+        if str(row.get("model_surface", "")) in {"ridge", "hurdle_expected_value"}
+        and pooled_context_metric_row_matches(row, context_type, str(row.get("model_surface", "")))
+    )
+    return sorted(
+        (value for value in values if value and value != "all"),
+        key=lambda value: pooled_context_value_sort_key(context_type, value),
+    )
+
+
+def pooled_context_metric_lookup(
+    tables: AnalysisTables,
+    context_type: str,
+    region: str,
+    surface: str,
+) -> dict[str, dict[str, object]]:
+    """Return pooled context metric rows keyed by context value."""
+    if tables.pooled_context is None:
+        return {}
+    source_rows = (
+        tables.pooled_context.binary_context
+        if surface == "binary"
+        else tables.pooled_context.amount_context
+    )
+    return {
+        str(row.get("context_value", "")): row
+        for row in source_rows
+        if pooled_context_metric_row_matches(row, context_type, surface)
+        and str(row.get("evaluation_region", "")) == region
+    }
+
+
+def pooled_context_metric_row_matches(
+    row: dict[str, object], context_type: str, surface: str
+) -> bool:
+    """Return whether one pooled context row belongs in the metric breakdown."""
+    return (
+        str(row.get("training_regime", "")) == "pooled_monterey_big_sur"
+        and str(row.get("context_type", "")) == context_type
+        and str(row.get("model_surface", "")) == surface
+    )
+
+
+def pooled_context_metric_value(row: dict[str, object], surface: str) -> float:
+    """Return F1 for binary rows and RMSE for continuous rows."""
+    if surface == "binary":
+        return row_float(row, "f1")
+    return row_float(row, "rmse")
+
+
+def configure_pooled_context_metric_axis(axis: Any, surface: str, rmse_limit: float) -> None:
+    """Configure x-axis units for a pooled context metric panel."""
+    if surface == "binary":
+        axis.set_xlim(0.0, 1.0)
+        axis.set_xticks([0.0, 0.5, 1.0], ["0", "0.5", "1.0"])
+        axis.set_xlabel("F1")
+    else:
+        axis.set_xlim(0.0, rmse_limit)
+        axis.set_xlabel("RMSE (m2)")
+    axis.grid(axis="x", color="#d9d9d9", linewidth=0.6)
+
+
+def annotate_pooled_context_metric_bars(
+    axis: Any, values: list[float], y_positions: np.ndarray, surface: str
+) -> None:
+    """Annotate pooled context metric bars while preserving missing values."""
+    for value, y_position in zip(values, y_positions, strict=True):
+        if not np.isfinite(value):
+            axis.text(0.02, y_position, "n/a", va="center", ha="left", fontsize=7)
+            continue
+        label = f"{value:.2f}" if surface == "binary" else f"{value:.0f}"
+        x_position = min(value + 0.025, 0.98) if surface == "binary" else value
+        horizontal_alignment = "left"
+        if surface == "binary" and value > 0.9:
+            horizontal_alignment = "right"
+            x_position = 0.98
+        axis.text(
+            x_position,
+            y_position,
+            label,
+            va="center",
+            ha=horizontal_alignment,
+            fontsize=7,
+        )
+
+
+def pooled_context_rmse_axis_upper(
+    tables: AnalysisTables, context_type: str, values: list[str]
+) -> float:
+    """Return a shared RMSE axis limit for one context-family row."""
+    if tables.pooled_context is None:
+        return 100.0
+    rmse_values = [
+        row_float(row, "rmse")
+        for row in tables.pooled_context.amount_context
+        if str(row.get("training_regime", "")) == "pooled_monterey_big_sur"
+        and str(row.get("context_type", "")) == context_type
+        and str(row.get("context_value", "")) in values
+        and str(row.get("model_surface", "")) in {"ridge", "hurdle_expected_value"}
+    ]
+    return pooled_amount_axis_upper([plot_area(value) for value in rmse_values], 100.0)
+
+
+def pooled_context_metric_color(surface: str) -> str:
+    """Return the display color for one pooled context metric surface."""
+    colors = {
+        "binary": "#3b7ea1",
+        "ridge": "#756bb1",
+        "hurdle_expected_value": "#2f8f6b",
+    }
+    return colors.get(surface, "#737373")
+
+
+def pooled_context_metric_surface_label(surface: str) -> str:
+    """Return a compact panel label for one pooled context metric surface."""
+    labels = {
+        "binary": "Binary F1",
+        "ridge": "Ridge RMSE",
+        "hurdle_expected_value": "Hurdle RMSE",
+    }
+    return labels.get(surface, surface.replace("_", " "))
+
+
+def pooled_context_value_label(value: str) -> str:
+    """Return a compact context value label for pooled metric axes."""
+    return textwrap.shorten(value.replace("_", " "), width=30, placeholder="...")
+
+
+def pooled_context_value_sort_key(context_type: str, value: str) -> tuple[int, str]:
+    """Return stable display order for context values."""
+    if context_type == "temporal_label_class":
+        return (
+            PERSISTENCE_CLASS_ORDER.index(value)
+            if value in PERSISTENCE_CLASS_ORDER
+            else len(PERSISTENCE_CLASS_ORDER),
+            value,
+        )
+    if context_type == "binary_outcome":
+        order = {"TP": 0, "FN": 1, "FP": 2, "TN": 3}
+        return (order.get(value, len(order)), value)
+    return (0, value)
+
+
+def write_pooled_prediction_distribution_figure(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> None:
+    """Write pooled binary and amount prediction-distribution bar plots."""
+    if tables.pooled_context is None:
+        return
+    output_path = analysis_config.pooled_prediction_distribution_figure
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = phase2_overall_prediction_distribution_rows(tables.pooled_context)
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5.0), constrained_layout=True)
+    axes_list: list[Any] = list(np.atleast_1d(axes))
+    write_pooled_binary_probability_panel(axes_list[0], rows)
+    write_pooled_overall_amount_p95_panel(axes_list[1], rows)
+    write_pooled_high_canopy_p95_panel(axes_list[2], rows)
+    fig.suptitle("Pooled prediction distributions across support and amount surfaces")
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def write_pooled_binary_probability_panel(
+    axis: Any, rows: list[dict[str, object]]
+) -> None:
+    """Write the binary probability distribution panel."""
+    binary_rows = [
+        row for row in rows if str(row.get("model_surface", "")) == "binary"
+    ]
+    regions = pooled_distribution_regions(binary_rows)
+    if not regions:
+        write_empty_plot_panel(axis, "No binary probability rows")
+        return
+    lookup = {str(row.get("evaluation_region", "")): row for row in binary_rows}
+    x_values = np.arange(len(regions), dtype=float)
+    mean_values = [
+        plot_fraction(row_float(lookup.get(region, {}), "predicted_mean"))
+        for region in regions
+    ]
+    p95_values = [
+        plot_fraction(row_float(lookup.get(region, {}), "predicted_p95"))
+        for region in regions
+    ]
+    width = 0.34
+    axis.bar(x_values - width / 2, mean_values, width=width, label="Mean", color="#3b7ea1")
+    axis.bar(x_values + width / 2, p95_values, width=width, label="P95", color="#e07a32")
+    axis.set_xticks(x_values, [phase2_region_label(region) for region in regions])
+    axis.set_ylim(0.0, 1.0)
+    axis.set_yticks(
+        [0.0, 0.25, 0.5, 0.75, 1.0],
+        ["0%", "25%", "50%", "75%", "100%"],
+    )
+    axis.set_title("Binary support probabilities")
+    axis.set_ylabel("Calibrated probability")
+    axis.grid(axis="y", color="#d9d9d9", linewidth=0.6)
+    axis.legend()
+
+
+def write_pooled_overall_amount_p95_panel(
+    axis: Any, rows: list[dict[str, object]]
+) -> None:
+    """Write the full-grid amount p95 panel."""
+    amount_rows = [
+        row for row in rows if str(row.get("model_surface", "")) in {"ridge", "hurdle_expected_value"}
+    ]
+    regions = pooled_distribution_regions(amount_rows)
+    if not regions:
+        write_empty_plot_panel(axis, "No amount distribution rows")
+        return
+    lookup = pooled_surface_lookup(amount_rows)
+    x_values = np.arange(len(regions), dtype=float)
+    ridge_values = [
+        plot_area(row_float(lookup.get((region, "ridge"), {}), "predicted_p95"))
+        for region in regions
+    ]
+    hurdle_values = [
+        plot_area(row_float(lookup.get((region, "hurdle_expected_value"), {}), "predicted_p95"))
+        for region in regions
+    ]
+    observed_values = [
+        plot_area(
+            row_float(
+                first_pooled_region_row(amount_rows, region),
+                "observed_p95",
+            )
+        )
+        for region in regions
+    ]
+    width = 0.34
+    axis.bar(x_values - width / 2, ridge_values, width=width, label="AEF ridge", color="#756bb1")
+    axis.bar(
+        x_values + width / 2,
+        hurdle_values,
+        width=width,
+        label="Expected-value hurdle",
+        color="#2f8f6b",
+    )
+    axis.scatter(x_values, observed_values, color="black", marker="D", label="Observed", zorder=3)
+    axis.set_xticks(x_values, [phase2_region_label(region) for region in regions])
+    axis.set_ylim(0.0, pooled_amount_axis_upper(ridge_values + hurdle_values + observed_values, 100.0))
+    axis.set_title("Full-grid p95")
+    axis.set_ylabel("Canopy area (m2)")
+    axis.grid(axis="y", color="#d9d9d9", linewidth=0.6)
+    axis.legend()
+
+
+def write_pooled_high_canopy_p95_panel(
+    axis: Any, rows: list[dict[str, object]]
+) -> None:
+    """Write the high-canopy prediction p95 panel."""
+    amount_rows = [
+        row for row in rows if str(row.get("model_surface", "")) in {"ridge", "hurdle_expected_value"}
+    ]
+    regions = pooled_distribution_regions(amount_rows)
+    if not regions:
+        write_empty_plot_panel(axis, "No high-canopy distribution rows")
+        return
+    lookup = pooled_surface_lookup(amount_rows)
+    x_values = np.arange(len(regions), dtype=float)
+    ridge_values = [
+        plot_area(
+            row_float(
+                lookup.get((region, "ridge"), {}),
+                "observed_ge_450m2_prediction_p95",
+            )
+        )
+        for region in regions
+    ]
+    hurdle_values = [
+        plot_area(
+            row_float(
+                lookup.get((region, "hurdle_expected_value"), {}),
+                "observed_ge_450m2_prediction_p95",
+            )
+        )
+        for region in regions
+    ]
+    width = 0.34
+    axis.bar(x_values - width / 2, ridge_values, width=width, label="AEF ridge", color="#756bb1")
+    axis.bar(
+        x_values + width / 2,
+        hurdle_values,
+        width=width,
+        label="Expected-value hurdle",
+        color="#2f8f6b",
+    )
+    axis.axhline(KELPWATCH_PIXEL_AREA_M2, color="black", linewidth=0.8, linestyle="--")
+    axis.set_xticks(x_values, [phase2_region_label(region) for region in regions])
+    axis.set_ylim(0.0, pooled_amount_axis_upper(ridge_values + hurdle_values, 900.0))
+    axis.set_title("P95 where observed >=450 m2")
+    axis.set_ylabel("Predicted canopy area (m2)")
+    axis.grid(axis="y", color="#d9d9d9", linewidth=0.6)
+    axis.legend()
+
+
+def pooled_distribution_regions(rows: list[dict[str, object]]) -> list[str]:
+    """Return sorted evaluation regions represented in pooled diagnostic rows."""
+    return sorted(
+        {str(row.get("evaluation_region", "")) for row in rows if row.get("evaluation_region")},
+        key=phase2_region_sort_key,
+    )
+
+
+def pooled_surface_lookup(
+    rows: list[dict[str, object]]
+) -> dict[tuple[str, str], dict[str, object]]:
+    """Return pooled distribution rows keyed by evaluation region and model surface."""
+    return {
+        (str(row.get("evaluation_region", "")), str(row.get("model_surface", ""))): row
+        for row in rows
+    }
+
+
+def first_pooled_region_row(
+    rows: list[dict[str, object]], region: str
+) -> dict[str, object]:
+    """Return the first pooled distribution row for one evaluation region."""
+    for row in rows:
+        if str(row.get("evaluation_region", "")) == region:
+            return row
+    return {}
+
+
+def write_empty_plot_panel(axis: Any, message: str) -> None:
+    """Write an empty-panel message and hide axes."""
+    axis.text(0.5, 0.5, message, ha="center", va="center")
+    axis.set_axis_off()
+
+
+def plot_fraction(value: float) -> float:
+    """Return a finite 0-to-1 value for plotting rates and probabilities."""
+    if not np.isfinite(value):
+        return 0.0
+    return float(np.clip(value, 0.0, 1.0))
+
+
+def plot_area(value: float) -> float:
+    """Return a finite nonnegative area value for plotting."""
+    if not np.isfinite(value):
+        return 0.0
+    return max(float(value), 0.0)
+
+
+def pooled_amount_axis_upper(values: list[float], floor: float) -> float:
+    """Return a readable y-axis upper bound for pooled area panels."""
+    finite_values = [value for value in values if np.isfinite(value)]
+    if not finite_values:
+        return floor
+    return min(950.0, max(floor, max(finite_values) * 1.18))
+
+
 def write_report(
     data: AnalysisData, tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> None:
@@ -5932,31 +6425,57 @@ def write_phase2_report(
         "",
         phase2_executive_summary_markdown(tables, analysis_config),
         "",
-        "## Phase 2 Training-Regime Answer",
+        "## Phase 2 Training-Regime Gate",
+        "",
+        phase2_training_regime_gate_markdown(tables, analysis_config),
+        "",
+        "## Pooled Diagnostic Scope",
+        "",
+        phase2_pooled_diagnostic_scope_markdown(analysis_config),
+        "",
+        "## Pooled Binary Support Failures",
+        "",
+        phase2_pooled_binary_support_failures_markdown(
+            tables,
+            analysis_config,
+            output_path,
+        ),
+        "",
+        "## Pooled Amount And Hurdle Failures",
+        "",
+        phase2_pooled_amount_hurdle_failures_markdown(tables),
+        "",
+        "## Pooled Context Diagnostics",
+        "",
+        phase2_pooled_context_diagnostics_markdown(tables, analysis_config, output_path),
+        "",
+        "## Remaining Failure Modes",
+        "",
+        phase2_pooled_remaining_failure_modes_markdown(tables),
+        "",
+        "## Appendix",
+        "",
+        "### Column Definitions",
+        "",
+        phase2_column_definitions_markdown(analysis_config),
+        "",
+        "### Full Training-Regime Tables",
         "",
         phase2_training_regime_answer_markdown(tables, analysis_config),
         "",
-        "### Canopy Amount And Hurdle Calibration",
+        "#### Canopy Amount And Hurdle Calibration",
         "",
         phase2_amount_comparison_markdown(tables, analysis_config),
         "",
-        "### Binary Support Transfer",
+        "#### Binary Support Transfer",
         "",
         phase2_binary_support_markdown(tables, analysis_config),
         "",
-        "### Pooled Binary Support Hex Map",
-        "",
-        phase2_binary_hex_map_markdown(tables, analysis_config, output_path),
-        "",
-        "### Pooled Phase 2 Context Diagnostics",
-        "",
-        phase2_pooled_context_markdown(tables, analysis_config),
-        "",
-        "### Deep Component-Failure Analysis",
+        "### Full Deep Component-Failure Analysis",
         "",
         phase2_component_failure_markdown(tables, analysis_config),
         "",
-        "## Big Sur Same-Region Context",
+        "### Big Sur Same-Region Context",
         "",
         phase2_policy_scope_markdown(analysis_config),
         "",
@@ -5968,7 +6487,7 @@ def write_phase2_report(
             output_path,
         ),
         "",
-        "## Remaining Failure Modes",
+        "### Legacy Same-Region Failure-Mode Context",
         "",
         phase2_text_without_phase1_task_refs(
             phase2_remaining_failure_modes_markdown(tables, analysis_config, test_distribution)
@@ -5989,8 +6508,6 @@ def write_phase2_report(
             analysis_config.residual_domain_context_figure,
             output_path,
         ),
-        "",
-        "## Appendix",
         "",
         "### Data Health And Scope Checks",
         "",
@@ -7368,6 +7885,125 @@ def phase2_training_regime_answer_markdown(
     return "\n\n".join(lines)
 
 
+def phase2_training_regime_gate_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build one compact six-context Phase 2 gate table."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None:
+        return "Phase 2 training-regime inputs are not configured."
+    context_rows = phase2_gate_context_rows(tables)
+    if not context_rows:
+        return "Phase 2 training-regime primary rows were not available."
+    big_sur_local = phase2_amount_row(
+        tables.phase2_training_regime_primary,
+        evaluation_region="big_sur",
+        training_regime="big_sur_only",
+        model_name="calibrated_probability_x_conditional_canopy",
+    )
+    big_sur_pooled = phase2_amount_row(
+        tables.phase2_training_regime_primary,
+        evaluation_region="big_sur",
+        training_regime="pooled_monterey_big_sur",
+        model_name="calibrated_probability_x_conditional_canopy",
+    )
+    pooled_binary = phase2_binary_row(
+        tables.phase2_binary_support,
+        evaluation_region="big_sur",
+        training_regime="pooled_monterey_big_sur",
+    )
+    lines = [
+        (
+            f"Primary gate rows use `split = {phase2_config.primary_split}`, "
+            f"`year = {phase2_config.primary_year}`, "
+            f"`mask_status = {phase2_config.primary_mask_status}`, "
+            f"`evaluation_scope = {phase2_config.primary_evaluation_scope}`, and "
+            f"`label_source = {phase2_config.primary_label_source}`."
+        ),
+        (
+            "This is the only local/transfer/pooled comparison table in the main body. "
+            "It keeps the Phase 2 decision gate visible, then the rest of the report "
+            "uses pooled Monterey+Big Sur diagnostics as the forward-looking evaluation "
+            "surface."
+        ),
+        "",
+        (
+            "| Evaluation region | Training regime | Hurdle F1 >=10% | Hurdle RMSE | "
+            "Hurdle area bias | Binary precision | Binary recall | Binary F1 |"
+        ),
+        "|---|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for evaluation_region, training_regime in context_rows:
+        amount = phase2_amount_row(
+            tables.phase2_training_regime_primary,
+            evaluation_region=evaluation_region,
+            training_regime=training_regime,
+            model_name="calibrated_probability_x_conditional_canopy",
+        )
+        binary = phase2_binary_row(
+            tables.phase2_binary_support,
+            evaluation_region=evaluation_region,
+            training_regime=training_regime,
+        )
+        lines.append(
+            f"| {phase2_region_label(evaluation_region)} | "
+            f"{phase2_training_regime_label(training_regime)} | "
+            f"{format_decimal(row_float(amount, 'f1_ge_10pct'), 3)} | "
+            f"{format_decimal(row_float(amount, 'rmse'), 4)} | "
+            f"{format_percent(row_float(amount, 'area_pct_bias'), 1)} | "
+            f"{format_decimal(row_float(binary, 'precision'), 3)} | "
+            f"{format_decimal(row_float(binary, 'recall'), 3)} | "
+            f"{format_decimal(row_float(binary, 'f1'), 3)} |"
+        )
+    lines.extend(
+        [
+            "",
+            (
+                "Gate interpretation: Big Sur-only still calibrates Big Sur amount best "
+                f"(`{format_percent(row_float(big_sur_local, 'area_pct_bias'), 1)}` area bias "
+                f"versus pooled `{format_percent(row_float(big_sur_pooled, 'area_pct_bias'), 1)}`), "
+                "while pooled support is competitive but conservative "
+                f"(Big Sur pooled precision `{format_decimal(row_float(pooled_binary, 'precision'), 3)}`, "
+                f"recall `{format_decimal(row_float(pooled_binary, 'recall'), 3)}`)."
+            ),
+            (
+                "The full training-regime and binary-transfer tables are demoted to "
+                "[Full Training-Regime Tables](#full-training-regime-tables)."
+            ),
+        ]
+    )
+    return "\n".join(lines)
+
+
+def phase2_gate_context_rows(tables: AnalysisTables) -> list[tuple[str, str]]:
+    """Return the six evaluation-region and training-regime gate contexts."""
+    pairs = {
+        (str(row.get("evaluation_region", "")), str(row.get("training_regime", "")))
+        for row in tables.phase2_binary_support
+        if row.get("evaluation_region") and row.get("training_regime")
+    }
+    if not pairs:
+        pairs = {
+            (str(row.get("evaluation_region", "")), str(row.get("training_regime", "")))
+            for row in tables.phase2_training_regime_primary
+            if row.get("evaluation_region") and row.get("training_regime")
+        }
+    return sorted(pairs, key=phase2_context_sort_key)
+
+
+def phase2_context_sort_key(context: tuple[str, str]) -> tuple[int, int, str, str]:
+    """Sort Phase 2 contexts by region and training-regime display order."""
+    evaluation_region, training_regime = context
+    region_order = {"big_sur": 0, "monterey": 1}
+    regime_order = {"monterey_only": 0, "big_sur_only": 1, "pooled_monterey_big_sur": 2}
+    return (
+        region_order.get(evaluation_region, 99),
+        regime_order.get(training_regime, 99),
+        evaluation_region,
+        training_regime,
+    )
+
+
 def phase2_amount_comparison_markdown(
     tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> str:
@@ -7542,6 +8178,494 @@ def binary_hex_region_counts(rows: list[dict[str, object]]) -> list[str]:
     ]
 
 
+def phase2_pooled_diagnostic_scope_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Build the pooled diagnostic scope section."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None:
+        return "Phase 2 pooled diagnostics are not configured."
+    pooled_contexts: list[str] = []
+    if phase2_config.pooled_context is not None:
+        pooled_contexts = [
+            (
+                f"{phase2_region_label(input_config.evaluation_region)} evaluated with "
+                f"{phase2_training_regime_label(input_config.training_regime)}"
+            )
+            for input_config in phase2_config.pooled_context.inputs
+            if input_config.training_regime == "pooled_monterey_big_sur"
+        ]
+    if not pooled_contexts:
+        pooled_contexts = [
+            "Big Sur evaluated with pooled Monterey+Big Sur",
+            "Monterey evaluated with pooled Monterey+Big Sur",
+        ]
+    lines = [
+        (
+            "The diagnostic question is whether pooled Monterey+Big Sur failures are "
+            "mostly binary support, amount shrinkage, hurdle composition, edge/boundary "
+            "mismatch, depth/elevation context, temporal-label context, or simple model "
+            "capacity. Results remain Kelpwatch-style annual maximum reproduction."
+        ),
+        "",
+        f"- Config: `{analysis_config.config_path}`",
+        (
+            f"- Filters: `split = {phase2_config.primary_split}`, "
+            f"`year = {phase2_config.primary_year}`, "
+            f"`evaluation_scope = {phase2_config.primary_evaluation_scope}`, "
+            f"`label_source = {phase2_config.primary_label_source}`, "
+            f"`mask_status = {phase2_config.primary_mask_status}`."
+        ),
+        "- Binary target: `annual_max_ge_10pct`, equivalent to `kelp_max_y >= 90 m2`.",
+        "- Pooled contexts: " + "; ".join(pooled_contexts) + ".",
+        (
+            "- Model surfaces: calibrated binary support, pooled AEF ridge, pooled "
+            "expected-value hurdle, and hard-gated hurdle diagnostics where component "
+            "failure tables need them."
+        ),
+    ]
+    return "\n".join(lines)
+
+
+def phase2_pooled_binary_support_failures_markdown(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+    report_path: Path,
+) -> str:
+    """Build pooled binary-support failure tables and the hex-map figure."""
+    lines: list[str] = []
+    if tables.pooled_context is None:
+        lines.append("Pooled context diagnostics are configured, but no binary rows were produced.")
+    else:
+        binary_rows = phase2_pooled_overall_lookup(tables.pooled_context.performance, "binary")
+        edge_rows = phase2_pooled_edge_lookup(tables.component_failure)
+        if not binary_rows:
+            lines.append("Pooled binary-support diagnostic rows were not available.")
+        else:
+            lines.extend(
+                [
+                    (
+                        "Pooled support is evaluated on the calibrated `annual_max_ge_10pct` "
+                        "gate. The table below keeps FP and FN rates separate from amount "
+                        "errors; see [Column Definitions](#column-definitions) for denominators "
+                        "and topology definitions."
+                    ),
+                    "",
+                    "| Evaluation region | Rows | Observed positive | Predicted positive | Precision | Recall | F1 | FP | FN |",
+                    "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+                ]
+            )
+            for region, row in sorted(
+                binary_rows.items(), key=lambda item: phase2_region_sort_key(item[0])
+            ):
+                lines.append(
+                    f"| {phase2_region_label(region)} | "
+                    f"{format_integer(row_int(row, 'row_count'))} | "
+                    f"{phase2_count_percent(row, 'observed_positive_count', 'observed_positive_rate')} | "
+                    f"{phase2_count_percent(row, 'predicted_positive_count', 'predicted_positive_rate')} | "
+                    f"{format_decimal(row_float(row, 'precision'), 3)} | "
+                    f"{format_decimal(row_float(row, 'recall'), 3)} | "
+                    f"{format_decimal(row_float(row, 'f1'), 3)} | "
+                    f"{phase2_count_percent(row, 'false_positive_count', 'false_positive_rate')} | "
+                    f"{phase2_count_percent(row, 'false_negative_count', 'false_negative_rate')} |"
+                )
+        if edge_rows:
+            lines.extend(
+                [
+                    "",
+                    (
+                        "Topology rates are exhaustive within the FN or predicted-FP topology "
+                        "denominator. Observed-proximity FP rates use a separate observed-positive "
+                        "proximity denominator and should not be added to predicted topology rates."
+                    ),
+                    "",
+                    (
+                        "| Evaluation region | FN isolated | FN edge | FN interior | FP predicted isolated | "
+                        "FP predicted edge | FP predicted interior | FP adjacent observed | FP near observed | "
+                        "FP far observed |"
+                    ),
+                    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+                ]
+            )
+            for region, row in sorted(
+                edge_rows.items(), key=lambda item: phase2_region_sort_key(item[0])
+            ):
+                lines.append(
+                    f"| {phase2_region_label(region)} | "
+                    f"{phase2_count_percent(row, 'fn_isolated_positive_count', 'fn_isolated_positive_rate')} | "
+                    f"{phase2_count_percent(row, 'fn_positive_edge_count', 'fn_positive_edge_rate')} | "
+                    f"{phase2_count_percent(row, 'fn_positive_interior_count', 'fn_positive_interior_rate')} | "
+                    f"{phase2_count_percent(row, 'fp_isolated_predicted_positive_count', 'fp_isolated_predicted_positive_rate')} | "
+                    f"{phase2_count_percent(row, 'fp_predicted_edge_count', 'fp_predicted_edge_rate')} | "
+                    f"{phase2_count_percent(row, 'fp_predicted_interior_count', 'fp_predicted_interior_rate')} | "
+                    f"{phase2_count_percent(row, 'fp_adjacent_observed_count', 'fp_adjacent_observed_rate')} | "
+                    f"{phase2_count_percent(row, 'fp_near_observed_count', 'fp_near_observed_rate')} | "
+                    f"{phase2_count_percent(row, 'fp_far_from_observed_count', 'fp_far_from_observed_rate')} |"
+                )
+    hex_map = phase2_pooled_binary_hex_figure_markdown(tables, analysis_config, report_path)
+    if hex_map:
+        lines.extend(["", hex_map])
+    return "\n".join(lines)
+
+
+def phase2_pooled_binary_hex_figure_markdown(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+    report_path: Path,
+) -> str:
+    """Return a compact pooled binary hex-map figure block."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None or phase2_config.binary_hex_map is None:
+        return ""
+    if tables.binary_hex_map is None or not tables.binary_hex_map.rows:
+        return ""
+    config = phase2_config.binary_hex_map
+    region_counts = ", ".join(binary_hex_region_counts(tables.binary_hex_map.rows))
+    lines = [
+        (
+            "The 1 km pooled binary-support map aggregates retained 30 m cells to "
+            f"`{format_decimal(config.hex_flat_diameter_m, 0)} m` flat-top hexes. "
+            f"Hex rows written: `{len(tables.binary_hex_map.rows)}` ({region_counts})."
+        )
+    ]
+    if config.figure_path.exists():
+        lines.extend(
+            [
+                "",
+                image_markdown(
+                    "Pooled binary presence 1 km hex map",
+                    config.figure_path,
+                    report_path,
+                ),
+            ]
+        )
+    return "\n".join(lines)
+
+
+def phase2_pooled_amount_hurdle_failures_markdown(tables: AnalysisTables) -> str:
+    """Build the pooled amount-underprediction and hurdle-composition section."""
+    if tables.pooled_context is None:
+        return "Pooled amount diagnostics are configured, but no rows were produced."
+    ridge_rows = phase2_pooled_overall_lookup(tables.pooled_context.performance, "ridge")
+    hurdle_rows = phase2_pooled_overall_lookup(
+        tables.pooled_context.performance,
+        "hurdle_expected_value",
+    )
+    if not hurdle_rows:
+        return "Pooled hurdle amount rows were not available."
+    lines = [
+        (
+            "`amount_under_rate` and `composition_shrink_rate` use the same denominator: "
+            "observed-positive rows where calibrated binary support is detected. That "
+            "makes composition shrink a hurdle-composition diagnostic conditional on the "
+            "selected binary threshold. See [Column Definitions](#column-definitions) for "
+            "the exact denominator."
+        ),
+        "",
+        (
+            "| Evaluation region | Support-detected positives | Amount under | Composition shrink | "
+            "Hurdle area bias | Hurdle RMSE (m2) | Ridge area bias |"
+        ),
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for region, hurdle in sorted(
+        hurdle_rows.items(), key=lambda item: phase2_region_sort_key(item[0])
+    ):
+        ridge = ridge_rows.get(region, {})
+        lines.append(
+            f"| {phase2_region_label(region)} | "
+            f"{format_integer(row_int(hurdle, 'amount_rate_denominator_count'))} | "
+            f"{phase2_count_percent(hurdle, 'amount_under_count', 'amount_under_rate')} | "
+            f"{phase2_count_percent(hurdle, 'composition_shrink_count', 'composition_shrink_rate')} | "
+            f"{format_percent(row_float(hurdle, 'area_pct_bias'), 1)} | "
+            f"{format_decimal(row_float(hurdle, 'rmse'), 1)} | "
+            f"{format_percent(row_float(ridge, 'area_pct_bias'), 1)} |"
+        )
+    lines.append(
+        "\nThe pooled ridge rows show whether raw embedding amount is broadly too large or small; "
+        "the hurdle rows show the selected expected-value composition after calibrated support."
+    )
+    return "\n".join(lines)
+
+
+def phase2_pooled_context_diagnostics_markdown(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+    report_path: Path,
+) -> str:
+    """Build plotted pooled context diagnostics across label, temporal, and domain context."""
+    if tables.pooled_context is None:
+        return "Pooled context diagnostics are configured, but no rows were produced."
+    phase2_config = analysis_config.phase2_report
+    lines = [
+        (
+            "The pooled context diagnostics are plotted rather than repeated as another "
+            "wide table. Each context family is expanded into bar charts by region and "
+            "model surface: binary panels show F1 by context value, while ridge and "
+            "expected-value hurdle panels show RMSE by context value. Undefined binary "
+            "F1 values are marked `n/a`."
+        )
+    ]
+    if analysis_config.pooled_context_metric_breakdown_figure.exists():
+        lines.extend(
+            [
+                "",
+                image_markdown(
+                    "Pooled context metric breakdown",
+                    analysis_config.pooled_context_metric_breakdown_figure,
+                    report_path,
+                ),
+            ]
+        )
+    if phase2_config is not None and phase2_config.pooled_context is not None:
+        pooled = phase2_config.pooled_context
+        lines.extend(
+            [
+                "",
+                (
+                    "The detailed rows remain in the pooled context CSVs for audit: "
+                    f"`{pooled.amount_context_path}` and "
+                    f"`{pooled.prediction_distribution_path}`."
+                ),
+            ]
+        )
+    return "\n".join(lines)
+
+
+def phase2_pooled_remaining_failure_modes_markdown(tables: AnalysisTables) -> str:
+    """Build the focused pooled-diagnostics failure-mode synthesis."""
+    if tables.pooled_context is None:
+        return "Pooled diagnostics are not available, so remaining failure modes are not summarized."
+    hurdle_rows = phase2_pooled_overall_lookup(
+        tables.pooled_context.performance,
+        "hurdle_expected_value",
+    )
+    binary_rows = phase2_pooled_overall_lookup(tables.pooled_context.performance, "binary")
+    edge_rows = phase2_pooled_edge_lookup(tables.component_failure)
+    lines = [
+        (
+            "Remaining failures are not a single broad retained-domain mask story. The "
+            "pooled diagnostics separate support misses, amount underprediction after "
+            "support is detected, composition shrink from probability multiplication, "
+            "and fine depth/elevation or temporal-label context."
+        )
+    ]
+    for region in sorted(hurdle_rows, key=phase2_region_sort_key):
+        hurdle = hurdle_rows[region]
+        binary = binary_rows.get(region, {})
+        edge = edge_rows.get(region, {})
+        lines.append(
+            f"- {phase2_region_label(region)} pooled: binary recall "
+            f"`{format_decimal(row_float(binary, 'recall'), 3)}`, "
+            f"amount-under rate "
+            f"`{format_percent(row_float(hurdle, 'amount_under_rate'), 1)}`, "
+            f"composition-shrink rate "
+            f"`{format_percent(row_float(hurdle, 'composition_shrink_rate'), 1)}`, "
+            f"FN edge or isolated rate "
+            f"`{format_percent(row_float(edge, 'fn_positive_edge_or_isolated_rate'), 1)}`, "
+            f"and FP predicted-edge rate "
+            f"`{format_percent(row_float(edge, 'fp_predicted_edge_rate'), 1)}`."
+        )
+    lines.append(
+        "The next model/data task should therefore preserve the pooled diagnostic split: "
+        "support topology, amount shrinkage, temporal-label persistence, and fine "
+        "`crm_depth_m_bin`/`elevation_bin` context should stay visible before any "
+        "Phase 3 recommendation is chosen."
+    )
+    return "\n\n".join(lines)
+
+
+def phase2_column_definitions_markdown(analysis_config: ModelAnalysisConfig) -> str:
+    """Build appendix column definitions for pooled Phase 2 diagnostics."""
+    phase2_config = analysis_config.phase2_report
+    component = phase2_config.component_failure if phase2_config is not None else None
+    grid_size = component.grid_cell_size_m if component is not None else 30.0
+    tolerance = component.tolerance_m2 if component is not None else 90.0
+    near_cardinal = 2.0 * grid_size
+    near_diagonal = math.sqrt(8.0) * grid_size
+    return "\n".join(
+        [
+            "- `amount_under_rate`: share of observed-positive, support-detected rows whose expected-value hurdle prediction is more than the configured tolerance below observed annual max.",
+            "- `composition_shrink_rate`: share of the same observed-positive, support-detected denominator where conditional canopy exceeds expected-value hurdle by at least the tolerance and conditional canopy is at least `225 m2`.",
+            "- `positive_near_correct`: share of all observed-positive rows whose expected-value hurdle is within the tolerance of observed annual max.",
+            f"- Tolerance: `{format_decimal(tolerance, 1)} m2`.",
+            f"- `near`: a retained-grid 5x5 radius-2 neighborhood around an observed-positive cell, outside the adjacent 3x3 radius-1 neighborhood. With `{format_decimal(grid_size, 1)} m` cells, this is `2` cells, `{format_decimal(near_cardinal, 1)} m` in row/column distance and about `{format_decimal(near_diagonal, 1)} m` at a diagonal corner.",
+            "- `fn_isolated`, `fn_edge`, `fn_interior`: exclusive FN topology categories. Isolated has no other observed positive in the 3x3 retained-grid neighborhood; edge is positive but not isolated or full 3x3 interior; interior has a full positive 3x3 neighborhood.",
+            "- `fp_predicted_isolated`, `fp_predicted_edge`, `fp_predicted_interior`: exclusive predicted-positive topology categories based on predicted positives in the 3x3 retained-grid neighborhood.",
+            "- `fp_adjacent_observed`, `fp_near_observed`, `fp_far_from_observed`: observed-proximity FP categories based on observed positives. These are separate from predicted topology and should not be added to the predicted-isolated/edge/interior percentages.",
+            "- Primary filters: `split = test`, `year = 2022`, `evaluation_scope = full_grid_masked`, `label_source = all`, and `mask_status = plausible_kelp_domain`.",
+        ]
+    )
+
+
+def phase2_pooled_overall_lookup(
+    rows: list[dict[str, object]], model_surface: str
+) -> dict[str, dict[str, object]]:
+    """Return pooled overall rows keyed by evaluation region for one model surface."""
+    lookup: dict[str, dict[str, object]] = {}
+    for row in rows:
+        if (
+            str(row.get("training_regime", "")) == "pooled_monterey_big_sur"
+            and str(row.get("context_type", "")) == "overall"
+            and str(row.get("model_surface", "")) == model_surface
+        ):
+            lookup[str(row.get("evaluation_region", ""))] = row
+    return lookup
+
+
+def phase2_pooled_edge_lookup(
+    tables: ComponentFailureTables | None,
+) -> dict[str, dict[str, object]]:
+    """Return pooled edge-diagnostic rows keyed by evaluation region."""
+    if tables is None:
+        return {}
+    lookup: dict[str, dict[str, object]] = {}
+    for row in tables.edge_effect:
+        if str(row.get("training_regime", "")) == "pooled_monterey_big_sur":
+            lookup[str(row.get("evaluation_region", ""))] = row
+    return lookup
+
+
+def phase2_top_pooled_amount_context_rows(
+    rows: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    """Pick the largest amount-under row per pooled context family and region."""
+    context_types = {
+        "observed_annual_max_bin",
+        "temporal_label_class",
+        "previous_year_class",
+        "crm_depth_m_bin",
+        "elevation_bin",
+        "binary_outcome",
+        "component_failure_class",
+    }
+    selected: dict[tuple[str, str], dict[str, object]] = {}
+    for row in rows:
+        if str(row.get("training_regime", "")) != "pooled_monterey_big_sur":
+            continue
+        if str(row.get("model_surface", "")) != "hurdle_expected_value":
+            continue
+        context_type = str(row.get("context_type", ""))
+        if context_type not in context_types:
+            continue
+        key = (str(row.get("evaluation_region", "")), context_type)
+        current = selected.get(key)
+        if current is None or row_int(row, "amount_under_count") > row_int(
+            current,
+            "amount_under_count",
+        ):
+            selected[key] = row
+    return sorted(
+        selected.values(),
+        key=lambda row: (
+            phase2_region_sort_key(str(row.get("evaluation_region", ""))),
+            phase2_context_type_sort_key(str(row.get("context_type", ""))),
+        ),
+    )
+
+
+def phase2_overall_prediction_distribution_rows(
+    tables: PooledContextDiagnosticsTables,
+) -> list[dict[str, object]]:
+    """Return pooled overall prediction-distribution rows sorted for display."""
+    selected = [
+        row
+        for row in tables.prediction_distribution
+        if str(row.get("training_regime", "")) == "pooled_monterey_big_sur"
+        and str(row.get("context_type", "")) == "overall"
+    ]
+    selected.extend(
+        [
+            {
+                **row,
+                "prediction_units": "probability",
+                "predicted_mean": row.get("probability_mean", math.nan),
+                "predicted_p95": row.get("probability_p95", math.nan),
+                "observed_ge_450m2_prediction_p95": math.nan,
+                "low_positive_prediction_rate": row.get("predicted_positive_rate", math.nan),
+            }
+            for row in tables.binary_context
+            if str(row.get("training_regime", "")) == "pooled_monterey_big_sur"
+            and str(row.get("context_type", "")) == "overall"
+            and str(row.get("model_surface", "")) == "binary"
+        ]
+    )
+    return sorted(
+        selected,
+        key=lambda row: (
+            phase2_region_sort_key(str(row.get("evaluation_region", ""))),
+            phase2_model_surface_sort_key(str(row.get("model_surface", ""))),
+        ),
+    )
+
+
+def phase2_context_type_sort_key(context_type: str) -> int:
+    """Return display order for pooled context families."""
+    order = {
+        "observed_annual_max_bin": 0,
+        "temporal_label_class": 1,
+        "previous_year_class": 2,
+        "crm_depth_m_bin": 3,
+        "elevation_bin": 4,
+        "binary_outcome": 5,
+        "component_failure_class": 6,
+    }
+    return order.get(context_type, 99)
+
+
+def phase2_model_surface_sort_key(model_surface: str) -> int:
+    """Return display order for pooled model surfaces."""
+    order = {"binary": 0, "ridge": 1, "hurdle_expected_value": 2}
+    return order.get(model_surface, 99)
+
+
+def phase2_region_sort_key(region: str) -> int:
+    """Return display order for Phase 2 regions."""
+    return {"big_sur": 0, "monterey": 1}.get(region, 99)
+
+
+def phase2_context_type_label(context_type: str) -> str:
+    """Return a readable label for a pooled context family."""
+    labels = {
+        "observed_annual_max_bin": "Observed canopy bin",
+        "temporal_label_class": "Quarterly persistence",
+        "previous_year_class": "Previous-year class",
+        "crm_depth_m_bin": "Fine CRM depth bin",
+        "elevation_bin": "Elevation bin",
+        "binary_outcome": "Binary outcome",
+        "component_failure_class": "Component failure",
+    }
+    return labels.get(context_type, context_type.replace("_", " "))
+
+
+def phase2_model_surface_label(model_surface: str) -> str:
+    """Return a readable label for a pooled model surface."""
+    labels = {
+        "binary": "Binary support",
+        "ridge": "AEF ridge",
+        "hurdle_expected_value": "Expected-value hurdle",
+    }
+    return labels.get(model_surface, model_surface.replace("_", " "))
+
+
+def phase2_count_percent(row: dict[str, object], count_key: str, rate_key: str) -> str:
+    """Format a count plus fractional rate for compact Phase 2 tables."""
+    if not row:
+        return "n/a"
+    return f"{format_integer(row_int(row, count_key))} ({format_percent(row_float(row, rate_key), 1)})"
+
+
+def phase2_optional_decimal(row: dict[str, object], key: str, digits: int) -> str:
+    """Format a decimal field while showing missing values as not applicable."""
+    value = row_float(row, key)
+    if not np.isfinite(value):
+        return "n/a"
+    return format_decimal(value, digits)
+
+
+def format_integer(value: int) -> str:
+    """Format an integer for report tables."""
+    return f"{value:,}"
+
+
 def phase2_component_failure_markdown(
     tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> str:
@@ -7683,6 +8807,14 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
                     (
                         "- Phase 2 pooled context model performance: "
                         f"`{pooled.performance_path}`"
+                    ),
+                    (
+                        "- Phase 2 pooled context metric-breakdown figure: "
+                        f"`{analysis_config.pooled_context_metric_breakdown_figure}`"
+                    ),
+                    (
+                        "- Phase 2 pooled prediction-distribution figure: "
+                        f"`{analysis_config.pooled_prediction_distribution_figure}`"
                     ),
                     (
                         "- Phase 2 pooled prediction distributions: "
@@ -9642,6 +10774,12 @@ def write_manifest(
                 "pooled_prediction_distribution_by_context": str(
                     pooled_config.prediction_distribution_path
                 ),
+                "pooled_context_metric_breakdown_figure": str(
+                    analysis_config.pooled_context_metric_breakdown_figure
+                ),
+                "pooled_prediction_distribution_figure": str(
+                    analysis_config.pooled_prediction_distribution_figure
+                ),
                 "pooled_context_diagnostics_manifest": str(pooled_config.manifest_path),
             }
         )
@@ -9789,6 +10927,12 @@ def phase2_manifest_payload(analysis_config: ModelAnalysisConfig) -> dict[str, o
                 "pooled_amount_context_diagnostics": str(pooled.amount_context_path),
                 "pooled_prediction_distribution_by_context": str(
                     pooled.prediction_distribution_path
+                ),
+                "pooled_context_metric_breakdown_figure": str(
+                    analysis_config.pooled_context_metric_breakdown_figure
+                ),
+                "pooled_prediction_distribution_figure": str(
+                    analysis_config.pooled_prediction_distribution_figure
                 ),
                 "pooled_context_diagnostics_manifest": str(pooled.manifest_path),
             }

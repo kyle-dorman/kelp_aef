@@ -236,13 +236,19 @@ def test_analyze_model_writes_phase2_report_sections(tmp_path: Path) -> None:
     manifest = json.loads(fixture["manifest"].read_text())
     hex_manifest = json.loads(fixture["binary_hex_manifest"].read_text())
     assert "# Big Sur Phase 2 Model Analysis" in report
-    assert "Phase 2 Training-Regime Answer" in report
+    assert "Phase 2 Training-Regime Gate" in report
+    assert "Pooled Diagnostic Scope" in report
+    assert "Pooled Binary Support Failures" in report
+    assert "Pooled Amount And Hurdle Failures" in report
+    assert "Column Definitions" in report
     assert "Canopy Amount And Hurdle Calibration" in report
     assert "Binary Support Transfer" in report
-    assert "Pooled Binary Support Hex Map" in report
     assert "Pooled binary presence 1 km hex map" in report
     assert "Kelpwatch-style annual maximum reproduction" in report
     assert "Phase 1 Closeout Decision" not in report
+    assert report.index("Phase 2 Training-Regime Gate") < report.index(
+        "Full Training-Regime Tables"
+    )
     assert "<title>Big Sur Phase 2 Model Analysis</title>" in html_report
     assert set(binary_rows["evaluation_region"]) == {"big_sur", "monterey"}
     assert set(binary_rows["training_regime"]) == {
@@ -323,6 +329,9 @@ def test_analyze_model_writes_component_failure_outputs(tmp_path: Path) -> None:
     assert int(edge.iloc[0]["false_negative_count"]) == 1
     assert float(edge.iloc[0]["fn_positive_edge_rate"]) == 1.0
     assert float(edge.iloc[0]["fp_predicted_edge_rate"]) == 1.0
+    assert float(edge.iloc[0]["fp_adjacent_observed_rate"]) == 1.0
+    assert float(edge.iloc[0]["fp_near_observed_rate"]) == 0.0
+    assert float(edge.iloc[0]["fp_far_from_observed_rate"]) == 0.0
     assert float(edge.iloc[0]["fp_adjacent_or_near_positive_rate"]) == 1.0
     assert manifest["row_counts"]["component_failure_summary"] == 1
     assert sidecar_manifest["definitions"]["binary_target"] == "annual_max_ge_10pct"
@@ -382,7 +391,13 @@ def test_analyze_model_writes_pooled_context_outputs(tmp_path: Path) -> None:
     distribution = pd.read_csv(fixture["pooled_prediction_distribution"])
     manifest = json.loads(fixture["manifest"].read_text())
     sidecar_manifest = json.loads(fixture["pooled_context_manifest"].read_text())
-    assert "Pooled Phase 2 Context Diagnostics" in report
+    assert "Pooled Context Diagnostics" in report
+    assert "![Pooled context metric breakdown]" in report
+    assert "binary panels show F1" in report
+    assert "expected-value hurdle panels show RMSE" in report
+    assert "Overall prediction-distribution summaries" not in report
+    assert fixture["pooled_context_metric_breakdown_figure"].stat().st_size > 0
+    assert fixture["pooled_prediction_distribution_figure"].stat().st_size > 0
     assert {"binary", "ridge", "hurdle_expected_value"} <= set(performance["model_surface"])
     assert {"observed_annual_max_bin", "crm_depth_m_bin", "component_failure_class"} <= set(
         amount["context_type"]
@@ -400,6 +415,10 @@ def test_analyze_model_writes_pooled_context_outputs(tmp_path: Path) -> None:
     assert (
         manifest["phase2"]["outputs"]["pooled_context_model_performance"]
         == str(fixture["pooled_context_performance"])
+    )
+    assert (
+        manifest["phase2"]["outputs"]["pooled_context_metric_breakdown_figure"]
+        == str(fixture["pooled_context_metric_breakdown_figure"])
     )
     assert (
         sidecar_manifest["definitions"]["amount_rate_denominator"]
@@ -1484,6 +1503,10 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/figures/model_analysis_binary_threshold_comparison.png",
         "residual_domain_context_figure": tmp_path
         / "reports/figures/model_analysis_residual_by_domain_context.png",
+        "pooled_context_metric_breakdown_figure": tmp_path
+        / "reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png",
+        "pooled_prediction_distribution_figure": tmp_path
+        / "reports/figures/monterey_big_sur_pooled_prediction_distribution.png",
         "component_failure_summary": tmp_path
         / "reports/tables/monterey_big_sur_component_failure_summary.csv",
         "component_failure_by_label": tmp_path
@@ -1551,6 +1574,15 @@ def config_text(
     )
     pixel_skill_area_figure = paths["pixel_skill_area_calibration_figure"]
     all_model_comparison = paths["all_model_sampling_policy_comparison"]
+    pooled_prediction_distribution_figure = paths["pooled_prediction_distribution_figure"]
+    pooled_context_metric_breakdown_output = (
+        "    model_analysis_phase2_pooled_context_metric_breakdown_figure: "
+        f"{paths['pooled_context_metric_breakdown_figure']}\n"
+    )
+    pooled_prediction_distribution_output = (
+        "    model_analysis_phase2_pooled_prediction_distribution_figure: "
+        f"{pooled_prediction_distribution_figure}\n"
+    )
     return f"""
 data_root: {tmp_path}
 labels:
@@ -1640,6 +1672,7 @@ reports:
     model_analysis_class_balance_figure: {paths["class_balance_figure"]}
     model_analysis_binary_threshold_comparison_figure: {paths["binary_threshold_comparison_figure"]}
     model_analysis_residual_by_domain_context_figure: {paths["residual_domain_context_figure"]}
+{pooled_context_metric_breakdown_output}{pooled_prediction_distribution_output}
 """.lstrip()
 
 

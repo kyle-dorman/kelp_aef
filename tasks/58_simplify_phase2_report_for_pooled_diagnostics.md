@@ -79,6 +79,33 @@ the PR/commit message that confirms:
 - how the report links from the main table area to appendix column
   definitions.
 
+Implementation note:
+
+- Final main-body section order: Executive Summary; Phase 2 Training-Regime
+  Gate; Pooled Diagnostic Scope; Pooled Binary Support Failures; Pooled Amount
+  And Hurdle Failures; Pooled Context Diagnostics; Remaining Failure Modes;
+  Appendix.
+- The only six-context table left in the main body is a compact gate table that
+  joins the expected-value hurdle row from
+  `monterey_big_sur_training_regime_primary_summary.csv` with the calibrated
+  support row from `monterey_big_sur_binary_support_primary_summary.csv`.
+- Full amount/model comparison rows, binary transfer rows, Big Sur same-region
+  context, data-health tables, threshold/calibration/amount diagnostics,
+  artifact paths, and full component-failure tables move to the appendix.
+- `amount_under_rate` and `composition_shrink_rate` share the denominator of
+  observed-positive rows where calibrated binary support is detected. This
+  makes composition shrink dependent on the selected binary threshold.
+- `positive_near_correct` uses all observed-positive rows as its denominator.
+  Near/adjacent spatial classes use the retained 30 m grid: adjacent is the
+  3x3 radius-1 neighborhood, and near is the 5x5 radius-2 ring outside the
+  adjacent ring.
+- FN isolated/edge/interior and FP predicted-isolated/predicted-edge/
+  predicted-interior are presented as separate exhaustive topology
+  denominators. FP adjacent/near-observed remains a separate observed-proximity
+  denominator and is not added to predicted topology percentages.
+- Main pooled binary and amount tables link to the appendix column definitions
+  section.
+
 ## Required Report Structure
 
 Use this main-body structure unless implementation reveals a clearer equivalent:
@@ -196,6 +223,43 @@ Inspect the generated Markdown and HTML manually after regeneration.
   link near the relevant table.
 - The report can be read as a Phase 2 decision artifact rather than a
   chronological artifact log.
+
+## Outcome
+
+Completed. The Phase 2 report renderer now uses this main-body order:
+Executive Summary, Phase 2 Training-Regime Gate, Pooled Diagnostic Scope,
+Pooled Binary Support Failures, Pooled Amount And Hurdle Failures, Pooled
+Context Diagnostics, Remaining Failure Modes, and Appendix.
+
+The main report keeps one six-row training-regime gate table. Full amount and
+binary transfer comparisons, Big Sur same-region context, data-health checks,
+threshold/calibration details, artifact links, and full component-failure tables
+are in the appendix. The main pooled binary section includes the Task 57 1 km
+hex map and separates FN topology, FP predicted topology, and FP observed
+proximity. The main amount section uses the shared observed-positive,
+support-detected denominator for amount underprediction and composition shrink.
+The pooled context diagnostics section now uses a full metric-breakdown plot
+instead of another wide table or a single strongest-row summary. It expands each
+context family into bar charts by region and model surface: binary panels use
+F1, while ridge and expected-value hurdle panels use RMSE.
+
+Regenerated artifacts:
+
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.md`
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.html`
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.pdf`
+- `/Volumes/x10pro/kelp_aef/interim/big_sur_model_analysis_manifest.json`
+- `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png`
+- `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_prediction_distribution.png`
+
+Validation:
+
+```bash
+uv run ruff check src/kelp_aef/evaluation/model_analysis.py src/kelp_aef/evaluation/component_failure.py tests/test_model_analysis.py
+uv run pytest tests/test_model_analysis.py
+uv run kelp-aef analyze-model --config configs/big_sur_smoke.yaml
+git diff --check
+```
 
 ## Known Constraints / Non-Goals
 

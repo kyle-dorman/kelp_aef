@@ -139,6 +139,12 @@ COMPONENT_EDGE_FIELDS = (
     "fp_predicted_edge_rate",
     "fp_predicted_interior_count",
     "fp_predicted_interior_rate",
+    "fp_adjacent_observed_count",
+    "fp_adjacent_observed_rate",
+    "fp_near_observed_count",
+    "fp_near_observed_rate",
+    "fp_far_from_observed_count",
+    "fp_far_from_observed_rate",
     "fp_adjacent_or_near_positive_count",
     "fp_adjacent_or_near_positive_rate",
     "fn_isolated_positive_count",
@@ -1503,9 +1509,10 @@ def edge_effect_row(
     """Summarize edge/interior structure of FP, FN, and composition shrinkage."""
     false_positive = group["binary_outcome"] == "FP"
     false_negative = group["binary_outcome"] == "FN"
-    adjacent_or_near = group["edge_class"].isin(
-        ["zero_adjacent_to_positive", "near_positive_exterior"]
-    )
+    adjacent_observed = group["edge_class"] == "zero_adjacent_to_positive"
+    near_observed = group["edge_class"] == "near_positive_exterior"
+    adjacent_or_near = adjacent_observed | near_observed
+    far_from_observed = ~(adjacent_observed | near_observed)
     isolated_positive = group["edge_class"] == "isolated_positive"
     positive_edge = group["edge_class"] == "positive_edge"
     edge_or_isolated = isolated_positive | positive_edge
@@ -1541,6 +1548,18 @@ def edge_effect_row(
         "fp_predicted_interior_count": int(fp_predicted_interior.sum()),
         "fp_predicted_interior_rate": safe_ratio(
             int(fp_predicted_interior.sum()), int(false_positive.sum())
+        ),
+        "fp_adjacent_observed_count": int((false_positive & adjacent_observed).sum()),
+        "fp_adjacent_observed_rate": safe_ratio(
+            int((false_positive & adjacent_observed).sum()), int(false_positive.sum())
+        ),
+        "fp_near_observed_count": int((false_positive & near_observed).sum()),
+        "fp_near_observed_rate": safe_ratio(
+            int((false_positive & near_observed).sum()), int(false_positive.sum())
+        ),
+        "fp_far_from_observed_count": int((false_positive & far_from_observed).sum()),
+        "fp_far_from_observed_rate": safe_ratio(
+            int((false_positive & far_from_observed).sum()), int(false_positive.sum())
         ),
         "fp_adjacent_or_near_positive_count": int((false_positive & adjacent_or_near).sum()),
         "fp_adjacent_or_near_positive_rate": safe_ratio(

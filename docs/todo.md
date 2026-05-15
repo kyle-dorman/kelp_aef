@@ -408,7 +408,7 @@ Phase 2 non-goals:
     mean calibrated probability, TP/FP/FN/TN counts, and projected hex WKT.
     The figure uses Monterey above Big Sur, a light water-blue background, and
     wider panel padding so the retained-mask edge is easier to read.
-- [ ] P2-11c: Simplify the Phase 2 report around pooled diagnostics.
+- [x] P2-11c: Simplify the Phase 2 report around pooled diagnostics.
   - Goal: Keep one compact six-context comparison at the top, then make the
     main body focus on pooled binary, ridge, and hurdle failure analysis with
     table definitions and artifact links moved to the appendix.
@@ -418,6 +418,54 @@ Phase 2 non-goals:
     topology and proximity definitions are explicit; the 1 km hex map and
     pooled context diagnostics drive the main analysis.
   - Plan: `tasks/58_simplify_phase2_report_for_pooled_diagnostics.md`.
+  - Completed: `analyze-model` now writes the Phase 2 report as a decision
+    artifact: one compact six-context gate table, pooled diagnostic scope,
+    pooled binary support failures with 1 km hex map, pooled amount/hurdle
+    failures, pooled context diagnostics, and a focused remaining-failure
+    synthesis before the appendix. Full amount/binary transfer tables,
+    same-region context, threshold/calibration details, column definitions,
+    artifact paths, and historical component-failure tables are demoted to the
+    appendix.
+    FP predicted topology is separated from observed-proximity FP rates, with
+    explicit adjacent/near/far observed columns in the edge diagnostics. The
+    pooled context diagnostics now render as a full metric-breakdown plot
+    instead of a strongest-row summary: each context family gets bar charts by
+    region and model surface, with binary F1 and continuous RMSE. The
+    regenerated artifacts are
+    `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.md`,
+    `.html`, `.pdf`, and
+    `/Volumes/x10pro/kelp_aef/interim/big_sur_model_analysis_manifest.json`,
+    with plot outputs under
+    `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png`
+    and
+    `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_prediction_distribution.png`.
+- [ ] P2-11d: Cache Phase 2 diagnostics for fast report iteration.
+  - Goal: Split expensive Phase 2 diagnostic derivation from report rendering
+    so report text, layout, and plot iterations can reuse valid component-
+    failure and pooled-context diagnostics instead of rebuilding full-grid row
+    annotations every `analyze-model` run.
+  - Outputs: config-declared Phase 2 diagnostic frame caches under
+    `/Volumes/x10pro/kelp_aef/interim/`, a cache manifest with input freshness
+    metadata, and an `analyze-model` reuse path or equivalent render-only
+    workflow.
+  - Acceptance: cached report iteration preserves current diagnostic tables,
+    figures, manifests, and report prose while avoiding repeated component-
+    failure and pooled-context row annotation; stale caches are rebuilt or
+    rejected explicitly; cached Big Sur report iteration targets under `15s`.
+  - Plan: `tasks/59_cache_phase2_diagnostics_for_fast_report_iteration.md`.
+- [ ] P2-11e: Refine pooled context diagnostic plots after report caching.
+  - Goal: Redesign the `Pooled Context Diagnostics` plot for combined
+    Monterey+Big Sur pooled evaluation rows, using meaningful context-value
+    ordering and simpler model surfaces.
+  - Outputs: regenerated Phase 2 report and pooled context figure(s) with
+    combined-region binary F1 and ridge RMSE context bars, plus any needed
+    annual mean canopy context rows.
+  - Acceptance: the main chart no longer splits Big Sur from Monterey, skips
+    expected-value hurdle panels, removes binary outcome unless justified,
+    fixes the observed annual max `90 m2` threshold-bin labels, reviews
+    elevation versus fine CRM depth redundancy, shortens component failure
+    labels, and uses explicit y-axis ordering for every retained context.
+  - Plan: `tasks/60_refine_pooled_context_diagnostic_plots.md`.
 - [ ] P2-12: Test transformed positive-canopy amount targets.
   - Goal: Test whether a small log/logit-style positive-canopy target
     transformation reduces high-canopy shrinkage before escalating to random
