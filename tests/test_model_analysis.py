@@ -241,16 +241,30 @@ def test_analyze_model_writes_phase2_report_sections(tmp_path: Path) -> None:
     assert "# Big Sur Phase 2 Model Analysis" in report
     assert "Phase 2 Training-Regime Gate" in report
     assert "Pooled Diagnostic Scope" in report
-    assert "Pooled Binary Support Failures" in report
+    assert "Compact Baseline Grounding" in report
+    assert "![Compact baseline grounding]" in report
+    assert "**Binary support**" in report
+    assert "**Continuous amount**" in report
+    assert "| Binary model | Pooled calibrated support |" in report
+    assert "| Train mean |" not in report
+    assert "| Geographic ridge |" not in report
+    assert "| AEF ridge |" not in report
+    assert "| Hurdle hard gate |" not in report
+    assert "| Training regime | Rows | Observed positive |" not in report
+    assert "Observed area (M m2)" not in report
+    assert "Pooled Binary Support Failures" not in report
     assert "Pooled Amount And Hurdle Failures" in report
+    assert "Attribution Diagnostics" not in report
     assert "Column Definitions" in report
-    assert "Canopy Amount And Hurdle Calibration" in report
-    assert "Binary Support Transfer" in report
-    assert "Pooled binary presence 1 km hex map" in report
+    assert "Canopy Amount And Hurdle Calibration" not in report
+    assert "Binary Support Transfer" not in report
+    assert "Pooled binary presence 1 km hex map" not in report
+    assert "Full Training-Regime Tables" not in report
+    assert "Pooled Data Distribution" not in report
     assert "Kelpwatch-style annual maximum reproduction" in report
     assert "Phase 1 Closeout Decision" not in report
     assert report.index("Phase 2 Training-Regime Gate") < report.index(
-        "Full Training-Regime Tables"
+        "Compact Baseline Grounding"
     )
     assert "<title>Big Sur Phase 2 Model Analysis</title>" in html_report
     assert set(binary_rows["evaluation_region"]) == {"big_sur", "monterey"}
@@ -261,9 +275,13 @@ def test_analyze_model_writes_phase2_report_sections(tmp_path: Path) -> None:
     }
     assert float(binary_rows.iloc[0]["f1"]) == 0.8
     assert set(hex_rows["evaluation_region"]) == {"big_sur"}
+    assert fixture["phase2_baseline_grounding_figure"].stat().st_size > 0
     assert fixture["binary_hex_figure"].stat().st_size > 0
     assert hex_manifest["hex_definition"]["flat_to_flat_diameter_m"] == 1000.0
     assert manifest["phase2"]["outputs"]["binary_support_primary_summary"] == str(binary_summary)
+    assert manifest["phase2"]["outputs"]["phase2_baseline_grounding_figure"] == str(
+        fixture["phase2_baseline_grounding_figure"]
+    )
     assert manifest["phase2"]["outputs"]["pooled_binary_presence_hex_table"] == str(
         fixture["binary_hex_table"]
     )
@@ -318,9 +336,9 @@ def test_analyze_model_writes_component_failure_outputs(tmp_path: Path) -> None:
     edge = pd.read_csv(fixture["component_failure_edge"])
     manifest = json.loads(fixture["manifest"].read_text())
     sidecar_manifest = json.loads(fixture["component_failure_manifest"].read_text())
-    assert "Deep Component-Failure Analysis" in report
-    assert "binary support, calibrated probability, conditional amount" in report
-    assert "component-failure column definitions" in report
+    assert "Deep Component-Failure Analysis" not in report
+    assert "Full Deep Component-Failure Analysis" not in report
+    assert "Phase 2 component-failure summary" in report
     assert set(summary["context_id"]) == {"fixture_component_context"}
     assert int(summary.iloc[0]["support_miss_positive_count"]) == 1
     assert int(summary.iloc[0]["support_leakage_zero_count"]) == 1
@@ -399,9 +417,26 @@ def test_analyze_model_writes_pooled_context_outputs(tmp_path: Path) -> None:
     assert "binary panels show F1" in report
     assert "ridge panels show RMSE" in report
     assert "observed-positive rows in each bin" in report
+    assert (
+        "| Model | Role | F1 >=10% | Precision | Recall | "
+        "Predicted positive | FP | FN |"
+    ) in report
+    assert "| Binary model | Pooled calibrated support |" in report
+    assert "| Train mean |" not in report
+    assert "| Geographic ridge |" not in report
+    assert "| AEF ridge |" not in report
+    assert "| Hurdle hard gate |" not in report
+    assert "| Training regime | Rows | Observed positive |" not in report
+    assert "| Model | Role | Predicted area (M m2) | RMSE | Area bias |" in report
+    assert "Observed area (M m2)" not in report
+    assert "Pooled Binary Support Failures" not in report
+    assert "Attribution Diagnostics" not in report
+    assert "Pooled Data Distribution" not in report
+    assert "![Pooled prediction distribution]" not in report
     assert "expected-value hurdle panels show RMSE" not in report
     assert "Overall prediction-distribution summaries" not in report
     assert fixture["pooled_context_metric_breakdown_figure"].stat().st_size > 0
+    assert fixture["phase2_baseline_grounding_figure"].stat().st_size > 0
     assert fixture["pooled_prediction_distribution_figure"].stat().st_size > 0
     assert {"binary", "ridge", "hurdle_expected_value"} <= set(performance["model_surface"])
     assert {
@@ -1032,10 +1067,26 @@ def write_phase2_training_regime_rows(path: Path) -> None:
             ("big_sur_only", "big_sur"),
             ("pooled_monterey_big_sur", "monterey_big_sur"),
         ):
-            for model_name, bias in (
-                ("ridge_regression", 0.30),
-                ("calibrated_probability_x_conditional_canopy", -0.05),
-                ("calibrated_hard_gate_conditional_canopy", -0.02),
+            for model_name, model_family, composition_policy, bias, f1 in (
+                ("no_skill_train_mean", "reference_baseline", "", 1.50, 0.05),
+                ("previous_year_annual_max", "reference_baseline", "", -0.15, 0.80),
+                ("grid_cell_climatology", "reference_baseline", "", -0.10, 0.70),
+                ("geographic_ridge_lon_lat_year", "geographic_reference", "", 0.05, 0.0),
+                ("ridge_regression", "aef_ridge", "", 0.30, 0.60),
+                (
+                    "calibrated_probability_x_conditional_canopy",
+                    "hurdle",
+                    "expected_value",
+                    -0.05,
+                    0.84,
+                ),
+                (
+                    "calibrated_hard_gate_conditional_canopy",
+                    "hurdle",
+                    "hard_gate",
+                    -0.02,
+                    0.85,
+                ),
             ):
                 rows.append(
                     {
@@ -1043,12 +1094,8 @@ def write_phase2_training_regime_rows(path: Path) -> None:
                         "model_origin_region": origin,
                         "evaluation_region": evaluation_region,
                         "model_name": model_name,
-                        "model_family": "hurdle"
-                        if model_name.startswith("calibrated_")
-                        else "aef_ridge",
-                        "composition_policy": "expected_value"
-                        if model_name == "calibrated_probability_x_conditional_canopy"
-                        else "",
+                        "model_family": model_family,
+                        "composition_policy": composition_policy,
                         "split": "test",
                         "year": 2022,
                         "mask_status": "plausible_kelp_domain",
@@ -1058,7 +1105,7 @@ def write_phase2_training_regime_rows(path: Path) -> None:
                         "mae": 0.01,
                         "rmse": 0.04,
                         "r2": 0.8,
-                        "f1_ge_10pct": 0.85,
+                        "f1_ge_10pct": f1,
                         "observed_canopy_area": 1800.0,
                         "predicted_canopy_area": 1800.0 * (1.0 + bias),
                         "area_pct_bias": bias,
@@ -1689,6 +1736,8 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/figures/monterey_big_sur_pooled_mean_max_binary_f1.png",
         "pooled_prediction_distribution_figure": tmp_path
         / "reports/figures/monterey_big_sur_pooled_prediction_distribution.png",
+        "phase2_baseline_grounding_figure": tmp_path
+        / "reports/figures/monterey_big_sur_compact_baseline_grounding.png",
         "component_failure_summary": tmp_path
         / "reports/tables/monterey_big_sur_component_failure_summary.csv",
         "component_failure_by_label": tmp_path
@@ -1774,6 +1823,10 @@ def config_text(
     pooled_prediction_distribution_output = (
         "    model_analysis_phase2_pooled_prediction_distribution_figure: "
         f"{pooled_prediction_distribution_figure}\n"
+    )
+    phase2_baseline_grounding_output = (
+        "    model_analysis_phase2_baseline_grounding_figure: "
+        f"{paths['phase2_baseline_grounding_figure']}\n"
     )
     return f"""
 data_root: {tmp_path}
@@ -1867,7 +1920,7 @@ reports:
     model_analysis_class_balance_figure: {paths["class_balance_figure"]}
     model_analysis_binary_threshold_comparison_figure: {paths["binary_threshold_comparison_figure"]}
     model_analysis_residual_by_domain_context_figure: {paths["residual_domain_context_figure"]}
-{pooled_context_metric_breakdown_output}{pooled_mean_max_binary_f1_output}{pooled_prediction_distribution_output}
+{pooled_context_metric_breakdown_output}{pooled_mean_max_binary_f1_output}{pooled_prediction_distribution_output}{phase2_baseline_grounding_output}
 """.lstrip()
 
 

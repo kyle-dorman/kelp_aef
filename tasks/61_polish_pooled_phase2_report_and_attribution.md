@@ -32,6 +32,7 @@ field-truth biomass validation.
   - `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.pdf`
 - Current pooled diagnostic figures:
   - `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_binary_presence_hex_1km.png`
+  - `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_compact_baseline_grounding.png`
   - `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png`
   - `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_mean_max_binary_f1.png`
   - `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_prediction_distribution.png`
@@ -68,15 +69,14 @@ Regenerate the Phase 2 report and any revised figures:
 - `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.pdf`
 - `/Volumes/x10pro/kelp_aef/interim/big_sur_model_analysis_manifest.json`
 
-Expected figure updates:
+Expected report updates:
 
-- revised pooled binary hex map with a zero-visible residual color scheme;
-- one retained data-distribution histogram or compact distribution figure;
-- one compact baseline grounding table or plot.
-
-If new derived attribution tables are useful, write them under
-`/Volumes/x10pro/kelp_aef/reports/tables/` and record them in the report
-manifest. Keep names explicit in config if new output paths are added.
+- remove the pooled binary hex map from the readable report;
+- remove the pooled data-distribution figure from the readable report;
+- render compact baseline grounding as a chart plus combined binary and
+  continuous tables;
+- fold FP/FN into compact baseline grounding and remove the repeated pooled
+  binary support section.
 
 ## Config File
 
@@ -91,35 +91,61 @@ Before implementation, write a short design note in this task file or PR
 description that confirms:
 
 - final main-body report section order;
-- which one data-distribution histogram remains;
 - which baseline table or plot remains for grounding;
 - which maps are removed from the report because the separate visualizer now owns
   map inspection;
-- the replacement hex residual color scheme;
+- whether the pooled binary hex map remains in the active report config;
 - which stale local/same-region appendix sections are removed or reduced to
   artifact links;
-- whether new attribution tables are derived from existing cached diagnostics or
-  require a cache refresh.
+- which diagnostic ideas are deferred because they need new tables.
+
+Implementation design note, 2026-05-15:
+
+- Final main-body section order: executive summary, six-context training-regime
+  gate, pooled diagnostic scope, compact baseline grounding, pooled amount and
+  hurdle failures, and pooled context diagnostics.
+- Data-distribution figure removed from the readable report. The generated
+  distribution CSV/figure remain sidecar artifacts only.
+- Baseline grounding retained as a two-panel chart plus two combined
+  Monterey+Big Sur tables: one binary-support table by model/baseline that
+  compares reference rows to the pooled binary model and folds FP/FN into the
+  binary-model row, and one continuous amount table for pooled baseline/reference
+  models without repeated constant scope columns.
+- Maps removed from the readable report: same-region residual-by-bin,
+  residual-by-persistence, retained-domain residual-context maps, same-region
+  pixel-skill map, binary-presence map, and hurdle residual map. The separate
+  results visualizer owns map inspection.
+- Hex residual map: remove it from the active Big Sur report config and from the
+  readable report.
+- Stale local/same-region appendix sections: remove the `Big Sur Same-Region
+  Context`, `Legacy Same-Region Failure-Mode Context`, and long
+  threshold/calibration/conditional/hurdle prose from the main report; replace
+  them with artifact links and compact baseline grounding.
+- Deferred diagnostics: true-zero-vs-low-canopy FP subtyping, crossed observed
+  canopy by persistence/edge/depth tables, patch/component-level evaluation, and
+  probability-margin diagnostics are not implemented in this polishing task.
 
 ## Required Report Changes
 
 ### Keep
 
 - Keep the top six-context Phase 2 training-regime gate.
-- Keep the pooled binary support failure table and topology/proximity breakdown.
-- Keep the 1 km pooled binary hex map, but fix its color scheme.
+- Keep one combined Monterey+Big Sur binary-support table inside compact
+  baseline grounding, keyed by model/baseline rather than region or training
+  regime.
 - Keep the combined Monterey+Big Sur pooled context plot from Task 60.
 - Keep the annual max versus annual mean heatmap from Task 60.
-- Keep one data-distribution histogram or compact distribution figure so readers
-  can see the target imbalance and annual-max shape.
-- Keep a compact baseline grounding view. The report should still compare the
-  current model against useful references such as previous-year annual max,
-  grid-cell climatology, AEF ridge, expected-value hurdle, and hard-gated hurdle.
+- Keep compact baseline grounding as the two-panel pixel-skill/area-calibration
+  chart plus combined Monterey+Big Sur binary and continuous tables. The report
+  should compare only previous-year annual max, grid-cell climatology,
+  expected-value hurdle, and the pooled binary model.
 
 ### Remove Or Demote
 
 - Remove report-embedded residual maps from the main report and appendix where
   they are not essential. The separate results visualizer owns map inspection.
+- Remove the report-visible pooled binary hex map.
+- Remove the pooled data-distribution figure from the readable report.
 - Remove or reduce the `Big Sur Same-Region Context` section. Keep only the
   compact baseline grounding view and links to artifacts.
 - Remove the `Legacy Same-Region Failure-Mode Context` section. It still uses
@@ -127,23 +153,20 @@ description that confirms:
   interpretation.
 - Remove long local threshold/calibration/conditional/hurdle prose from the
   readable report unless a short sentence is needed to explain an artifact.
-- Remove `train_mean` and `geographic_ridge` rows from any visible baseline
-  grounding table unless they live only in a linked artifact.
+- Remove per-region baseline breakdowns from visible baseline grounding tables.
 - Shorten the artifact index to primary Phase 2 artifacts plus the manifest path.
   Do not list every legacy Phase 1/Big Sur same-region artifact in the report.
 
-### Hex Map Color
+### Sidecar Hex Map
 
-Revise the predicted-minus-observed hex panel so near-zero residuals do not
-blend into the mask or background color.
+The pooled binary hex map is no longer rendered in the readable report.
 
 Requirements:
 
-- Use a diverging color map with a visible neutral value, not white-on-light
-  background.
-- Preserve true numeric residuals in the CSV.
-- Record color clipping/capping values in the manifest or caption.
-- Keep Monterey and Big Sur separated in the figure.
+- Do not include the `pooled_binary_hex_map` block in the active Big Sur report
+  config.
+- Leave the standalone hex-map implementation and old generated artifacts alone
+  for audit unless a later task explicitly retires them.
 - Do not change the hex size, binary threshold, model predictions, or target.
 
 ### Interpretation
@@ -156,31 +179,26 @@ Add concise narrative that answers:
 - Do intermittent and persistent rows drive the amount-underprediction problem?
 - Do fine CRM depth bins point to shallow retained water rather than the broad
   `retained_depth_0_60m` mask reason?
-- Does the prediction-distribution figure support the transformed-target/log
-  follow-up, or does it point more directly to model capacity?
 - How much of the Big Sur pooled weakness is binary support versus amount
   underprediction after support is detected?
 
 Use exact values from generated tables where possible. Do not tune thresholds,
 labels, masks, sample quotas, or model policy from these held-out rows.
 
-## Additional Attribution Diagnostics
+## Deferred Diagnostic Ideas
 
-Add one or more compact derived tables if they can be built from existing cached
-diagnostics without rerunning model training:
+These ideas were considered but are not implemented in this polishing task
+because they need new diagnostic tables:
 
-- pooled versus local Big Sur component-delta table, comparing Big Sur-only and
-  pooled-on-Big-Sur support misses, FPs, amount-under rows, composition shrink,
-  near-correct positives, area bias, and RMSE;
 - FP subtype table separating true-zero FPs from low-canopy-below-threshold FPs;
 - crossed diagnostic table for observed canopy bin by temporal persistence,
   showing binary recall/F1, amount-under rate, and hurdle residual;
+- crossed diagnostic table for observed canopy bin by edge class;
+- crossed diagnostic table for CRM depth bin by observed canopy bin;
 - crossed diagnostic table for observed canopy bin by fine CRM depth bin;
-- edge or component-size diagnostic that distinguishes whole-patch misses from
-  boundary-cell misses if existing component fields support it.
-
-This task does not need all of these if the report becomes too large. Choose the
-smallest set that materially improves the model diagnosis.
+- patch/component-level evaluation that distinguishes whole-patch misses from
+  boundary shifts;
+- probability-margin diagnostics for FNs by persistence and previous-year class.
 
 ## Validation Command
 
@@ -206,9 +224,10 @@ Manual checks:
 
 - Inspect the Markdown and HTML report.
 - Confirm no stale same-region maps remain embedded in the report.
-- Confirm one data-distribution histogram remains.
-- Confirm baseline grounding remains visible.
-- Confirm the hex residual panel is readable against the background/mask colors.
+- Confirm no pooled data-distribution or hex-map figure remains embedded in the
+  readable report.
+- Confirm baseline grounding remains visible as a chart plus combined binary and
+  continuous tables.
 
 ## Smoke-Test Region And Years
 
@@ -223,20 +242,55 @@ Manual checks:
 
 - The main report reads as a pooled diagnostic decision artifact, not a mixed
   local-model task log.
-- The report keeps one data-distribution histogram and one compact baseline
-  grounding view.
+- The report keeps compact baseline grounding as a chart plus combined binary and
+  continuous tables.
 - Report-embedded residual maps are removed or demoted because map inspection is
   handled by the separate visualizer.
-- The hex residual map uses a color scheme where near-zero values are visible
-  against the background.
+- The hex residual map is not visible in the readable report.
 - Stale broad `retained_depth_0_60m` interpretation is removed from the readable
   report in favor of fine CRM depth and elevation context.
 - `train_mean` and `geographic_ridge` are not visible report rows unless they are
   only in linked artifact tables.
-- The report explicitly interprets one-quarter spike, intermittent, persistent,
-  depth-bin, and prediction-distribution diagnostics.
-- Any new attribution table is derived from existing diagnostics or cached frames
-  and does not retrain models.
+- The report explicitly interprets support-vs-amount and pooled-context
+  diagnostics without adding another wide diagnostic table.
+- Deferred diagnostic ideas are documented as not implemented in this task.
+
+## Outcome
+
+Completed on 2026-05-15.
+
+- Rebuilt the Phase 2 diagnostics cache after report-code changes, then
+  regenerated `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.md`,
+  `.html`, `.pdf`, and `/Volumes/x10pro/kelp_aef/interim/big_sur_model_analysis_manifest.json`
+  with `--reuse-phase2-diagnostics`.
+- The readable report now uses compact main-body sections for the six-context
+  training-regime gate, pooled diagnostic scope, baseline grounding split into
+  a two-panel pixel-skill/area-calibration chart plus combined binary and
+  continuous tables, pooled amount/hurdle failure tables, and pooled context
+  plots.
+- Compact baseline grounding now has no per-region breakdown. The binary table
+  compares baselines to the pooled binary model and carries FP/FN only on the
+  binary-model row where the source table provides those counts; the continuous
+  table moves shared row count and observed area into one scope sentence instead
+  of repeating constant columns. The visible grounding view excludes train mean,
+  geographic ridge, AEF ridge, and hard-gated hurdle rows.
+- Removed stale same-region sections, broad retained-depth wording, long
+  threshold/calibration/conditional/hurdle prose, pooled data distribution,
+  repeated pooled binary support, attribution diagnostics, remaining-failure
+  prose, and report-embedded residual and hex maps. The artifact index now
+  points to primary Phase 2 artifacts and the manifest instead of listing every
+  legacy same-region sidecar.
+- The pooled binary hex map no longer runs from `configs/big_sur_smoke.yaml` and
+  is no longer visible in the readable report or artifact index.
+- Deferred true-zero/low-canopy FP subtyping, crossed-bin diagnostics,
+  patch/component-level evaluation, and probability-margin diagnostics to a
+  separate task.
+- Validation passed:
+  `uv run ruff check src/kelp_aef/evaluation/model_analysis.py src/kelp_aef/evaluation/binary_presence_hex.py tests/test_model_analysis.py tests/test_binary_presence.py`,
+  `uv run mypy src`,
+  `uv run pytest tests/test_model_analysis.py tests/test_binary_presence.py`,
+  `uv run kelp-aef analyze-model --config configs/big_sur_smoke.yaml --reuse-phase2-diagnostics`,
+  and `git diff --check`.
 
 ## Known Constraints / Non-Goals
 

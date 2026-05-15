@@ -686,8 +686,11 @@ PHASE2_EVALUATION_REGION_LABELS = {
     "monterey": "Monterey",
     "big_sur": "Big Sur",
 }
-
-
+PHASE2_BASELINE_GROUNDING_MODELS = (
+    "previous_year_annual_max",
+    "grid_cell_climatology",
+    "calibrated_probability_x_conditional_canopy",
+)
 @dataclass(frozen=True)
 class Phase2BinarySupportInput:
     """Configured binary-support input for one train/evaluate cell."""
@@ -815,6 +818,7 @@ class ModelAnalysisConfig:
     pooled_context_metric_breakdown_figure: Path
     pooled_mean_max_binary_f1_figure: Path
     pooled_prediction_distribution_figure: Path
+    phase2_baseline_grounding_figure: Path
     observed_predicted_residual_map_figure: Path
     residual_interactive_html: Path
     top_residual_count: int
@@ -1334,6 +1338,11 @@ def load_model_analysis_config(
             outputs,
             "model_analysis_phase2_pooled_prediction_distribution_figure",
             figures_dir / "monterey_big_sur_pooled_prediction_distribution.png",
+        ),
+        phase2_baseline_grounding_figure=output_path(
+            outputs,
+            "model_analysis_phase2_baseline_grounding_figure",
+            figures_dir / "monterey_big_sur_compact_baseline_grounding.png",
         ),
         observed_predicted_residual_map_figure=masked_output_path(
             outputs,
@@ -5819,7 +5828,6 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
                 analysis_config.phase2_report.component_failure,
             )
 
-
 def write_csv(rows: list[dict[str, object]], output_path: Path, fields: tuple[str, ...]) -> None:
     """Write rows to CSV with a stable field order."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -5851,6 +5859,7 @@ def write_analysis_figures(
     write_pooled_context_metric_breakdown_figure(tables, analysis_config)
     write_pooled_mean_max_binary_f1_figure(analysis_config)
     write_pooled_prediction_distribution_figure(tables, analysis_config)
+    write_phase2_baseline_grounding_figure(tables, analysis_config)
 
 
 def write_label_distribution_figure(
@@ -6992,6 +7001,102 @@ def write_pooled_prediction_distribution_figure(
     plt.close(fig)
 
 
+def write_phase2_baseline_grounding_figure(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+) -> None:
+    """Write the compact Phase 2 baseline grounding chart."""
+    if analysis_config.phase2_report is None:
+        return
+    output_path = analysis_config.phase2_baseline_grounding_figure
+    grounding_rows = phase2_baseline_grounding_rows(tables)
+    continuous_rows = phase2_combined_continuous_grounding_rows(
+        tables.phase2_training_regime_primary
+    )
+    if not grounding_rows and not continuous_rows:
+        write_placeholder_figure(output_path, "No Phase 2 baseline grounding rows")
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(12.5, 4.8),
+        constrained_layout=True,
+        sharey=True,
+    )
+    axes_list: list[Any] = list(np.atleast_1d(axes))
+    plot_phase2_binary_metric_panel(axes_list[0], grounding_rows)
+    plot_phase2_area_bias_panel(axes_list[1], grounding_rows)
+    fig.suptitle("Pixel Skill And Area Calibration | pooled Monterey + Big Sur", fontsize=13)
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def plot_phase2_binary_metric_panel(axis: Any, rows: list[dict[str, object]]) -> None:
+    """Plot combined threshold skill by model or baseline."""
+    if not rows:
+        write_empty_plot_panel(axis, "No baseline rows")
+        return
+    labels = [phase2_grounding_model_label(row) for row in rows]
+    y_values = np.arange(len(rows), dtype=float)
+    values = [row_float(row, "f1_ge_10pct") for row in rows]
+    axis.barh(y_values, values, color="#3f88ad")
+    for y_value, value in zip(y_values, values, strict=True):
+        if np.isfinite(value):
+            axis.text(
+                min(value + 0.02, 0.98),
+                y_value,
+                format_decimal(value, 2),
+                va="center",
+                ha="left",
+                fontsize=8,
+                color="#1f2937",
+            )
+    axis.set_title("Pixel skill")
+    axis.set_xlim(0.0, 1.0)
+    axis.set_xlabel("F1 at kelp_max_y >= 90 m2")
+    axis.set_yticks(y_values, labels)
+    axis.invert_yaxis()
+    axis.grid(axis="x", color="#d9d9d9", linewidth=0.6)
+
+
+def plot_phase2_area_bias_panel(axis: Any, rows: list[dict[str, object]]) -> None:
+    """Plot combined signed area bias by model or baseline."""
+    if not rows:
+        write_empty_plot_panel(axis, "No continuous rows")
+        return
+    values = [row_float(row, "area_pct_bias") * 100.0 for row in rows]
+    plot_values = [value if np.isfinite(value) else 0.0 for value in values]
+    y_values = np.arange(len(rows), dtype=float)
+    colors = [
+        "#d62728" if value > 0 else "#2c946b" if np.isfinite(value) else "#cbd5e1"
+        for value in values
+    ]
+    finite_values = [abs(value) for value in values if np.isfinite(value)]
+    axis.barh(y_values, plot_values, color=colors)
+    axis.axvline(0.0, color="#111827", linewidth=0.8)
+    for y_value, value in zip(y_values, values, strict=True):
+        if np.isfinite(value):
+            offset = max(abs(value) * 0.04, 1.0)
+            axis.text(
+                value + offset if value >= 0 else value - offset,
+                y_value,
+                f"{format_decimal(value, 1)}%",
+                va="center",
+                ha="left" if value >= 0 else "right",
+                fontsize=8,
+                color="#1f2937",
+            )
+        else:
+            axis.text(0.0, y_value, "n/a", va="center", ha="center", fontsize=8, color="#6b7280")
+    axis.set_title("Area calibration")
+    axis.set_xlabel("Signed area bias (%)")
+    if finite_values and max(finite_values) > 120.0:
+        axis.set_xscale("symlog", linthresh=10.0)
+    axis.tick_params(axis="y", labelleft=False)
+    axis.grid(axis="x", color="#d9d9d9", linewidth=0.6)
+
+
 def write_pooled_binary_probability_panel(axis: Any, rows: list[dict[str, object]]) -> None:
     """Write the binary probability distribution panel."""
     binary_rows = [row for row in rows if str(row.get("model_surface", "")) == "binary"]
@@ -7351,17 +7456,6 @@ def write_phase2_report(
     """Write the Phase 2 Big Sur generalization report."""
     output_path = analysis_config.report_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    test_distribution = first_matching_row(
-        tables.prediction_distribution,
-        split=analysis_config.analysis_split,
-        year=analysis_config.analysis_year,
-    )
-    stage_rows = [
-        row
-        for row in tables.stage_distribution
-        if row["year"] == analysis_config.analysis_year
-        and row["stage"] in {"annual_labels", "model_input_sample", "retained_model_rows"}
-    ]
     report = [
         "# Big Sur Phase 2 Model Analysis",
         "",
@@ -7377,13 +7471,9 @@ def write_phase2_report(
         "",
         phase2_pooled_diagnostic_scope_markdown(analysis_config),
         "",
-        "## Pooled Binary Support Failures",
+        "## Compact Baseline Grounding",
         "",
-        phase2_pooled_binary_support_failures_markdown(
-            tables,
-            analysis_config,
-            output_path,
-        ),
+        phase2_baseline_grounding_markdown(tables, analysis_config),
         "",
         "## Pooled Amount And Hurdle Failures",
         "",
@@ -7393,97 +7483,11 @@ def write_phase2_report(
         "",
         phase2_pooled_context_diagnostics_markdown(tables, analysis_config, output_path),
         "",
-        "## Remaining Failure Modes",
-        "",
-        phase2_pooled_remaining_failure_modes_markdown(tables),
-        "",
         "## Appendix",
         "",
         "### Column Definitions",
         "",
         phase2_column_definitions_markdown(analysis_config),
-        "",
-        "### Full Training-Regime Tables",
-        "",
-        phase2_training_regime_answer_markdown(tables, analysis_config),
-        "",
-        "#### Canopy Amount And Hurdle Calibration",
-        "",
-        phase2_amount_comparison_markdown(tables, analysis_config),
-        "",
-        "#### Binary Support Transfer",
-        "",
-        phase2_binary_support_markdown(tables, analysis_config),
-        "",
-        "### Full Deep Component-Failure Analysis",
-        "",
-        phase2_component_failure_markdown(tables, analysis_config),
-        "",
-        "### Big Sur Same-Region Context",
-        "",
-        phase2_policy_scope_markdown(analysis_config),
-        "",
-        primary_scoreboard_markdown(tables.phase1_model_comparison, analysis_config),
-        "",
-        image_markdown(
-            "Pixel skill and area calibration",
-            analysis_config.pixel_skill_area_calibration_figure,
-            output_path,
-        ),
-        "",
-        "### Legacy Same-Region Failure-Mode Context",
-        "",
-        phase2_text_without_phase1_task_refs(
-            phase2_remaining_failure_modes_markdown(tables, analysis_config, test_distribution)
-        ),
-        "",
-        image_markdown(
-            "Residual by observed bin", analysis_config.residual_by_bin_figure, output_path
-        ),
-        "",
-        image_markdown(
-            "Residual by persistence",
-            analysis_config.residual_by_persistence_figure,
-            output_path,
-        ),
-        "",
-        image_markdown(
-            "Residual by retained domain context",
-            analysis_config.residual_domain_context_figure,
-            output_path,
-        ),
-        "",
-        "### Data Health And Scope Checks",
-        "",
-        data_health_markdown(tables.data_health, analysis_config),
-        "",
-        stage_distribution_markdown(stage_rows),
-        "",
-        class_target_balance_markdown(tables, analysis_config),
-        "",
-        image_markdown(
-            "Label distribution", analysis_config.label_distribution_figure, output_path
-        ),
-        "",
-        image_markdown(
-            "Annual-max class balance",
-            analysis_config.class_balance_figure,
-            output_path,
-        ),
-        "",
-        "### Threshold, Calibration, And Amount Diagnostics",
-        "",
-        phase2_text_without_phase1_task_refs(
-            binary_threshold_comparison_markdown(tables, analysis_config)
-        ),
-        "",
-        binary_presence_markdown(tables, analysis_config),
-        "",
-        phase2_text_without_phase1_task_refs(binary_presence_calibration_markdown(analysis_config)),
-        "",
-        conditional_canopy_markdown(analysis_config),
-        "",
-        phase2_text_without_phase1_task_refs(hurdle_model_markdown(tables, analysis_config)),
         "",
         "### Artifact Index",
         "",
@@ -7492,7 +7496,7 @@ def write_phase2_report(
         "Validation command:",
         "",
         "```bash",
-        "uv run kelp-aef analyze-model --config configs/big_sur_smoke.yaml",
+        "uv run kelp-aef analyze-model --config configs/big_sur_smoke.yaml --reuse-phase2-diagnostics",
         "```",
         "",
     ]
@@ -8910,10 +8914,6 @@ def phase2_training_regime_gate_markdown(
                 f"(Big Sur pooled precision `{format_decimal(row_float(pooled_binary, 'precision'), 3)}`, "
                 f"recall `{format_decimal(row_float(pooled_binary, 'recall'), 3)}`)."
             ),
-            (
-                "The full training-regime and binary-transfer tables are demoted to "
-                "[Full Training-Regime Tables](#full-training-regime-tables)."
-            ),
         ]
     )
     return "\n".join(lines)
@@ -9169,123 +9169,341 @@ def phase2_pooled_diagnostic_scope_markdown(analysis_config: ModelAnalysisConfig
     return "\n".join(lines)
 
 
-def phase2_pooled_binary_support_failures_markdown(
+def phase2_baseline_grounding_markdown(
     tables: AnalysisTables,
     analysis_config: ModelAnalysisConfig,
-    report_path: Path,
 ) -> str:
-    """Build pooled binary-support failure tables and the hex-map figure."""
-    lines: list[str] = []
-    if tables.pooled_context is None:
-        lines.append("Pooled context diagnostics are configured, but no binary rows were produced.")
-    else:
-        binary_rows = phase2_pooled_overall_lookup(tables.pooled_context.performance, "binary")
-        edge_rows = phase2_pooled_edge_lookup(tables.component_failure)
-        if not binary_rows:
-            lines.append("Pooled binary-support diagnostic rows were not available.")
-        else:
-            lines.extend(
-                [
-                    (
-                        "Pooled support is evaluated on the calibrated `annual_max_ge_10pct` "
-                        "gate. The table below keeps FP and FN rates separate from amount "
-                        "errors; see [Column Definitions](#column-definitions) for denominators "
-                        "and topology definitions."
-                    ),
-                    "",
-                    "| Evaluation region | Rows | Observed positive | Predicted positive | Precision | Recall | F1 | FP | FN |",
-                    "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
-                ]
-            )
-            for region, row in sorted(
-                binary_rows.items(), key=lambda item: phase2_region_sort_key(item[0])
-            ):
-                lines.append(
-                    f"| {phase2_region_label(region)} | "
-                    f"{format_integer(row_int(row, 'row_count'))} | "
-                    f"{phase2_count_percent(row, 'observed_positive_count', 'observed_positive_rate')} | "
-                    f"{phase2_count_percent(row, 'predicted_positive_count', 'predicted_positive_rate')} | "
-                    f"{format_decimal(row_float(row, 'precision'), 3)} | "
-                    f"{format_decimal(row_float(row, 'recall'), 3)} | "
-                    f"{format_decimal(row_float(row, 'f1'), 3)} | "
-                    f"{phase2_count_percent(row, 'false_positive_count', 'false_positive_rate')} | "
-                    f"{phase2_count_percent(row, 'false_negative_count', 'false_negative_rate')} |"
-                )
-        if edge_rows:
-            lines.extend(
-                [
-                    "",
-                    (
-                        "Topology rates are exhaustive within the FN or predicted-FP topology "
-                        "denominator. Observed-proximity FP rates use a separate observed-positive "
-                        "proximity denominator and should not be added to predicted topology rates."
-                    ),
-                    "",
-                    (
-                        "| Evaluation region | FN isolated | FN edge | FN interior | FP predicted isolated | "
-                        "FP predicted edge | FP predicted interior | FP adjacent observed | FP near observed | "
-                        "FP far observed |"
-                    ),
-                    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-                ]
-            )
-            for region, row in sorted(
-                edge_rows.items(), key=lambda item: phase2_region_sort_key(item[0])
-            ):
-                lines.append(
-                    f"| {phase2_region_label(region)} | "
-                    f"{phase2_count_percent(row, 'fn_isolated_positive_count', 'fn_isolated_positive_rate')} | "
-                    f"{phase2_count_percent(row, 'fn_positive_edge_count', 'fn_positive_edge_rate')} | "
-                    f"{phase2_count_percent(row, 'fn_positive_interior_count', 'fn_positive_interior_rate')} | "
-                    f"{phase2_count_percent(row, 'fp_isolated_predicted_positive_count', 'fp_isolated_predicted_positive_rate')} | "
-                    f"{phase2_count_percent(row, 'fp_predicted_edge_count', 'fp_predicted_edge_rate')} | "
-                    f"{phase2_count_percent(row, 'fp_predicted_interior_count', 'fp_predicted_interior_rate')} | "
-                    f"{phase2_count_percent(row, 'fp_adjacent_observed_count', 'fp_adjacent_observed_rate')} | "
-                    f"{phase2_count_percent(row, 'fp_near_observed_count', 'fp_near_observed_rate')} | "
-                    f"{phase2_count_percent(row, 'fp_far_from_observed_count', 'fp_far_from_observed_rate')} |"
-                )
-    hex_map = phase2_pooled_binary_hex_figure_markdown(tables, analysis_config, report_path)
-    if hex_map:
-        lines.extend(["", hex_map])
-    return "\n".join(lines)
-
-
-def phase2_pooled_binary_hex_figure_markdown(
-    tables: AnalysisTables,
-    analysis_config: ModelAnalysisConfig,
-    report_path: Path,
-) -> str:
-    """Return a compact pooled binary hex-map figure block."""
+    """Build compact combined-region Phase 2 baseline grounding tables."""
     phase2_config = analysis_config.phase2_report
-    if phase2_config is None or phase2_config.binary_hex_map is None:
-        return ""
-    if tables.binary_hex_map is None or not tables.binary_hex_map.rows:
-        return ""
-    config = phase2_config.binary_hex_map
-    region_counts = ", ".join(binary_hex_region_counts(tables.binary_hex_map.rows))
+    if phase2_config is None:
+        return "Phase 2 baseline grounding is not configured."
+    grounding_rows = phase2_baseline_grounding_rows(tables)
+    continuous_rows = phase2_combined_continuous_grounding_rows(
+        tables.phase2_training_regime_primary
+    )
+    if not grounding_rows and not continuous_rows:
+        return "No baseline grounding rows were available."
     lines = [
         (
-            "The 1 km pooled binary-support map aggregates retained 30 m cells to "
-            f"`{format_decimal(config.hex_flat_diameter_m, 0)} m` flat-top hexes. "
-            f"Hex rows written: `{len(tables.binary_hex_map.rows)}` ({region_counts})."
-        )
+            "These combined Monterey+Big Sur rows compare the pooled binary support model "
+            "against the baseline and hurdle rows on the same retained full-grid test scope. "
+            "Continuous-baseline FP/FN counts are not in the upstream amount summary, so FP/FN "
+            "are shown only where the calibrated binary-support table provides them."
+        ),
     ]
-    if config.figure_path.exists():
+    if analysis_config.phase2_baseline_grounding_figure.exists():
         lines.extend(
             [
                 "",
                 image_markdown(
-                    "Pooled binary presence 1 km hex map",
-                    config.figure_path,
-                    report_path,
+                    "Compact baseline grounding",
+                    analysis_config.phase2_baseline_grounding_figure,
+                    analysis_config.report_path,
                 ),
             ]
         )
+    if grounding_rows:
+        lines.extend(
+            [
+                "",
+                "**Binary support**",
+                "",
+                "| Model | Role | F1 >=10% | Precision | Recall | Predicted positive | FP | FN |",
+                "|---|---|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for row in grounding_rows:
+            lines.append(
+                f"| {phase2_grounding_model_label(row)} | "
+                f"{phase2_grounding_role_label(row)} | "
+                f"{phase2_optional_decimal(row, 'f1_ge_10pct', 3)} | "
+                f"{phase2_optional_decimal(row, 'precision', 3)} | "
+                f"{phase2_optional_decimal(row, 'recall', 3)} | "
+                f"{phase2_optional_count_percent(row, 'predicted_positive_count', 'predicted_positive_rate')} | "
+                f"{phase2_optional_count_percent(row, 'false_positive_count', 'false_positive_rate')} | "
+                f"{phase2_optional_count_percent(row, 'false_negative_count', 'false_negative_rate')} |"
+            )
+    if continuous_rows:
+        scope = phase2_continuous_grounding_scope_text(continuous_rows)
+        lines.extend(
+            [
+                "",
+                "**Continuous amount**",
+                "",
+                scope,
+                "",
+                "| Model | Role | Predicted area (M m2) | RMSE | Area bias |",
+                "|---|---|---:|---:|---:|",
+            ]
+        )
+        for row in continuous_rows:
+            lines.append(
+                f"| {phase2_grounding_model_label(row)} | "
+                f"{phase2_baseline_role_label(str(row.get('model_name', '')))} | "
+                f"{format_area_millions(row_float(row, 'predicted_canopy_area'))} | "
+                f"{format_decimal(row_float(row, 'rmse'), 4)} | "
+                f"{format_percent(row_float(row, 'area_pct_bias'), 1)} |"
+            )
+    lines.extend(
+        [
+            "",
+            (
+                "Full artifacts: "
+                f"`{phase2_config.training_regime_primary_summary_path}` and "
+                f"`{phase2_config.binary_support_primary_summary_path}`."
+            ),
+        ]
+    )
     return "\n".join(lines)
 
 
+def phase2_baseline_grounding_rows(tables: AnalysisTables) -> list[dict[str, object]]:
+    """Return model-level rows for the compact Phase 2 binary grounding view."""
+    rows = [
+        phase2_continuous_grounding_binary_row(row)
+        for row in phase2_combined_continuous_grounding_rows(tables.phase2_training_regime_primary)
+    ]
+    binary_row = phase2_pooled_binary_grounding_row(tables.phase2_binary_support)
+    if binary_row:
+        rows.append(binary_row)
+    return rows
+
+
+def phase2_continuous_grounding_binary_row(row: dict[str, object]) -> dict[str, object]:
+    """Convert one continuous grounding row to the binary grounding table schema."""
+    return {
+        "model_name": row.get("model_name", ""),
+        "model_surface": "continuous",
+        "role": phase2_baseline_role_label(str(row.get("model_name", ""))),
+        "row_count": row.get("row_count", ""),
+        "f1_ge_10pct": row.get("f1_ge_10pct", math.nan),
+        "area_pct_bias": row.get("area_pct_bias", math.nan),
+        "precision": math.nan,
+        "recall": math.nan,
+        "predicted_positive_count": math.nan,
+        "predicted_positive_rate": math.nan,
+        "false_positive_count": math.nan,
+        "false_positive_rate": math.nan,
+        "false_negative_count": math.nan,
+        "false_negative_rate": math.nan,
+    }
+
+
+def phase2_pooled_binary_grounding_row(rows: list[dict[str, object]]) -> dict[str, object]:
+    """Return the combined pooled binary-support row for baseline grounding."""
+    pooled_rows = [
+        row for row in rows if str(row.get("training_regime", "")) == "pooled_monterey_big_sur"
+    ]
+    if not pooled_rows:
+        return {}
+    combined = phase2_combined_binary_support_row("pooled_monterey_big_sur", pooled_rows)
+    return {
+        **combined,
+        "model_name": "logistic_annual_max_ge_10pct",
+        "model_surface": "binary",
+        "role": "Pooled calibrated support",
+        "f1_ge_10pct": combined.get("f1", math.nan),
+        "area_pct_bias": math.nan,
+    }
+
+
+def phase2_combined_binary_support_rows(
+    rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Combine Phase 2 binary-support rows across evaluation regions."""
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        training_regime = str(row.get("training_regime", ""))
+        if not training_regime:
+            continue
+        grouped.setdefault(training_regime, []).append(row)
+    return [
+        phase2_combined_binary_support_row(training_regime, regime_rows)
+        for training_regime, regime_rows in sorted(
+            grouped.items(),
+            key=lambda item: phase2_context_sort_key(("", item[0])),
+        )
+    ]
+
+
+def phase2_combined_binary_support_row(
+    training_regime: str,
+    rows: list[dict[str, object]],
+) -> dict[str, object]:
+    """Aggregate count-derived binary-support metrics for one training regime."""
+    row_count = sum(row_int(row, "row_count") for row in rows)
+    positive_count = sum(row_int(row, "positive_count") for row in rows)
+    predicted_positive_count = sum(row_int(row, "predicted_positive_count") for row in rows)
+    true_positive_count = sum(row_int(row, "true_positive_count") for row in rows)
+    false_positive_count = sum(row_int(row, "false_positive_count") for row in rows)
+    false_negative_count = sum(row_int(row, "false_negative_count") for row in rows)
+    true_negative_count = max(row_count - positive_count - false_positive_count, 0)
+    precision = safe_ratio(true_positive_count, true_positive_count + false_positive_count)
+    recall = safe_ratio(true_positive_count, true_positive_count + false_negative_count)
+    return {
+        "training_regime": training_regime,
+        "row_count": row_count,
+        "positive_count": positive_count,
+        "positive_rate": safe_ratio(positive_count, row_count),
+        "predicted_positive_count": predicted_positive_count,
+        "predicted_positive_rate": safe_ratio(predicted_positive_count, row_count),
+        "precision": precision,
+        "recall": recall,
+        "f1": safe_ratio(2.0 * precision * recall, precision + recall),
+        "false_positive_count": false_positive_count,
+        "false_positive_rate": safe_ratio(false_positive_count, false_positive_count + true_negative_count),
+        "false_negative_count": false_negative_count,
+        "false_negative_rate": safe_ratio(false_negative_count, positive_count),
+    }
+
+
+def phase2_combined_continuous_grounding_rows(
+    rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Combine visible pooled continuous baseline rows across evaluation regions."""
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        model_name = str(row.get("model_name", ""))
+        if (
+            str(row.get("training_regime", "")) != "pooled_monterey_big_sur"
+            or model_name not in PHASE2_BASELINE_GROUNDING_MODELS
+        ):
+            continue
+        grouped.setdefault(model_name, []).append(row)
+    return [
+        phase2_combined_continuous_grounding_row(model_name, model_rows)
+        for model_name, model_rows in sorted(
+            grouped.items(),
+            key=lambda item: PHASE2_BASELINE_GROUNDING_MODELS.index(item[0]),
+        )
+    ]
+
+
+def phase2_combined_continuous_grounding_row(
+    model_name: str,
+    rows: list[dict[str, object]],
+) -> dict[str, object]:
+    """Aggregate count and area-derived continuous metrics for one model."""
+    row_count = sum(row_int(row, "row_count") for row in rows)
+    observed_area = sum(row_float(row, "observed_canopy_area", default=0.0) for row in rows)
+    predicted_area = sum(row_float(row, "predicted_canopy_area", default=0.0) for row in rows)
+    return {
+        "model_name": model_name,
+        "row_count": row_count,
+        "observed_canopy_area": observed_area,
+        "predicted_canopy_area": predicted_area,
+        "f1_ge_10pct": phase2_weighted_mean(rows, "f1_ge_10pct"),
+        "rmse": phase2_weighted_rmse(rows),
+        "area_pct_bias": percent_bias(predicted_area, observed_area),
+    }
+
+
+def phase2_weighted_mean(rows: list[dict[str, object]], key: str) -> float:
+    """Combine a scalar metric by row-count weighting."""
+    weighted_sum = 0.0
+    total_count = 0
+    for row in rows:
+        row_count = row_int(row, "row_count")
+        value = row_float(row, key)
+        if row_count <= 0 or not np.isfinite(value):
+            continue
+        weighted_sum += float(row_count) * value
+        total_count += row_count
+    if total_count == 0:
+        return math.nan
+    return weighted_sum / float(total_count)
+
+
+def phase2_weighted_rmse(rows: list[dict[str, object]]) -> float:
+    """Combine RMSE rows by weighting each row MSE by its row count."""
+    weighted_sse = 0.0
+    total_count = 0
+    for row in rows:
+        row_count = row_int(row, "row_count")
+        rmse = row_float(row, "rmse")
+        if row_count <= 0 or not np.isfinite(rmse):
+            continue
+        weighted_sse += float(row_count) * rmse**2
+        total_count += row_count
+    if total_count == 0:
+        return math.nan
+    return math.sqrt(weighted_sse / total_count)
+
+
+def phase2_baseline_role_label(model_name: str) -> str:
+    """Return a compact baseline role label for the grounding table."""
+    labels = {
+        "no_skill_train_mean": "No-skill reference",
+        "previous_year_annual_max": "Reference persistence",
+        "grid_cell_climatology": "Reference site memory",
+        "geographic_ridge_lon_lat_year": "Geographic reference",
+        "ridge_regression": "Pooled AEF ridge",
+        "calibrated_probability_x_conditional_canopy": "Pooled expected-value hurdle",
+        "calibrated_hard_gate_conditional_canopy": "Pooled hard-gated diagnostic",
+    }
+    return labels.get(model_name, model_name.replace("_", " "))
+
+
+def phase2_grounding_model_label(row: dict[str, object]) -> str:
+    """Return the display model label for a compact grounding row."""
+    if str(row.get("model_surface", "")) == "binary":
+        return "Binary model"
+    model_name = str(row.get("model_name", ""))
+    return PHASE1_MODEL_DISPLAY_LABELS.get(
+        model_name,
+        PRIMARY_SCOREBOARD_LABELS.get(model_name, model_name.replace("_", " ")),
+    )
+
+
+def phase2_grounding_role_label(row: dict[str, object]) -> str:
+    """Return the role label for a compact grounding row."""
+    if row.get("role"):
+        return str(row["role"])
+    return phase2_baseline_role_label(str(row.get("model_name", "")))
+
+
+def phase2_continuous_grounding_scope_text(rows: list[dict[str, object]]) -> str:
+    """Return shared continuous grounding scope text without repeating table columns."""
+    if not rows:
+        return "No continuous amount rows were available."
+    row_counts = {row_int(row, "row_count") for row in rows}
+    observed_areas = {
+        round(row_float(row, "observed_canopy_area", default=math.nan), 6) for row in rows
+    }
+    if len(row_counts) == 1 and len(observed_areas) == 1:
+        return (
+            "Shared scope: "
+            f"{format_integer(next(iter(row_counts)))} rows; observed area "
+            f"{format_area_millions(next(iter(observed_areas)))} M m2."
+        )
+    return "Scope varies by row; see the full primary summary CSV for row counts and observed area."
+
+
+def phase2_short_training_regime_label(training_regime: str) -> str:
+    """Return a short training-regime label for compact charts."""
+    labels = {
+        "monterey_only": "Monterey",
+        "big_sur_only": "Big Sur",
+        "pooled_monterey_big_sur": "Pooled",
+    }
+    return labels.get(training_regime, training_regime.replace("_", " "))
+
+
+def phase2_short_model_label(model_name: str) -> str:
+    """Return a short model label for compact charts."""
+    labels = {
+        "no_skill_train_mean": "Train mean",
+        "previous_year_annual_max": "Previous year",
+        "grid_cell_climatology": "Climatology",
+        "geographic_ridge_lon_lat_year": "Geo ridge",
+        "ridge_regression": "AEF ridge",
+        "calibrated_probability_x_conditional_canopy": "Hurdle EV",
+        "calibrated_hard_gate_conditional_canopy": "Hard gate",
+    }
+    return labels.get(model_name, model_name.replace("_", " "))
+
 def phase2_pooled_amount_hurdle_failures_markdown(tables: AnalysisTables) -> str:
-    """Build the pooled amount-underprediction and hurdle-composition section."""
+    """Build one combined pooled amount-underprediction and hurdle-composition table."""
     if tables.pooled_context is None:
         return "Pooled amount diagnostics are configured, but no rows were produced."
     ridge_rows = phase2_pooled_overall_lookup(tables.pooled_context.performance, "ridge")
@@ -9295,6 +9513,8 @@ def phase2_pooled_amount_hurdle_failures_markdown(tables: AnalysisTables) -> str
     )
     if not hurdle_rows:
         return "Pooled hurdle amount rows were not available."
+    hurdle = phase2_combined_amount_performance_row(list(hurdle_rows.values()))
+    ridge = phase2_combined_amount_performance_row(list(ridge_rows.values()))
     lines = [
         (
             "`amount_under_rate` and `composition_shrink_rate` use the same denominator: "
@@ -9305,29 +9525,50 @@ def phase2_pooled_amount_hurdle_failures_markdown(tables: AnalysisTables) -> str
         ),
         "",
         (
-            "| Evaluation region | Support-detected positives | Amount under | Composition shrink | "
+            "| Scope | Support-detected positives | Amount under | Composition shrink | "
             "Hurdle area bias | Hurdle RMSE (m2) | Ridge area bias |"
         ),
         "|---|---:|---:|---:|---:|---:|---:|",
-    ]
-    for region, hurdle in sorted(
-        hurdle_rows.items(), key=lambda item: phase2_region_sort_key(item[0])
-    ):
-        ridge = ridge_rows.get(region, {})
-        lines.append(
-            f"| {phase2_region_label(region)} | "
+        (
+            f"| Monterey + Big Sur | "
             f"{format_integer(row_int(hurdle, 'amount_rate_denominator_count'))} | "
             f"{phase2_count_percent(hurdle, 'amount_under_count', 'amount_under_rate')} | "
             f"{phase2_count_percent(hurdle, 'composition_shrink_count', 'composition_shrink_rate')} | "
             f"{format_percent(row_float(hurdle, 'area_pct_bias'), 1)} | "
             f"{format_decimal(row_float(hurdle, 'rmse'), 1)} | "
             f"{format_percent(row_float(ridge, 'area_pct_bias'), 1)} |"
-        )
+        ),
+    ]
     lines.append(
         "\nThe pooled ridge rows show whether raw embedding amount is broadly too large or small; "
         "the hurdle rows show the selected expected-value composition after calibrated support."
     )
     return "\n".join(lines)
+
+
+def phase2_combined_amount_performance_row(rows: list[dict[str, object]]) -> dict[str, object]:
+    """Combine pooled-context amount performance rows across evaluation regions."""
+    row_count = sum(row_int(row, "row_count") for row in rows)
+    observed_positive_count = sum(row_int(row, "observed_positive_count") for row in rows)
+    observed_total_area = sum(row_float(row, "observed_total_area", default=0.0) for row in rows)
+    predicted_total_area = sum(row_float(row, "predicted_total_area", default=0.0) for row in rows)
+    amount_denominator = sum(row_int(row, "amount_rate_denominator_count") for row in rows)
+    amount_under_count = sum(row_int(row, "amount_under_count") for row in rows)
+    composition_shrink_count = sum(row_int(row, "composition_shrink_count") for row in rows)
+    return {
+        "row_count": row_count,
+        "observed_positive_count": observed_positive_count,
+        "observed_positive_rate": safe_ratio(observed_positive_count, row_count),
+        "observed_total_area": observed_total_area,
+        "predicted_total_area": predicted_total_area,
+        "area_pct_bias": percent_bias(predicted_total_area, observed_total_area),
+        "rmse": phase2_weighted_rmse(rows),
+        "amount_rate_denominator_count": amount_denominator,
+        "amount_under_count": amount_under_count,
+        "amount_under_rate": safe_ratio(amount_under_count, amount_denominator),
+        "composition_shrink_count": composition_shrink_count,
+        "composition_shrink_rate": safe_ratio(composition_shrink_count, amount_denominator),
+    }
 
 
 def phase2_pooled_context_diagnostics_markdown(
@@ -9385,16 +9626,20 @@ def phase2_pooled_context_diagnostics_markdown(
             [
                 "",
                 (
-                    "The detailed rows remain in the pooled context CSVs for audit: "
-                    f"`{pooled.amount_context_path}` and "
-                    f"`{pooled.prediction_distribution_path}`."
+                    "The detailed audit rows remain in the pooled binary context, "
+                    "pooled amount context, and pooled performance CSVs: "
+                    f"`{pooled.binary_context_path}`, "
+                    f"`{pooled.amount_context_path}`, and "
+                    f"`{pooled.performance_path}`."
                 ),
             ]
         )
     return "\n".join(lines)
 
-
-def phase2_pooled_remaining_failure_modes_markdown(tables: AnalysisTables) -> str:
+def phase2_pooled_remaining_failure_modes_markdown(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+) -> str:
     """Build the focused pooled-diagnostics failure-mode synthesis."""
     if tables.pooled_context is None:
         return (
@@ -9406,6 +9651,7 @@ def phase2_pooled_remaining_failure_modes_markdown(tables: AnalysisTables) -> st
     )
     binary_rows = phase2_pooled_overall_lookup(tables.pooled_context.performance, "binary")
     edge_rows = phase2_pooled_edge_lookup(tables.component_failure)
+    phase2_config = analysis_config.phase2_report
     lines = [
         (
             "Remaining failures are not a single broad retained-domain mask story. The "
@@ -9431,11 +9677,15 @@ def phase2_pooled_remaining_failure_modes_markdown(tables: AnalysisTables) -> st
             f"`{format_percent(row_float(edge, 'fp_predicted_edge_rate'), 1)}`."
         )
     lines.append(
-        "The next model/data task should therefore preserve the pooled diagnostic split: "
-        "support topology, amount shrinkage, temporal-label persistence, and fine "
-        "`crm_depth_m_bin`/`elevation_bin` context should stay visible before any "
-        "Phase 3 recommendation is chosen."
+        "Current implication: pooled Big Sur weakness is more amount-underprediction "
+        "than binary support alone once support is detected, while Monterey pooled "
+        "weakness combines lower recall with the same high-canopy compression. The "
+        "follow-up transformed-target diagnostic is therefore justified, but the report "
+        "should keep support topology, temporal persistence, and fine `crm_depth_m_bin` "
+        "context visible before Phase 3 is chosen."
     )
+    if phase2_config is not None:
+        lines.append(f"Report manifest: `{analysis_config.manifest_path}`.")
     return "\n\n".join(lines)
 
 
@@ -9622,6 +9872,19 @@ def phase2_count_percent(row: dict[str, object], count_key: str, rate_key: str) 
     )
 
 
+def phase2_optional_count_percent(
+    row: dict[str, object],
+    count_key: str,
+    rate_key: str,
+) -> str:
+    """Format an optional count plus fractional rate for compact Phase 2 tables."""
+    count = row_float(row, count_key)
+    rate = row_float(row, rate_key)
+    if not np.isfinite(count) or not np.isfinite(rate):
+        return "n/a"
+    return f"{format_integer(int(count))} ({format_percent(rate, 1)})"
+
+
 def phase2_optional_decimal(row: dict[str, object], key: str, digits: int) -> str:
     """Format a decimal field while showing missing values as not applicable."""
     value = row_float(row, key)
@@ -9711,34 +9974,10 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
     """Build the Phase 2 report artifact index."""
     phase2_config = analysis_config.phase2_report
     lines = [
-        f"- Stage distribution table: `{analysis_config.label_distribution_path}`",
-        f"- Prediction distribution table: `{analysis_config.prediction_distribution_path}`",
-        f"- Residual by observed bin table: `{analysis_config.residual_by_bin_path}`",
-        f"- Residual by persistence table: `{analysis_config.residual_by_persistence_path}`",
-        f"- Residual by domain context table: `{analysis_config.residual_domain_context_path}`",
-        f"- Residual by mask reason table: `{analysis_config.residual_by_mask_reason_path}`",
-        f"- Residual by depth/elevation bin table: `{analysis_config.residual_by_depth_bin_path}`",
-        f"- Top residual domain-context table: `{analysis_config.top_residual_context_path}`",
-        f"- Class balance by split table: `{analysis_config.class_balance_by_split_path}`",
-        f"- Target balance by label source table: `{analysis_config.target_balance_by_label_source_path}`",
-        f"- Background rate summary table: `{analysis_config.background_rate_summary_path}`",
-        f"- Binary threshold prevalence table: `{analysis_config.binary_threshold_prevalence_path}`",
-        f"- Binary threshold comparison table: `{analysis_config.binary_threshold_comparison_path}`",
-        f"- Binary threshold recommendation table: `{analysis_config.binary_threshold_recommendation_path}`",
-        binary_presence_appendix_markdown(analysis_config),
-        binary_presence_calibration_appendix_markdown(analysis_config),
-        conditional_canopy_appendix_markdown(analysis_config),
-        hurdle_model_appendix_markdown(analysis_config),
-        f"- Big Sur same-region model comparison table: `{analysis_config.phase1_model_comparison_path}`",
-        (
-            "- Big Sur all-model sampling-policy audit table: "
-            f"`{analysis_config.all_model_sampling_policy_comparison_path}`"
-        ),
-        f"- Big Sur data-health table: `{analysis_config.data_health_path}`",
-        f"- Quarter mapping table: `{analysis_config.quarter_mapping_path}`",
-        f"- Reference fallback summary table: `{analysis_config.fallback_summary_path}`",
-        f"- Reference area calibration table: `{analysis_config.reference_area_calibration_path}`",
+        f"- Phase 2 Markdown report: `{analysis_config.report_path}`",
+        f"- Phase 2 HTML report: `{analysis_config.html_report_path}`",
         f"- Phase 2 PDF report: `{analysis_config.pdf_report_path}`",
+        f"- Phase 2 model-analysis manifest: `{analysis_config.manifest_path}`",
     ]
     if phase2_config is not None:
         lines.extend(
@@ -9755,6 +9994,10 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
                     "- Phase 2 binary-support primary summary: "
                     f"`{phase2_config.binary_support_primary_summary_path}`"
                 ),
+                (
+                    "- Phase 2 compact baseline grounding figure: "
+                    f"`{analysis_config.phase2_baseline_grounding_figure}`"
+                ),
             ]
         )
         if phase2_config.component_failure is not None:
@@ -9762,9 +10005,15 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
             lines.extend(
                 [
                     f"- Phase 2 component-failure summary: `{component.summary_path}`",
+                    f"- Phase 2 component-failure label context: `{component.by_label_context_path}`",
+                    f"- Phase 2 component-failure domain context: `{component.by_domain_context_path}`",
                     (
                         "- Phase 2 component-failure edge diagnostics: "
                         f"`{component.edge_effect_path}`"
+                    ),
+                    (
+                        "- Phase 2 component-failure temporal context: "
+                        f"`{component.temporal_label_context_path}`"
                     ),
                     f"- Phase 2 component-failure manifest: `{component.manifest_path}`",
                 ]
@@ -9775,6 +10024,14 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
                 [
                     (f"- Phase 2 pooled context model performance: `{pooled.performance_path}`"),
                     (
+                        "- Phase 2 pooled binary context diagnostics: "
+                        f"`{pooled.binary_context_path}`"
+                    ),
+                    (
+                        "- Phase 2 pooled amount context diagnostics: "
+                        f"`{pooled.amount_context_path}`"
+                    ),
+                    (
                         "- Phase 2 pooled context metric-breakdown figure: "
                         f"`{analysis_config.pooled_context_metric_breakdown_figure}`"
                     ),
@@ -9782,26 +10039,21 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
                         "- Phase 2 pooled annual-mean-vs-max binary F1 figure: "
                         f"`{analysis_config.pooled_mean_max_binary_f1_figure}`"
                     ),
-                    (
-                        "- Phase 2 pooled prediction-distribution figure: "
-                        f"`{analysis_config.pooled_prediction_distribution_figure}`"
-                    ),
-                    (
-                        "- Phase 2 pooled prediction distributions: "
-                        f"`{pooled.prediction_distribution_path}`"
-                    ),
                     f"- Phase 2 pooled context manifest: `{pooled.manifest_path}`",
                 ]
             )
-        if phase2_config.binary_hex_map is not None:
-            hex_map = phase2_config.binary_hex_map
-            lines.extend(
-                [
-                    f"- Phase 2 pooled binary hex figure: `{hex_map.figure_path}`",
-                    f"- Phase 2 pooled binary hex table: `{hex_map.table_path}`",
-                    f"- Phase 2 pooled binary hex manifest: `{hex_map.manifest_path}`",
-                ]
-            )
+    lines.extend(
+        [
+            (
+                "- Legacy same-region threshold, calibration, conditional, and hurdle "
+                f"artifacts remain recorded in the manifest: `{analysis_config.manifest_path}`"
+            ),
+            (
+                "- Separate map inspection is handled by the Phase 2 results visualizer "
+                "artifacts configured under `reports.results_visualizer`."
+            ),
+        ]
+    )
     return "\n".join(line for line in lines if line)
 
 
@@ -11728,7 +11980,12 @@ def write_manifest(
             "data_health": len(tables.data_health),
             "phase2_training_regime_primary": len(tables.phase2_training_regime_primary),
             "phase2_binary_support": len(tables.phase2_binary_support),
-            **binary_presence_hex_row_counts(tables.binary_hex_map),
+            **(
+                binary_presence_hex_row_counts(tables.binary_hex_map)
+                if analysis_config.phase2_report is not None
+                and analysis_config.phase2_report.binary_hex_map is not None
+                else {}
+            ),
         },
     }
     phase2_payload = payload.get("phase2")
@@ -11755,6 +12012,9 @@ def write_manifest(
                 ),
                 "pooled_prediction_distribution_figure": str(
                     analysis_config.pooled_prediction_distribution_figure
+                ),
+                "phase2_baseline_grounding_figure": str(
+                    analysis_config.phase2_baseline_grounding_figure
                 ),
                 "pooled_context_diagnostics_manifest": str(pooled_config.manifest_path),
             }
@@ -11867,6 +12127,9 @@ def phase2_manifest_payload(analysis_config: ModelAnalysisConfig) -> dict[str, o
             "binary_support_primary_summary": str(
                 phase2_config.binary_support_primary_summary_path
             ),
+            "phase2_baseline_grounding_figure": str(
+                analysis_config.phase2_baseline_grounding_figure
+            ),
             "report": str(analysis_config.report_path),
             "html_report": str(analysis_config.html_report_path),
             "pdf_report": str(analysis_config.pdf_report_path),
@@ -11908,6 +12171,9 @@ def phase2_manifest_payload(analysis_config: ModelAnalysisConfig) -> dict[str, o
                 ),
                 "pooled_prediction_distribution_figure": str(
                     analysis_config.pooled_prediction_distribution_figure
+                ),
+                "phase2_baseline_grounding_figure": str(
+                    analysis_config.phase2_baseline_grounding_figure
                 ),
                 "pooled_context_diagnostics_manifest": str(pooled.manifest_path),
             }

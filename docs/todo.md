@@ -506,9 +506,11 @@ Phase 2 non-goals:
   - Plan: `tasks/61_polish_pooled_phase2_report_and_attribution.md`.
   - Completed: rewrote the Phase 2 report into a compact pooled diagnostic
     decision artifact with a top training-regime gate, compact baseline
-    grounding chart plus combined binary and continuous tables; FP/FN counts now
-    live in the binary grounding table instead of a repeated pooled-binary
-    section. Removed stale same-region report sections, pooled binary support
+    grounding chart plus combined binary and continuous tables without per-region
+    breakdowns; the binary table compares baselines to the pooled binary model,
+    and the visible grounding rows are limited to previous year, cell
+    climatology, expected-value hurdle, and binary model. FP/FN counts now live
+    in the binary-model row instead of a repeated pooled-binary section. Removed stale same-region report sections, pooled binary support
     repeat, attribution diagnostics, pooled data distribution, remaining-failure
     prose, embedded residual maps, and the active 1 km hex-map report config;
     regenerated the Markdown/HTML/PDF report and manifest without the hex map.
