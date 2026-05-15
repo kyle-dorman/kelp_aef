@@ -550,6 +550,73 @@ training_regime_comparison:
         model_origin_region: monterey_big_sur
         evaluation_region: monterey
         threshold_policy: validation_max_f1_calibrated
+  component_failure:
+    summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_component_failure_summary.csv
+    by_label_context: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_component_failure_by_label_context.csv
+    by_domain_context: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_component_failure_by_domain_context.csv
+    by_spatial_context: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_component_failure_by_spatial_context.csv
+    by_model_context: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_component_failure_by_model_context.csv
+    edge_effect_diagnostics: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_edge_effect_diagnostics.csv
+    temporal_label_context: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_temporal_label_context.csv
+    manifest: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_component_failure_manifest.json
+    tolerance_m2: 90.0
+    grid_cell_size_m: 30.0
+    observed_area_bins: [0, 1, 90, 225, 450, 810, 900]
+    inputs:
+      big_sur_local:
+        hurdle_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_hurdle_full_grid_predictions.parquet
+        binary_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_binary_presence_full_grid_predictions.parquet
+        label_path: /Volumes/x10pro/kelp_aef/interim/big_sur_labels_annual.parquet
+        config_path: configs/big_sur_smoke.yaml
+        training_regime: big_sur_only
+        model_origin_region: big_sur
+        evaluation_region: big_sur
+        required: true
+      monterey_local:
+        hurdle_predictions: /Volumes/x10pro/kelp_aef/processed/hurdle_full_grid_predictions.parquet
+        binary_predictions: /Volumes/x10pro/kelp_aef/processed/binary_presence_full_grid_predictions.parquet
+        label_path: /Volumes/x10pro/kelp_aef/interim/labels_annual.parquet
+        config_path: configs/monterey_smoke.yaml
+        training_regime: monterey_only
+        model_origin_region: monterey
+        evaluation_region: monterey
+        required: true
+      pooled_monterey_big_sur_on_big_sur:
+        hurdle_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+        binary_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+        label_path: /Volumes/x10pro/kelp_aef/interim/big_sur_labels_annual.parquet
+        config_path: configs/big_sur_smoke.yaml
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        evaluation_region: big_sur
+        required: true
+      pooled_monterey_big_sur_on_monterey:
+        hurdle_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_hurdle_full_grid_predictions.parquet
+        binary_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+        label_path: /Volumes/x10pro/kelp_aef/interim/labels_annual.parquet
+        config_path: configs/monterey_smoke.yaml
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        evaluation_region: monterey
+        required: true
+      monterey_transfer_on_big_sur:
+        hurdle_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_monterey_transfer_hurdle_full_grid_predictions.parquet
+        binary_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_monterey_transfer_binary_presence_full_grid_predictions.parquet
+        label_path: /Volumes/x10pro/kelp_aef/interim/big_sur_labels_annual.parquet
+        config_path: configs/big_sur_smoke.yaml
+        training_regime: monterey_only
+        model_origin_region: monterey
+        evaluation_region: big_sur
+        required: false
+      big_sur_transfer_on_monterey:
+        hurdle_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_big_sur_transfer_hurdle_full_grid_predictions.parquet
+        binary_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_big_sur_transfer_binary_presence_full_grid_predictions.parquet
+        label_path: /Volumes/x10pro/kelp_aef/interim/labels_annual.parquet
+        config_path: configs/monterey_smoke.yaml
+        training_regime: big_sur_only
+        model_origin_region: big_sur
+        evaluation_region: monterey
+        required: false
 
 reports:
   figures_dir: /Volumes/x10pro/kelp_aef/reports/figures

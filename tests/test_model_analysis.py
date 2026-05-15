@@ -7,6 +7,7 @@ import joblib  # type: ignore[import-untyped]
 import pandas as pd  # type: ignore[import-untyped]
 
 from kelp_aef import main
+from kelp_aef.evaluation.component_failure import add_component_spatial_context
 from kelp_aef.evaluation.model_analysis import (
     BalanceSource,
     binary_threshold_definitions,
@@ -242,6 +243,104 @@ def test_analyze_model_writes_phase2_report_sections(tmp_path: Path) -> None:
     assert float(binary_rows.iloc[0]["f1"]) == 0.8
     assert manifest["phase2"]["outputs"]["binary_support_primary_summary"] == str(binary_summary)
     assert manifest["row_counts"]["phase2_binary_support"] == 6
+
+
+def test_analyze_model_writes_component_failure_outputs(tmp_path: Path) -> None:
+    """Verify Phase 2 component-failure diagnostics are report-visible."""
+    fixture = write_model_analysis_fixture(
+        tmp_path,
+        include_domain_mask=True,
+        include_training_mask_columns=True,
+        include_reference_area_calibration=True,
+    )
+    phase2_primary = tmp_path / "reports/tables/phase2_training_regime_primary.csv"
+    phase2_model_comparison = tmp_path / "reports/tables/phase2_training_regime_all.csv"
+    phase2_manifest = tmp_path / "interim/phase2_training_regime_manifest.json"
+    binary_summary = tmp_path / "reports/tables/phase2_binary_support.csv"
+    binary_predictions = tmp_path / "processed/phase2_binary_predictions.parquet"
+    calibration_model = tmp_path / "models/phase2_binary_calibration.joblib"
+    component_hurdle = tmp_path / "processed/component_hurdle_predictions.parquet"
+    write_phase2_training_regime_rows(phase2_primary)
+    write_phase2_training_regime_rows(phase2_model_comparison)
+    phase2_manifest.parent.mkdir(parents=True, exist_ok=True)
+    phase2_manifest.write_text(json.dumps({"command": "compare-training-regimes"}))
+    write_phase2_binary_predictions(binary_predictions)
+    write_phase2_calibration_payload(calibration_model)
+    write_component_failure_hurdle_predictions(component_hurdle)
+    append_phase2_config(
+        fixture["config_path"],
+        phase2_primary=phase2_primary,
+        phase2_model_comparison=phase2_model_comparison,
+        phase2_manifest=phase2_manifest,
+        binary_summary=binary_summary,
+        binary_predictions=binary_predictions,
+        calibration_model=calibration_model,
+    )
+    append_component_failure_config(
+        fixture["config_path"],
+        paths=fixture,
+        hurdle_predictions=component_hurdle,
+        label_path=tmp_path / "interim/labels_annual.parquet",
+    )
+
+    assert main(["analyze-model", "--config", str(fixture["config_path"])]) == 0
+
+    report = fixture["report"].read_text()
+    summary = pd.read_csv(fixture["component_failure_summary"])
+    by_spatial = pd.read_csv(fixture["component_failure_by_spatial"])
+    by_model = pd.read_csv(fixture["component_failure_by_model"])
+    edge = pd.read_csv(fixture["component_failure_edge"])
+    manifest = json.loads(fixture["manifest"].read_text())
+    sidecar_manifest = json.loads(fixture["component_failure_manifest"].read_text())
+    assert "Deep Component-Failure Analysis" in report
+    assert "binary support, calibrated probability, conditional amount" in report
+    assert "component-failure column definitions" in report
+    assert set(summary["context_id"]) == {"fixture_component_context"}
+    assert int(summary.iloc[0]["support_miss_positive_count"]) == 1
+    assert int(summary.iloc[0]["support_leakage_zero_count"]) == 1
+    assert int(summary.iloc[0]["detected_observed_positive_count"]) == 1
+    assert float(summary.iloc[0]["amount_underprediction_detected_positive_rate"]) == 1.0
+    assert float(summary.iloc[0]["composition_shrinkage_rate"]) == 1.0
+    assert "zero_adjacent_to_positive" in set(by_spatial["edge_class"])
+    assert "support_miss_positive" in set(by_model["component_failure_class"])
+    assert int(edge.iloc[0]["false_negative_count"]) == 1
+    assert float(edge.iloc[0]["fn_positive_edge_rate"]) == 1.0
+    assert float(edge.iloc[0]["fp_predicted_edge_rate"]) == 1.0
+    assert float(edge.iloc[0]["fp_adjacent_or_near_positive_rate"]) == 1.0
+    assert manifest["row_counts"]["component_failure_summary"] == 1
+    assert sidecar_manifest["definitions"]["binary_target"] == "annual_max_ge_10pct"
+
+
+def test_component_spatial_context_classifies_edges_and_distances() -> None:
+    """Verify retained-grid neighborhoods classify interiors, edges, and exterior rings."""
+    rows = []
+    for row in range(9):
+        for col in range(9):
+            observed = 3 <= row <= 5 and 3 <= col <= 5
+            rows.append(
+                {
+                    "aef_grid_row": row,
+                    "aef_grid_col": col,
+                    "observed_binary_positive": observed,
+                    "predicted_binary_positive": observed,
+                }
+            )
+    frame = pd.DataFrame(rows)
+
+    spatial = add_component_spatial_context(frame, 30.0)
+
+    center = spatial.query("aef_grid_row == 4 and aef_grid_col == 4").iloc[0]
+    edge = spatial.query("aef_grid_row == 3 and aef_grid_col == 3").iloc[0]
+    adjacent = spatial.query("aef_grid_row == 2 and aef_grid_col == 2").iloc[0]
+    near = spatial.query("aef_grid_row == 1 and aef_grid_col == 1").iloc[0]
+    far = spatial.query("aef_grid_row == 0 and aef_grid_col == 0").iloc[0]
+    assert center["edge_class"] == "positive_interior"
+    assert edge["edge_class"] == "positive_edge"
+    assert adjacent["edge_class"] == "zero_adjacent_to_positive"
+    assert near["edge_class"] == "near_positive_exterior"
+    assert far["edge_class"] == "far_zero_exterior"
+    assert center["observed_component_area_m2"] == 9 * 900.0
+    assert far["distance_to_observed_positive_cells"] > near["distance_to_observed_positive_cells"]
 
 
 def test_sampling_policy_audit_helper_filters_to_trained_model_tables(tmp_path: Path) -> None:
@@ -850,6 +949,167 @@ def phase2_binary_config_entry(
         threshold_policy: validation_max_f1_calibrated"""
 
 
+def append_component_failure_config(
+    config_path: Path,
+    *,
+    paths: dict[str, Path],
+    hurdle_predictions: Path,
+    label_path: Path,
+) -> None:
+    """Append a component-failure diagnostic block to a synthetic config."""
+    with config_path.open("a") as file:
+        file.write(
+            f"""
+  component_failure:
+    summary: {paths["component_failure_summary"]}
+    by_label_context: {paths["component_failure_by_label"]}
+    by_domain_context: {paths["component_failure_by_domain"]}
+    by_spatial_context: {paths["component_failure_by_spatial"]}
+    by_model_context: {paths["component_failure_by_model"]}
+    edge_effect_diagnostics: {paths["component_failure_edge"]}
+    temporal_label_context: {paths["component_failure_temporal"]}
+    manifest: {paths["component_failure_manifest"]}
+    tolerance_m2: 90.0
+    grid_cell_size_m: 30.0
+    inputs:
+      fixture_component_context:
+        hurdle_predictions: {hurdle_predictions}
+        label_path: {label_path}
+        training_regime: big_sur_only
+        model_origin_region: big_sur
+        evaluation_region: big_sur
+        required: true
+"""
+        )
+
+
+def write_component_failure_hurdle_predictions(path: Path) -> None:
+    """Write small expected-value hurdle rows for component-failure tests."""
+    rows = []
+    for year, split in ((2021, "validation"), (2022, "test")):
+        rows.extend(
+            [
+                component_hurdle_row(
+                    year,
+                    split,
+                    cell_id=1,
+                    row=0,
+                    col=0,
+                    station_id=1,
+                    observed_area=900.0,
+                    probability=0.80,
+                    threshold=0.50,
+                    conditional_area=900.0,
+                    expected_area=720.0,
+                    hard_gate_area=900.0,
+                    label_source="kelpwatch_station",
+                ),
+                component_hurdle_row(
+                    year,
+                    split,
+                    cell_id=2,
+                    row=0,
+                    col=1,
+                    station_id=2,
+                    observed_area=450.0,
+                    probability=0.20,
+                    threshold=0.50,
+                    conditional_area=600.0,
+                    expected_area=120.0,
+                    hard_gate_area=0.0,
+                    label_source="kelpwatch_station",
+                ),
+                component_hurdle_row(
+                    year,
+                    split,
+                    cell_id=3,
+                    row=1,
+                    col=0,
+                    station_id=3,
+                    observed_area=0.0,
+                    probability=0.90,
+                    threshold=0.50,
+                    conditional_area=450.0,
+                    expected_area=405.0,
+                    hard_gate_area=450.0,
+                    label_source="kelpwatch_station",
+                ),
+                component_hurdle_row(
+                    year,
+                    split,
+                    cell_id=4,
+                    row=1,
+                    col=1,
+                    station_id=None,
+                    observed_area=0.0,
+                    probability=0.10,
+                    threshold=0.50,
+                    conditional_area=300.0,
+                    expected_area=30.0,
+                    hard_gate_area=0.0,
+                    label_source="assumed_background",
+                ),
+            ]
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_parquet(path, index=False)
+
+
+def component_hurdle_row(
+    year: int,
+    split: str,
+    *,
+    cell_id: int,
+    row: int,
+    col: int,
+    station_id: int | None,
+    observed_area: float,
+    probability: float,
+    threshold: float,
+    conditional_area: float,
+    expected_area: float,
+    hard_gate_area: float,
+    label_source: str,
+) -> dict[str, object]:
+    """Build one expected-value hurdle prediction fixture row."""
+    return {
+        "year": year,
+        "split": split,
+        "kelpwatch_station_id": station_id,
+        "longitude": -122.0 + col * 0.001,
+        "latitude": 36.0 + row * 0.001,
+        "kelp_fraction_y": observed_area / 900.0,
+        "kelp_max_y": observed_area,
+        "aef_grid_cell_id": cell_id,
+        "aef_grid_row": row,
+        "aef_grid_col": col,
+        "label_source": label_source,
+        "is_kelpwatch_observed": label_source == "kelpwatch_station",
+        "kelpwatch_station_count": 1 if label_source == "kelpwatch_station" else 0,
+        "is_plausible_kelp_domain": True,
+        "domain_mask_reason": "retained_ambiguous_coast" if row == 0 else "retained_depth_0_60m",
+        "domain_mask_detail": "fixture",
+        "domain_mask_version": "test_mask_v1",
+        "crm_elevation_m": 0.0 if row == 0 else -12.0,
+        "crm_depth_m": 0.0 if row == 0 else 12.0,
+        "depth_bin": "ambiguous_coast" if row == 0 else "0_40m",
+        "elevation_bin": "nearshore" if row == 0 else "subtidal",
+        "mask_status": "plausible_kelp_domain",
+        "evaluation_scope": "full_grid_masked",
+        "model_name": "calibrated_probability_x_conditional_canopy",
+        "composition_policy": "expected_value",
+        "presence_probability_threshold": threshold,
+        "calibrated_presence_probability": probability,
+        "pred_presence_class": probability >= threshold,
+        "pred_conditional_area_m2": conditional_area,
+        "pred_expected_value_area_m2": expected_area,
+        "pred_hard_gate_area_m2": hard_gate_area,
+        "pred_hurdle_area_m2": expected_area,
+        "pred_kelp_max_y": expected_area,
+        "residual_kelp_max_y": observed_area - expected_area,
+    }
+
+
 def write_model_analysis_fixture(
     tmp_path: Path,
     *,
@@ -991,6 +1251,22 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/figures/model_analysis_binary_threshold_comparison.png",
         "residual_domain_context_figure": tmp_path
         / "reports/figures/model_analysis_residual_by_domain_context.png",
+        "component_failure_summary": tmp_path
+        / "reports/tables/monterey_big_sur_component_failure_summary.csv",
+        "component_failure_by_label": tmp_path
+        / "reports/tables/monterey_big_sur_component_failure_by_label_context.csv",
+        "component_failure_by_domain": tmp_path
+        / "reports/tables/monterey_big_sur_component_failure_by_domain_context.csv",
+        "component_failure_by_spatial": tmp_path
+        / "reports/tables/monterey_big_sur_component_failure_by_spatial_context.csv",
+        "component_failure_by_model": tmp_path
+        / "reports/tables/monterey_big_sur_component_failure_by_model_context.csv",
+        "component_failure_edge": tmp_path
+        / "reports/tables/monterey_big_sur_edge_effect_diagnostics.csv",
+        "component_failure_temporal": tmp_path
+        / "reports/tables/monterey_big_sur_temporal_label_context.csv",
+        "component_failure_manifest": tmp_path
+        / "interim/monterey_big_sur_component_failure_manifest.json",
     }
 
 

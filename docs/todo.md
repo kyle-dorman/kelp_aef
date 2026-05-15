@@ -2,8 +2,9 @@
 
 ## Active Phase 2 Plan
 
-Status: Phase 2 selected on 2026-05-14. P2-01 through P2-13 have task plans;
-P2-14 closeout is still a planning stub until its `tasks/` file is written.
+Status: Phase 2 selected on 2026-05-14. P2-01 through P2-13 and the P2-11a
+through P2-11c follow-up diagnostics have task plans; P2-14 closeout is still a
+planning stub until its `tasks/` file is written.
 
 Phase 2 theme: test whether the closed Monterey Phase 1 annual-max policy
 generalizes to neighboring Big Sur before choosing a broader Phase 3 direction.
@@ -35,6 +36,9 @@ Phase 2 should:
   change;
 - compare Monterey-trained transfer, Big Sur-only training, and pooled
   Monterey+Big Sur training when evaluating on Big Sur;
+- retain that training-regime comparison as a compact top-level gate, then
+  focus deeper report analysis on pooled Monterey+Big Sur diagnostics for both
+  regions;
 - compare Big Sur against Monterey on AEF ridge, previous-year persistence,
   expected-value hurdle, and hard-gated diagnostic policy;
 - generate a Big Sur results visualizer;
@@ -317,7 +321,7 @@ Phase 2 non-goals:
     as the aggregate manifest. Context labels are carried into each HTML file,
     manifest, and inspection CSV; pooled Monterey and Big Sur evaluation rows
     remain separated rather than forming one unlabeled point cloud.
-- [ ] P2-11: Deep model-component failure analysis.
+- [x] P2-11: Deep model-component failure analysis.
   - Goal: Break down binary support, conditional canopy amount, expected-value
     hurdle, and hard-gated hurdle failures by label-derived context,
     bathymetry/domain context, and spatial edge/interior context.
@@ -327,6 +331,62 @@ Phase 2 non-goals:
     support leakage, amount shrinkage, edge effects, depth/domain effects,
     temporal-label effects, or model/regime-specific effects.
   - Plan: `tasks/53_deep_model_component_failure_analysis.md`.
+  - Completed: extended `analyze-model` with a report-visible component
+    failure pass covering Big Sur local, Monterey local, pooled-on-Big-Sur,
+    pooled-on-Monterey, and reciprocal transfer sidecars. The generated
+    manifest records six contexts and writes
+    `monterey_big_sur_component_failure_summary.csv`,
+    `monterey_big_sur_component_failure_by_label_context.csv`,
+    `monterey_big_sur_component_failure_by_domain_context.csv`,
+    `monterey_big_sur_component_failure_by_spatial_context.csv`,
+    `monterey_big_sur_component_failure_by_model_context.csv`,
+    `monterey_big_sur_edge_effect_diagnostics.csv`, and
+    `monterey_big_sur_temporal_label_context.csv`.
+  - Primary outcome: failures are not mostly off-domain leakage or a simple
+    binary-support collapse. Big Sur local has `1,957` FNs, `1,460` FPs,
+    `3,369` detected-positive amount-underprediction rows (`32.8%` of detected
+    observed positives), and `1,564` composition-shrinkage rows (`15.2%` of the
+    same denominator) with `-2.84%` expected-value area bias; pooled on Big Sur
+    increases amount-underprediction to `5,897` (`58.6%`) and support misses to
+    `2,152`, matching its weaker area calibration. Edge effects are strong but
+    split: Big Sur local FNs are `6.1%` isolated positives and `91.3%`
+    positive-edge cells, while pooled-on-Big-Sur FNs are `5.4%` isolated
+    positives and `92.8%` positive-edge cells. Big Sur local FPs are only
+    `1.6%` isolated predicted positives, while `90.0%` are adjacent to or near
+    observed positives. Active errors concentrate in retained `0_40m` depth
+    contexts, while retained `40_60m` rows contribute essentially no binary
+    FP/FN events in the primary contexts.
+- [ ] P2-11a: Build pooled cross-model context diagnostics.
+  - Goal: Make the report's deeper diagnostics focus on pooled Monterey+Big
+    Sur evaluation, comparing calibrated binary support, AEF ridge amount, and
+    expected-value hurdle behavior across observed canopy, temporal
+    persistence, fine depth/elevation bins, and prediction distributions.
+  - Outputs: pooled context diagnostic tables, prediction-distribution tables,
+    and a manifest under `/Volumes/x10pro/kelp_aef`.
+  - Acceptance: pooled-on-Big-Sur and pooled-on-Monterey can be compared across
+    the same binary, ridge, and hurdle context bins, with amount-underprediction
+    and composition-shrinkage rates using the same denominator.
+  - Plan: `tasks/56_build_pooled_phase2_context_diagnostics.md`.
+- [ ] P2-11b: Replace the binary-presence diagnostic map with 1 km hex
+      summaries.
+  - Goal: Make pooled binary support errors spatially readable by aggregating
+    observed positive rate, predicted positive rate/probability, and residual
+    direction to 1 km hexes instead of plotting dense 30 m cells.
+  - Outputs: pooled Monterey/Big Sur hex summary PNG, CSV, and manifest.
+  - Acceptance: the Phase 2 report uses a readable hex map, Big Sur and
+    Monterey are clearly separated, and the CSV preserves observed/predicted
+    rates plus FP/FN counts for audit.
+  - Plan: `tasks/57_hex_aggregate_binary_presence_map.md`.
+- [ ] P2-11c: Simplify the Phase 2 report around pooled diagnostics.
+  - Goal: Keep one compact six-context comparison at the top, then make the
+    main body focus on pooled binary, ridge, and hurdle failure analysis with
+    table definitions and artifact links moved to the appendix.
+  - Outputs: regenerated Phase 2 Markdown/HTML/PDF report with appendix column
+    definitions and links from the main tables.
+  - Acceptance: the report no longer reads as a long train/apply matrix; FP/FN
+    topology and proximity definitions are explicit; the 1 km hex map and
+    pooled context diagnostics drive the main analysis.
+  - Plan: `tasks/58_simplify_phase2_report_for_pooled_diagnostics.md`.
 - [ ] P2-12: Test transformed positive-canopy amount targets.
   - Goal: Test whether a small log/logit-style positive-canopy target
     transformation reduces high-canopy shrinkage before escalating to random
@@ -354,8 +414,9 @@ Phase 2 non-goals:
   - Outputs: Phase 2 closeout decision note and updated docs.
   - Acceptance: the decision is grounded in Big Sur source coverage, transfer
     performance, Big Sur-only performance, pooled performance, the P2-09 report
-    synthesis, visual QA, component failure analysis, transformed-target
-    diagnostics, and AEF embedding visual QA.
+    synthesis, visual QA, component failure analysis, pooled context
+    diagnostics, hex-map binary diagnostics, report simplification,
+    transformed-target diagnostics, and AEF embedding visual QA.
 
 ## Closed Phase 1 TODO
 

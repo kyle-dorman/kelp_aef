@@ -53,6 +53,14 @@ from kelp_aef.evaluation.binary_presence import (
     binary_auprc,
     binary_auroc,
 )
+from kelp_aef.evaluation.component_failure import (
+    ComponentFailureConfig,
+    ComponentFailureTables,
+    build_component_failure_tables,
+    component_failure_report_markdown,
+    load_component_failure_config,
+    write_component_failure_outputs,
+)
 from kelp_aef.labels.kelpwatch import NETCDF_ENGINE
 
 matplotlib.use("Agg")
@@ -656,6 +664,7 @@ class Phase2ReportConfig:
     training_regime_manifest_path: Path
     binary_support_primary_summary_path: Path
     binary_support_inputs: tuple[Phase2BinarySupportInput, ...]
+    component_failure: ComponentFailureConfig | None
     primary_split: str
     primary_year: int
     primary_mask_status: str
@@ -811,6 +820,7 @@ class AnalysisTables:
     reference_area_calibration: list[dict[str, object]]
     phase2_training_regime_primary: list[dict[str, object]]
     phase2_binary_support: list[dict[str, object]]
+    component_failure: ComponentFailureTables | None
 
 
 @dataclass(frozen=True)
@@ -1284,6 +1294,15 @@ def load_phase2_report_config(
         binary_support.get("inputs"),
         "training_regime_comparison.binary_support.inputs",
     )
+    primary_split = str(comparison.get("primary_split", DEFAULT_ANALYSIS_SPLIT))
+    primary_year = optional_int(
+        comparison.get("primary_year"),
+        "training_regime_comparison.primary_year",
+        DEFAULT_ANALYSIS_YEAR,
+    )
+    primary_mask_status = str(comparison.get("primary_mask_status", "plausible_kelp_domain"))
+    primary_evaluation_scope = str(comparison.get("primary_evaluation_scope", "full_grid_masked"))
+    primary_label_source = str(comparison.get("primary_label_source", "all"))
     return Phase2ReportConfig(
         training_regime_model_comparison_path=config_relative_path(
             comparison.get("model_comparison"),
@@ -1310,17 +1329,22 @@ def load_phase2_report_config(
             phase2_binary_support_input(input_name, value, config_path)
             for input_name, value in sorted(binary_inputs.items(), key=lambda item: str(item[0]))
         ),
-        primary_split=str(comparison.get("primary_split", DEFAULT_ANALYSIS_SPLIT)),
-        primary_year=optional_int(
-            comparison.get("primary_year"),
-            "training_regime_comparison.primary_year",
-            DEFAULT_ANALYSIS_YEAR,
+        component_failure=load_component_failure_config(
+            comparison,
+            outputs,
+            tables_dir,
+            config_path,
+            primary_split=primary_split,
+            primary_year=primary_year,
+            primary_mask_status=primary_mask_status,
+            primary_evaluation_scope=primary_evaluation_scope,
+            primary_label_source=primary_label_source,
         ),
-        primary_mask_status=str(comparison.get("primary_mask_status", "plausible_kelp_domain")),
-        primary_evaluation_scope=str(
-            comparison.get("primary_evaluation_scope", "full_grid_masked")
-        ),
-        primary_label_source=str(comparison.get("primary_label_source", "all")),
+        primary_split=primary_split,
+        primary_year=primary_year,
+        primary_mask_status=primary_mask_status,
+        primary_evaluation_scope=primary_evaluation_scope,
+        primary_label_source=primary_label_source,
     )
 
 
@@ -1837,6 +1861,12 @@ def build_analysis_tables(
     quarter_mapping = build_quarter_mapping(analysis_config)
     phase2_training_regime_primary = read_phase2_training_regime_primary(analysis_config)
     phase2_binary_support = build_phase2_binary_support_summary(analysis_config)
+    component_failure = (
+        build_component_failure_tables(analysis_config.phase2_report.component_failure)
+        if analysis_config.phase2_report is not None
+        and analysis_config.phase2_report.component_failure is not None
+        else None
+    )
     data.aligned.attrs["model_analysis_projection_frame"] = projection_frame
     return AnalysisTables(
         stage_distribution=build_stage_distribution(data),
@@ -1865,6 +1895,7 @@ def build_analysis_tables(
         reference_area_calibration=reference_area_calibration,
         phase2_training_regime_primary=phase2_training_regime_primary,
         phase2_binary_support=phase2_binary_support,
+        component_failure=component_failure,
     )
 
 
@@ -5096,6 +5127,14 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
             analysis_config.phase2_report.binary_support_primary_summary_path,
             PHASE2_BINARY_SUPPORT_FIELDS,
         )
+        if (
+            analysis_config.phase2_report.component_failure is not None
+            and tables.component_failure is not None
+        ):
+            write_component_failure_outputs(
+                tables.component_failure,
+                analysis_config.phase2_report.component_failure,
+            )
 
 
 def write_csv(rows: list[dict[str, object]], output_path: Path, fields: tuple[str, ...]) -> None:
@@ -5824,6 +5863,10 @@ def write_phase2_report(
         "",
         phase2_binary_support_markdown(tables, analysis_config),
         "",
+        "### Deep Component-Failure Analysis",
+        "",
+        phase2_component_failure_markdown(tables, analysis_config),
+        "",
         "## Big Sur Same-Region Context",
         "",
         phase2_policy_scope_markdown(analysis_config),
@@ -6258,6 +6301,9 @@ def markdown_lines_to_html(markdown_lines: list[str], markdown_base_dir: Path) -
         elif stripped.startswith("### "):
             output.append(f"<h3>{inline_markdown_to_html(stripped[4:])}</h3>")
             index += 1
+        elif stripped.startswith("#### "):
+            output.append(heading_to_html("h4", stripped[5:]))
+            index += 1
         elif IMAGE_MARKDOWN_PATTERN.fullmatch(stripped):
             output.append(image_line_to_html(stripped, markdown_base_dir))
             index += 1
@@ -6393,7 +6439,24 @@ def inline_markdown_to_html(text: str) -> str:
     """Convert the small inline Markdown subset used by the report to HTML."""
     escaped = html.escape(text)
     escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
-    return re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
+    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
+    return re.sub(
+        r"\[([^\]]+)\]\((#[A-Za-z0-9_-]+)\)",
+        r'<a href="\2">\1</a>',
+        escaped,
+    )
+
+
+def heading_to_html(tag: str, text: str) -> str:
+    """Convert one Markdown heading to HTML with a stable local anchor id."""
+    heading_id = html.escape(markdown_heading_id(text), quote=True)
+    return f'<{tag} id="{heading_id}">{inline_markdown_to_html(text)}</{tag}>'
+
+
+def markdown_heading_id(text: str) -> str:
+    """Return the local HTML anchor id used for a generated Markdown heading."""
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug or "section"
 
 
 def stage_distribution_markdown(rows: list[dict[str, object]]) -> str:
@@ -7311,6 +7374,21 @@ def phase2_binary_support_markdown(
     return "\n".join(lines)
 
 
+def phase2_component_failure_markdown(
+    tables: AnalysisTables, analysis_config: ModelAnalysisConfig
+) -> str:
+    """Build the Phase 2 component-failure report section."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None or phase2_config.component_failure is None:
+        return "Component-failure diagnostics are not configured for this report run."
+    if tables.component_failure is None:
+        return "Component-failure diagnostics are configured, but no rows were produced."
+    return component_failure_report_markdown(
+        tables.component_failure,
+        phase2_config.component_failure,
+    )
+
+
 def phase2_policy_scope_markdown(analysis_config: ModelAnalysisConfig) -> str:
     """Build the Phase 2 report scope and artifact source section."""
     phase2_config = analysis_config.phase2_report
@@ -7418,6 +7496,18 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
                 ),
             ]
         )
+        if phase2_config.component_failure is not None:
+            component = phase2_config.component_failure
+            lines.extend(
+                [
+                    f"- Phase 2 component-failure summary: `{component.summary_path}`",
+                    (
+                        "- Phase 2 component-failure edge diagnostics: "
+                        f"`{component.edge_effect_path}`"
+                    ),
+                    f"- Phase 2 component-failure manifest: `{component.manifest_path}`",
+                ]
+            )
     return "\n".join(line for line in lines if line)
 
 
@@ -9346,10 +9436,63 @@ def write_manifest(
             "phase2_binary_support": len(tables.phase2_binary_support),
         },
     }
+    if (
+        analysis_config.phase2_report is not None
+        and analysis_config.phase2_report.component_failure is not None
+    ):
+        component_config = analysis_config.phase2_report.component_failure
+        cast(dict[str, object], payload["outputs"]).update(
+            {
+                "component_failure_summary": str(component_config.summary_path),
+                "component_failure_by_label_context": str(
+                    component_config.by_label_context_path
+                ),
+                "component_failure_by_domain_context": str(
+                    component_config.by_domain_context_path
+                ),
+                "component_failure_by_spatial_context": str(
+                    component_config.by_spatial_context_path
+                ),
+                "component_failure_by_model_context": str(component_config.by_model_context_path),
+                "component_failure_edge_effect": str(component_config.edge_effect_path),
+                "component_failure_temporal_label_context": str(
+                    component_config.temporal_label_context_path
+                ),
+                "component_failure_manifest": str(component_config.manifest_path),
+            }
+        )
+        cast(dict[str, object], payload["row_counts"]).update(
+            component_failure_row_counts(tables.component_failure)
+        )
     analysis_config.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with analysis_config.manifest_path.open("w") as file:
         json.dump(payload, file, indent=2)
         file.write("\n")
+
+
+def component_failure_row_counts(
+    tables: ComponentFailureTables | None,
+) -> dict[str, int]:
+    """Return component-failure row counts for the model-analysis manifest."""
+    if tables is None:
+        return {
+            "component_failure_summary": 0,
+            "component_failure_by_label_context": 0,
+            "component_failure_by_domain_context": 0,
+            "component_failure_by_spatial_context": 0,
+            "component_failure_by_model_context": 0,
+            "component_failure_edge_effect": 0,
+            "component_failure_temporal_label_context": 0,
+        }
+    return {
+        "component_failure_summary": len(tables.summary),
+        "component_failure_by_label_context": len(tables.by_label_context),
+        "component_failure_by_domain_context": len(tables.by_domain_context),
+        "component_failure_by_spatial_context": len(tables.by_spatial_context),
+        "component_failure_by_model_context": len(tables.by_model_context),
+        "component_failure_edge_effect": len(tables.edge_effect),
+        "component_failure_temporal_label_context": len(tables.temporal_label_context),
+    }
 
 
 def phase2_manifest_payload(analysis_config: ModelAnalysisConfig) -> dict[str, object] | None:
@@ -9357,7 +9500,7 @@ def phase2_manifest_payload(analysis_config: ModelAnalysisConfig) -> dict[str, o
     phase2_config = analysis_config.phase2_report
     if phase2_config is None:
         return None
-    return {
+    payload: dict[str, object] = {
         "primary_filters": {
             "split": phase2_config.primary_split,
             "year": phase2_config.primary_year,
@@ -9395,3 +9538,37 @@ def phase2_manifest_payload(analysis_config: ModelAnalysisConfig) -> dict[str, o
             "pdf_report": str(analysis_config.pdf_report_path),
         },
     }
+    if phase2_config.component_failure is not None:
+        component = phase2_config.component_failure
+        cast(dict[str, object], payload["inputs"])["component_failure"] = [
+            {
+                "context_id": input_config.context_id,
+                "training_regime": input_config.training_regime,
+                "model_origin_region": input_config.model_origin_region,
+                "evaluation_region": input_config.evaluation_region,
+                "hurdle_predictions": str(input_config.hurdle_predictions_path),
+                "binary_predictions": str(input_config.binary_predictions_path)
+                if input_config.binary_predictions_path is not None
+                else None,
+                "label_path": str(input_config.label_path)
+                if input_config.label_path is not None
+                else None,
+                "required": input_config.required,
+            }
+            for input_config in component.inputs
+        ]
+        cast(dict[str, object], payload["outputs"]).update(
+            {
+                "component_failure_summary": str(component.summary_path),
+                "component_failure_by_label_context": str(component.by_label_context_path),
+                "component_failure_by_domain_context": str(component.by_domain_context_path),
+                "component_failure_by_spatial_context": str(component.by_spatial_context_path),
+                "component_failure_by_model_context": str(component.by_model_context_path),
+                "component_failure_edge_effect": str(component.edge_effect_path),
+                "component_failure_temporal_label_context": str(
+                    component.temporal_label_context_path
+                ),
+                "component_failure_manifest": str(component.manifest_path),
+            }
+        )
+    return payload

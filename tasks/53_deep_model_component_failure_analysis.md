@@ -111,6 +111,42 @@ the PR/commit message that confirms:
 - how held-out visual QA and test rows are handled without tuning thresholds or
   selecting a new policy.
 
+## Implementation Note
+
+- Command ownership: extend `kelp-aef analyze-model --config
+  configs/big_sur_smoke.yaml` rather than adding a separate command. Phase 2
+  report synthesis, training-regime comparison, and binary-support comparison
+  already live there, so component-failure diagnostics should be regenerated
+  with the same report pass.
+- Prediction contexts: include the four required contexts (`big_sur_only` on
+  Big Sur, `monterey_only` on Monterey, pooled on Big Sur, pooled on Monterey)
+  and the two reciprocal transfer contexts as supporting rows. Every output row
+  must carry `evaluation_region`, `training_regime`, and `model_origin_region`.
+- Failure definitions: use the validation-selected calibrated binary threshold
+  stored in each hurdle artifact (`pred_presence_class` and
+  `presence_probability_threshold`) for binary TP/FP/FN/TN, use
+  `pred_conditional_area_m2` for conditional amount, use
+  `pred_expected_value_area_m2` for expected-value hurdle residuals, and use
+  `pred_hard_gate_area_m2` for hard-gated residuals. Use a fixed `90 m2`
+  one-cell canopy tolerance for near-correct and large residual bins; do not
+  retune thresholds from held-out rows.
+- Secondary contexts: compute label bins, `annual_max_ge_10pct`,
+  `annual_max_ge_50pct`, near-saturated status, label source, previous-year
+  annual max class from existing prediction artifacts, retained domain reason,
+  detail, CRM depth/elevation bins, and quarterly persistence context from the
+  already-built annual label parquet where station-level quarterly fields are
+  available.
+- Edge/interior metrics: compute 3x3 and 5x5 retained-grid neighborhood
+  positive counts/fractions, nearest observed/predicted positive distance in
+  30 m grid cells/meters, observed connected-component id/area for
+  `annual_max_ge_10pct` cells, and positive-edge/exterior-ring classes from
+  existing `aef_grid_row`/`aef_grid_col` coordinates.
+- Held-out discipline: primary diagnostics are restricted to
+  `split = test`, `year = 2022`, `evaluation_scope = full_grid_masked`,
+  `label_source = all`, and `mask_status = plausible_kelp_domain`. These rows
+  are diagnostic only and cannot change thresholds, sample quotas, masks,
+  labels, features, or the selected model policy.
+
 ## Required Analysis
 
 Analyze all of these model contexts at minimum:
@@ -139,13 +175,14 @@ component failure fields:
   - `support_miss_positive`: observed positive but binary class is negative.
   - `support_leakage_zero`: observed zero but binary class is positive.
   - `amount_underprediction_detected_positive`: observed positive, binary
-    support is positive, and conditional or hurdle amount is too low.
+    support is positive, and expected-value hurdle amount is too low.
   - `amount_overprediction_low_or_zero`: observed low or zero and conditional
     or hurdle amount is too high.
   - `high_confidence_wrong`: probability near 0 or 1 but observed class
     disagrees.
-  - `composition_shrinkage`: conditional amount is high but expected-value
-    hurdle is much lower because calibrated probability is moderate.
+  - `composition_shrinkage`: observed positive and binary support is positive,
+    but expected-value composition materially shrinks a substantial conditional
+    canopy prediction.
   - `near_correct`: residual is inside a declared tolerance such as one
     Kelpwatch canopy bin or 90 m2.
 
@@ -261,6 +298,46 @@ for edge/interior classes and nearest-positive distances.
 - The output gives P2-14 closeout enough evidence to choose between regional
   expansion, temporal-label experiments, simple non-linear tabular modeling,
   ingestion/domain hardening, or evaluation-tooling work.
+
+## Outcome
+
+Completed via `kelp-aef analyze-model --config configs/big_sur_smoke.yaml`.
+
+The diagnostic pass writes six train/evaluate contexts: the four required
+local/pooled contexts plus reciprocal transfer sidecars. It records summary,
+label, domain, spatial, model-context, edge-effect, temporal-label, and manifest
+artifacts under `/Volumes/x10pro/kelp_aef/reports/tables/` and
+`/Volumes/x10pro/kelp_aef/interim/`.
+
+Headline results on the required 2022 retained-domain contexts:
+
+- Big Sur local has `1,957` binary FNs, `1,460` binary FPs, `3,369`
+  detected-positive amount-underprediction rows (`32.8%` of detected observed
+  positives), `1,564` composition-shrinkage rows (`15.2%` of the same
+  denominator), and `-2.84%` expected-value area bias.
+- Pooled-on-Big-Sur has slightly fewer FPs (`1,278`) but more binary misses
+  (`2,152`) and many more detected-positive amount-underprediction rows
+  (`5,897`, `58.6%`), matching the weaker pooled Big Sur area calibration.
+- Monterey local has `1,470` binary FNs, `954` binary FPs, and `4,267`
+  detected-positive amount-underprediction rows; pooled-on-Monterey reduces FPs
+  to `643` but increases FNs to `2,008`.
+- Edge context is strong but now split: Big Sur local FNs are `6.1%` isolated
+  positives and `91.3%` positive-edge cells; pooled-on-Big-Sur FNs are `5.4%`
+  isolated positives and `92.8%` positive-edge cells. Big Sur local FPs are
+  only `1.6%` isolated predicted positives, while `90.0%` are adjacent to or
+  near observed positives.
+- Depth/domain context concentrates active errors in retained `0_40m` cells,
+  especially `(10, 20m]` and `(0, 10m]`; retained `40_60m` cells contribute
+  many rows but essentially no binary FP/FN events in the primary contexts.
+- Temporal context shows the largest positive amount residuals on persistent or
+  intermittent Kelpwatch station rows, not on one-quarter spikes alone.
+
+Interpretation: Phase 2 failures are not mostly off-domain leakage or a simple
+binary-support collapse. The bigger unresolved issue is high/positive canopy
+amount shrinkage after support is detected, with a clear kelp-mat edge/boundary
+component and region/training-regime differences. Held-out 2022 diagnostics were
+used only for failure analysis; no thresholds, sample quotas, masks, labels,
+features, or model policy were tuned.
 
 ## Known Constraints / Non-Goals
 
