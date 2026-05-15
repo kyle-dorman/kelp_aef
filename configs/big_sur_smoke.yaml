@@ -942,4 +942,5 @@ reports:
     model_analysis_feature_projection_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_feature_projection.png
     model_analysis_spatial_readiness_figure: /Volumes/x10pro/kelp_aef/reports/figures/big_sur_model_analysis_spatial_holdout_readiness.png
     model_analysis_phase2_pooled_context_metric_breakdown_figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png
+    model_analysis_phase2_pooled_mean_max_binary_f1_figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_mean_max_binary_f1.png
     model_analysis_phase2_pooled_prediction_distribution_figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_prediction_distribution.png

@@ -466,7 +466,7 @@ Phase 2 non-goals:
     the manifest and regenerated the Big Sur report in about `10s` on the
     second steady-state run, avoiding the former component/pooled row
     annotation rebuild.
-- [ ] P2-11e: Refine pooled context diagnostic plots after report caching.
+- [x] P2-11e: Refine pooled context diagnostic plots after report caching.
   - Goal: Redesign the `Pooled Context Diagnostics` plot for combined
     Monterey+Big Sur pooled evaluation rows, using meaningful context-value
     ordering and simpler model surfaces.
@@ -479,6 +479,19 @@ Phase 2 non-goals:
     elevation versus fine CRM depth redundancy, shortens component failure
     labels, and uses explicit y-axis ordering for every retained context.
   - Plan: `tasks/60_refine_pooled_context_diagnostic_plots.md`.
+  - Completed: added annual-mean canopy bins to pooled-context diagnostics and
+    relabelled pooled annual-area bins with explicit threshold boundaries such
+    as `(0, 90)` and `[90, 225)`. The main report figure now combines Big Sur
+    plus Monterey pooled-evaluation rows and uses `Binary F1`, `Ridge RMSE`,
+    and one paired `Rows` panel with total and observed-positive counts for
+    observed annual max, annual mean canopy, quarterly persistence,
+    previous-year class, fine CRM depth, and component failure. Binary outcome
+    and elevation remain in the detailed CSVs for audit but are omitted from
+    the main chart. Regenerated the Phase 2 diagnostics cache, model-analysis
+    report, manifest,
+    `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png`,
+    and
+    `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_mean_max_binary_f1.png`.
 - [ ] P2-12: Test transformed positive-canopy amount targets.
   - Goal: Test whether a small log/logit-style positive-canopy target
     transformation reduces high-canopy shrinkage before escalating to random

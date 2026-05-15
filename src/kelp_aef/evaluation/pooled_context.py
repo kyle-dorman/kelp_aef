@@ -181,6 +181,7 @@ PERFORMANCE_FIELDS = CONTEXT_BASE_COLUMNS + (
 CONTEXT_COLUMNS = (
     ("overall", None),
     ("observed_annual_max_bin", "observed_annual_max_bin"),
+    ("annual_mean_canopy_area_bin", "annual_mean_canopy_area_bin"),
     ("temporal_label_class", "pooled_temporal_label_class"),
     ("previous_year_class", "previous_year_class"),
     ("crm_depth_m_bin", "crm_depth_m_bin"),
@@ -769,8 +770,45 @@ def annotate_aligned_pooled_context(
     frame["binary_threshold_margin_bin"] = margin_bin_labels(frame["binary_threshold_margin"])
     add_failure_flags(frame, config.tolerance_m2)
     frame["component_failure_class"] = component_failure_classes(frame, config.tolerance_m2)
+    frame["observed_annual_max_bin"] = threshold_area_bin_labels(
+        frame["kelp_max_y"], config.observed_area_bins
+    )
+    if "annual_mean_canopy_area" in frame.columns:
+        frame["annual_mean_canopy_area_bin"] = threshold_area_bin_labels(
+            frame["annual_mean_canopy_area"], config.observed_area_bins
+        )
     frame["pooled_temporal_label_class"] = pooled_temporal_label_classes(frame)
     return frame
+
+
+def threshold_area_bin_labels(values: pd.Series, bins: tuple[float, ...]) -> pd.Series:
+    """Bin area values with explicit annual-max binary-threshold boundaries."""
+    sorted_bins = sorted(set(float(value) for value in bins if value > 0))
+    threshold = ANNUAL_MAX_10PCT_AREA_M2
+    upper_bins = [value for value in sorted_bins if value > threshold]
+    max_bin = upper_bins[-1] if upper_bins else threshold
+    labels: list[str] = []
+    for value in values.to_numpy(dtype=float):
+        if not np.isfinite(value):
+            labels.append("missing")
+        elif value == 0:
+            labels.append("0")
+        elif value < threshold:
+            labels.append(f"(0, {threshold:g})")
+        elif math.isclose(value, max_bin):
+            labels.append(f"{max_bin:g}")
+        elif value > max_bin:
+            labels.append(f">{max_bin:g}")
+        else:
+            lower = threshold
+            selected = f"[{threshold:g}, {max_bin:g})"
+            for upper in upper_bins:
+                if value < upper:
+                    selected = f"[{lower:g}, {upper:g})"
+                    break
+                lower = upper
+            labels.append(selected)
+    return pd.Series(labels, index=values.index, dtype="object")
 
 
 def pooled_temporal_label_classes(dataframe: pd.DataFrame) -> pd.Series:
@@ -1406,8 +1444,8 @@ def pooled_context_report_markdown(
             "The shared denominator for `amount_under_rate` and `composition_shrink_rate` "
             "is observed-positive rows where calibrated binary support is detected. Prediction "
             "distribution rows summarize ridge and expected-value hurdle mass by observed annual "
-            "max, temporal-label class, fine CRM depth, elevation, binary outcome, and component "
-            "failure class without changing the model policy.",
+            "max, annual mean canopy, temporal-label class, fine CRM depth, elevation, binary "
+            "outcome, and component failure class without changing the model policy.",
             "",
             "Artifact tables:",
             f"- Model performance: `{config.performance_path}`",

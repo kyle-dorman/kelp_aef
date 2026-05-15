@@ -87,6 +87,7 @@ from kelp_aef.evaluation.pooled_context import (
     load_pooled_context_config,
     pooled_context_report_markdown,
     pooled_context_row_counts,
+    read_pooled_context_frame_cache,
     write_pooled_context_frame_cache,
     write_pooled_context_outputs,
 )
@@ -125,17 +126,19 @@ PERSISTENCE_CLASS_ORDER = (
 )
 POOLED_CONTEXT_METRIC_FAMILIES = (
     "observed_annual_max_bin",
+    "annual_mean_canopy_area_bin",
     "temporal_label_class",
     "previous_year_class",
     "crm_depth_m_bin",
-    "elevation_bin",
-    "binary_outcome",
     "component_failure_class",
 )
 POOLED_CONTEXT_METRIC_SURFACES = (
     "binary",
     "ridge",
-    "hurdle_expected_value",
+)
+POOLED_CONTEXT_FIGURE_PANELS = (
+    *POOLED_CONTEXT_METRIC_SURFACES,
+    "count",
 )
 PHASE1_MODEL_DISPLAY_ORDER = (
     "no_skill_train_mean",
@@ -810,6 +813,7 @@ class ModelAnalysisConfig:
     binary_threshold_comparison_figure: Path
     residual_domain_context_figure: Path
     pooled_context_metric_breakdown_figure: Path
+    pooled_mean_max_binary_f1_figure: Path
     pooled_prediction_distribution_figure: Path
     observed_predicted_residual_map_figure: Path
     residual_interactive_html: Path
@@ -1320,6 +1324,11 @@ def load_model_analysis_config(
             outputs,
             "model_analysis_phase2_pooled_context_metric_breakdown_figure",
             figures_dir / "monterey_big_sur_pooled_context_metric_breakdown.png",
+        ),
+        pooled_mean_max_binary_f1_figure=output_path(
+            outputs,
+            "model_analysis_phase2_pooled_mean_max_binary_f1_figure",
+            figures_dir / "monterey_big_sur_pooled_mean_max_binary_f1.png",
         ),
         pooled_prediction_distribution_figure=output_path(
             outputs,
@@ -5840,6 +5849,7 @@ def write_analysis_figures(
     write_binary_threshold_comparison_figure(tables, analysis_config)
     write_residual_domain_context_figure(tables, analysis_config)
     write_pooled_context_metric_breakdown_figure(tables, analysis_config)
+    write_pooled_mean_max_binary_f1_figure(analysis_config)
     write_pooled_prediction_distribution_figure(tables, analysis_config)
 
 
@@ -6336,7 +6346,7 @@ def write_residual_domain_context_figure(
 def write_pooled_context_metric_breakdown_figure(
     tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> None:
-    """Write full pooled context metric bar charts by model surface."""
+    """Write combined-region pooled context metric bar charts by model surface."""
     if tables.pooled_context is None:
         return
     output_path = analysis_config.pooled_context_metric_breakdown_figure
@@ -6348,8 +6358,7 @@ def write_pooled_context_metric_breakdown_figure(
     context_values = {
         context_type: values for context_type, values in context_values.items() if values
     }
-    regions = pooled_context_metric_regions(tables)
-    if not context_values or not regions:
+    if not context_values:
         fig, axis = plt.subplots(figsize=(8, 4), constrained_layout=True)
         axis.text(0.5, 0.5, "No pooled context metric rows", ha="center", va="center")
         axis.set_axis_off()
@@ -6357,56 +6366,59 @@ def write_pooled_context_metric_breakdown_figure(
         plt.close(fig)
         return
 
-    panels = [(region, surface) for region in regions for surface in POOLED_CONTEXT_METRIC_SURFACES]
-    row_heights = [max(2.4, 0.44 * len(values) + 1.2) for values in context_values.values()]
+    row_heights = [max(2.3, 0.4 * len(values) + 1.1) for values in context_values.values()]
     fig, axes = plt.subplots(
         len(context_values),
-        len(panels),
-        figsize=(4.2 * len(panels), sum(row_heights)),
+        len(POOLED_CONTEXT_FIGURE_PANELS),
+        figsize=(13.0, sum(row_heights)),
         squeeze=False,
         constrained_layout=True,
         gridspec_kw={"height_ratios": row_heights},
     )
     for row_index, (context_type, values) in enumerate(context_values.items()):
         rmse_limit = pooled_context_rmse_axis_upper(tables, context_type, values)
+        count_limit = pooled_context_count_axis_upper(tables, context_type, values)
         y_positions = np.arange(len(values), dtype=float)
-        for column_index, (region, surface) in enumerate(panels):
+        for column_index, surface in enumerate(POOLED_CONTEXT_FIGURE_PANELS):
             axis = axes[row_index][column_index]
-            row_lookup = pooled_context_metric_lookup(tables, context_type, region, surface)
-            metric_values = [
-                pooled_context_metric_value(row_lookup.get(value, {}), surface) for value in values
-            ]
-            plot_values = [
-                plot_fraction(value) if surface == "binary" else plot_area(value)
-                for value in metric_values
-            ]
-            axis.barh(
-                y_positions,
-                plot_values,
-                color=pooled_context_metric_color(surface),
-                height=0.72,
-            )
-            annotate_pooled_context_metric_bars(axis, metric_values, y_positions, surface)
+            if surface == "count":
+                count_lookup = pooled_context_count_lookup(tables, context_type)
+                plot_pooled_context_count_bars(axis, count_lookup, values, y_positions)
+            else:
+                row_lookup = pooled_context_metric_lookup(tables, context_type, surface)
+                metric_values = [
+                    pooled_context_metric_value(row_lookup.get(value, {}), surface)
+                    for value in values
+                ]
+                plot_values = [
+                    plot_fraction(value) if surface == "binary" else plot_area(value)
+                    for value in metric_values
+                ]
+                axis.barh(
+                    y_positions,
+                    plot_values,
+                    color=pooled_context_metric_color(surface),
+                    height=0.72,
+                )
+                annotate_pooled_context_metric_bars(axis, metric_values, y_positions, surface)
             axis.set_yticks(y_positions)
-            if column_index % len(POOLED_CONTEXT_METRIC_SURFACES) == 0:
+            if column_index == 0:
                 axis.set_yticklabels(
-                    [pooled_context_value_label(value) for value in values],
+                    [pooled_context_value_label(context_type, value) for value in values],
                     fontsize=8,
                 )
             else:
                 axis.set_yticklabels([])
             axis.invert_yaxis()
-            configure_pooled_context_metric_axis(axis, surface, rmse_limit)
+            configure_pooled_context_metric_axis(axis, surface, rmse_limit, count_limit)
             if row_index == 0:
-                axis.set_title(
-                    f"{phase2_region_label(region)}\n"
-                    f"{pooled_context_metric_surface_label(surface)}",
-                    fontsize=10,
-                )
+                axis.set_title(pooled_context_metric_surface_label(surface), fontsize=10)
+            if row_index == 0 and surface == "count":
+                axis.legend(fontsize=7, loc="lower right")
             if column_index == 0:
                 axis.set_ylabel(phase2_context_type_label(context_type), fontsize=10)
     fig.suptitle(
-        "Pooled context error metrics by model surface | binary uses F1, ridge and hurdle use RMSE"
+        "Combined pooled context metrics across Monterey + Big Sur rows"
     )
     fig.savefig(output_path, dpi=180)
     plt.close(fig)
@@ -6434,7 +6446,7 @@ def pooled_context_metric_values(tables: AnalysisTables, context_type: str) -> l
     values.update(
         str(row.get("context_value", ""))
         for row in tables.pooled_context.amount_context
-        if str(row.get("model_surface", "")) in {"ridge", "hurdle_expected_value"}
+        if str(row.get("model_surface", "")) in POOLED_CONTEXT_METRIC_SURFACES
         and pooled_context_metric_row_matches(row, context_type, str(row.get("model_surface", "")))
     )
     return sorted(
@@ -6446,10 +6458,9 @@ def pooled_context_metric_values(tables: AnalysisTables, context_type: str) -> l
 def pooled_context_metric_lookup(
     tables: AnalysisTables,
     context_type: str,
-    region: str,
     surface: str,
 ) -> dict[str, dict[str, object]]:
-    """Return pooled context metric rows keyed by context value."""
+    """Return combined-region pooled context metric rows keyed by context value."""
     if tables.pooled_context is None:
         return {}
     source_rows = (
@@ -6457,11 +6468,75 @@ def pooled_context_metric_lookup(
         if surface == "binary"
         else tables.pooled_context.amount_context
     )
+    rows_by_value: dict[str, list[dict[str, object]]] = {}
+    for row in source_rows:
+        if pooled_context_metric_row_matches(row, context_type, surface):
+            value = str(row.get("context_value", ""))
+            if value and value != "all":
+                rows_by_value.setdefault(value, []).append(row)
     return {
-        str(row.get("context_value", "")): row
-        for row in source_rows
-        if pooled_context_metric_row_matches(row, context_type, surface)
-        and str(row.get("evaluation_region", "")) == region
+        value: pooled_context_combined_metric_row(value, surface, rows)
+        for value, rows in rows_by_value.items()
+    }
+
+
+def pooled_context_combined_metric_row(
+    value: str, surface: str, rows: list[dict[str, object]]
+) -> dict[str, object]:
+    """Combine regional diagnostic rows into one plot metric row."""
+    if surface == "binary":
+        true_positive = sum(row_int(row, "true_positive_count") for row in rows)
+        false_positive = sum(row_int(row, "false_positive_count") for row in rows)
+        false_negative = sum(row_int(row, "false_negative_count") for row in rows)
+        precision = safe_ratio(true_positive, true_positive + false_positive)
+        recall = safe_ratio(true_positive, true_positive + false_negative)
+        f1 = safe_ratio(2 * precision * recall, precision + recall)
+        return {
+            "context_value": value,
+            "row_count": sum(row_int(row, "row_count") for row in rows),
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+        }
+    weighted_squared_error = [
+        row_int(row, "row_count") * row_float(row, "rmse") ** 2
+        for row in rows
+        if row_int(row, "row_count") > 0 and np.isfinite(row_float(row, "rmse"))
+    ]
+    denominator = sum(
+        row_int(row, "row_count")
+        for row in rows
+        if row_int(row, "row_count") > 0 and np.isfinite(row_float(row, "rmse"))
+    )
+    rmse = math.sqrt(sum(weighted_squared_error) / denominator) if denominator else math.nan
+    return {
+        "context_value": value,
+        "row_count": denominator,
+        "rmse": rmse,
+    }
+
+
+def pooled_context_count_lookup(
+    tables: AnalysisTables, context_type: str
+) -> dict[str, dict[str, object]]:
+    """Return combined total and observed-positive counts keyed by context value."""
+    if tables.pooled_context is None:
+        return {}
+    rows_by_value: dict[str, list[dict[str, object]]] = {}
+    for row in tables.pooled_context.binary_context:
+        if pooled_context_metric_row_matches(row, context_type, "binary"):
+            value = str(row.get("context_value", ""))
+            if value and value != "all":
+                rows_by_value.setdefault(value, []).append(row)
+    return {
+        value: {
+            "context_value": value,
+            "row_count": sum(row_int(row, "row_count") for row in rows),
+            "observed_positive_count": sum(
+                row_int(row, "observed_positive_count") for row in rows
+            ),
+        }
+        for value, rows in rows_by_value.items()
     }
 
 
@@ -6483,12 +6558,18 @@ def pooled_context_metric_value(row: dict[str, object], surface: str) -> float:
     return row_float(row, "rmse")
 
 
-def configure_pooled_context_metric_axis(axis: Any, surface: str, rmse_limit: float) -> None:
+def configure_pooled_context_metric_axis(
+    axis: Any, surface: str, rmse_limit: float, count_limit: float
+) -> None:
     """Configure x-axis units for a pooled context metric panel."""
     if surface == "binary":
         axis.set_xlim(0.0, 1.0)
         axis.set_xticks([0.0, 0.5, 1.0], ["0", "0.5", "1.0"])
         axis.set_xlabel("F1")
+    elif surface == "count":
+        axis.set_xscale("log")
+        axis.set_xlim(1.0, count_limit)
+        axis.set_xlabel("Rows (log)")
     else:
         axis.set_xlim(0.0, rmse_limit)
         axis.set_xlabel("RMSE (m2)")
@@ -6519,21 +6600,89 @@ def annotate_pooled_context_metric_bars(
         )
 
 
+def plot_pooled_context_count_bars(
+    axis: Any,
+    row_lookup: dict[str, dict[str, object]],
+    values: list[str],
+    y_positions: np.ndarray,
+) -> None:
+    """Plot total and observed-positive counts in one context frequency panel."""
+    total_counts = [row_int(row_lookup.get(value, {}), "row_count") for value in values]
+    positive_counts = [
+        row_int(row_lookup.get(value, {}), "observed_positive_count") for value in values
+    ]
+    total_plot = [max(count, 1) for count in total_counts]
+    positive_plot = [max(count, 1) for count in positive_counts]
+    axis.barh(
+        y_positions - 0.18,
+        total_plot,
+        color="#bdbdbd",
+        height=0.32,
+        label="rows",
+    )
+    axis.barh(
+        y_positions + 0.18,
+        positive_plot,
+        color="#e07a2f",
+        height=0.32,
+        label="positive",
+    )
+    annotate_pooled_context_count_bars(axis, total_counts, y_positions - 0.18)
+    annotate_pooled_context_count_bars(axis, positive_counts, y_positions + 0.18)
+
+
+def annotate_pooled_context_count_bars(
+    axis: Any, counts: list[int], y_positions: np.ndarray
+) -> None:
+    """Annotate count bars with compact integer labels."""
+    for count, y_position in zip(counts, y_positions, strict=True):
+        x_position = max(count, 1) * 1.08
+        axis.text(
+            x_position,
+            y_position,
+            compact_count_label(count),
+            va="center",
+            ha="left",
+            fontsize=7,
+        )
+
+
+def compact_count_label(count: int) -> str:
+    """Return a compact count label for pooled context frequency bars."""
+    if count >= 1_000_000:
+        return f"{count / 1_000_000:.1f}M"
+    if count >= 10_000:
+        return f"{count / 1_000:.0f}k"
+    if count >= 1_000:
+        return f"{count / 1_000:.1f}k"
+    return str(count)
+
+
 def pooled_context_rmse_axis_upper(
     tables: AnalysisTables, context_type: str, values: list[str]
 ) -> float:
     """Return a shared RMSE axis limit for one context-family row."""
-    if tables.pooled_context is None:
-        return 100.0
-    rmse_values = [
-        row_float(row, "rmse")
-        for row in tables.pooled_context.amount_context
-        if str(row.get("training_regime", "")) == "pooled_monterey_big_sur"
-        and str(row.get("context_type", "")) == context_type
-        and str(row.get("context_value", "")) in values
-        and str(row.get("model_surface", "")) in {"ridge", "hurdle_expected_value"}
-    ]
+    row_lookup = pooled_context_metric_lookup(tables, context_type, "ridge")
+    rmse_values = [row_float(row_lookup.get(value, {}), "rmse") for value in values]
     return pooled_amount_axis_upper([plot_area(value) for value in rmse_values], 100.0)
+
+
+def pooled_context_count_axis_upper(
+    tables: AnalysisTables, context_type: str, values: list[str]
+) -> float:
+    """Return a log-scale count axis upper bound for one context-family row."""
+    row_lookup = pooled_context_count_lookup(tables, context_type)
+    counts = [
+        max(
+            row_int(row_lookup.get(value, {}), "row_count"),
+            row_int(row_lookup.get(value, {}), "observed_positive_count"),
+        )
+        for value in values
+    ]
+    finite_counts = [count for count in counts if count > 0]
+    if not finite_counts:
+        return 10.0
+    return max(10.0, max(finite_counts) * 8.0)
 
 
 def pooled_context_metric_color(surface: str) -> str:
@@ -6541,7 +6690,6 @@ def pooled_context_metric_color(surface: str) -> str:
     colors = {
         "binary": "#3b7ea1",
         "ridge": "#756bb1",
-        "hurdle_expected_value": "#2f8f6b",
     }
     return colors.get(surface, "#737373")
 
@@ -6551,29 +6699,278 @@ def pooled_context_metric_surface_label(surface: str) -> str:
     labels = {
         "binary": "Binary F1",
         "ridge": "Ridge RMSE",
-        "hurdle_expected_value": "Hurdle RMSE",
+        "count": "Rows",
     }
     return labels.get(surface, surface.replace("_", " "))
 
 
-def pooled_context_value_label(value: str) -> str:
+def pooled_context_value_label(context_type: str, value: str) -> str:
     """Return a compact context value label for pooled metric axes."""
-    return textwrap.shorten(value.replace("_", " "), width=30, placeholder="...")
+    labels = {
+        "component_failure_class": {
+            "near_correct": "near correct",
+            "support_miss_positive": "support miss",
+            "support_leakage_zero": "support leakage",
+            "amount_underprediction_detected_positive": "amount under",
+            "amount_overprediction_low_or_zero": "amount over low/zero",
+            "composition_shrinkage": "composition shrink",
+            "high_confidence_wrong": "high-conf wrong",
+            "other_residual_or_context_mismatch": "other",
+        },
+        "temporal_label_class": {
+            "no_quarter_present": "no quarter",
+            "no_quarter_positive": "no quarter positive",
+            "one_quarter_spike": "one-quarter spike",
+            "intermittent": "intermittent",
+            "persistent": "persistent",
+            "assumed_background": "assumed/background",
+            "missing_quarters": "missing quarters",
+            "missing_station_temporal_context": "missing",
+        },
+        "previous_year_class": {
+            "stable_zero_or_background": "stable/background",
+            "previous_low_canopy": "previous low canopy",
+            "lost_ge_10pct": "lost 10 pct",
+            "new_ge_10pct": "new 10 pct",
+            "persistent_ge_10pct": "persistent 10 pct",
+            "missing_previous_year": "missing previous year",
+        },
+        "crm_depth_m_bin": {
+            "not_subtidal_or_zero": "not subtidal/zero",
+            "missing_depth": "missing depth",
+        },
+    }
+    label = labels.get(context_type, {}).get(value, value)
+    return textwrap.shorten(label.replace("_", " "), width=32, placeholder="...")
 
 
 def pooled_context_value_sort_key(context_type: str, value: str) -> tuple[int, str]:
     """Return stable display order for context values."""
+    if context_type in {"observed_annual_max_bin", "annual_mean_canopy_area_bin"}:
+        order = {
+            "0": 0,
+            "000_zero": 0,
+            "(0, 90)": 1,
+            "(0, 1]": 1,
+            "(1, 90]": 1,
+            "[90, 225)": 2,
+            "(90, 225]": 2,
+            "[225, 450)": 3,
+            "(225, 450]": 3,
+            "[450, 810)": 4,
+            "(450, 810]": 4,
+            "[810, 900)": 5,
+            "(810, 900]": 5,
+            "900": 6,
+            ">900": 7,
+            ">900.0": 7,
+            "missing": 8,
+        }
+        return (order.get(value, len(order)), value)
     if context_type == "temporal_label_class":
-        return (
-            PERSISTENCE_CLASS_ORDER.index(value)
-            if value in PERSISTENCE_CLASS_ORDER
-            else len(PERSISTENCE_CLASS_ORDER),
-            value,
-        )
-    if context_type == "binary_outcome":
-        order = {"TP": 0, "FN": 1, "FP": 2, "TN": 3}
+        order = {
+            "no_quarter_present": 0,
+            "no_quarter_positive": 0,
+            "one_quarter_spike": 1,
+            "transient_one_quarter": 1,
+            "intermittent": 2,
+            "intermittent_two_or_three_quarters": 2,
+            "persistent": 3,
+            "persistent_all_valid_quarters": 3,
+            "assumed_background": 4,
+            "missing_quarters": 5,
+            "missing_station_temporal_context": 5,
+        }
+        return (order.get(value, len(order)), value)
+    if context_type == "previous_year_class":
+        order = {
+            "stable_zero_or_background": 0,
+            "previous_low_canopy": 1,
+            "lost_ge_10pct": 2,
+            "new_ge_10pct": 3,
+            "persistent_ge_10pct": 4,
+            "missing_previous_year": 5,
+        }
+        return (order.get(value, len(order)), value)
+    if context_type == "crm_depth_m_bin":
+        order = {
+            "not_subtidal_or_zero": 0,
+            "(0, 10m]": 1,
+            "(10, 20m]": 2,
+            "(20, 40m]": 3,
+            "(40, 60m]": 4,
+            ">60m": 5,
+            "missing_depth": 6,
+        }
+        return (order.get(value, len(order)), value)
+    if context_type == "component_failure_class":
+        order = {
+            "near_correct": 0,
+            "support_miss_positive": 1,
+            "support_leakage_zero": 2,
+            "amount_underprediction_detected_positive": 3,
+            "amount_overprediction_low_or_zero": 4,
+            "composition_shrinkage": 5,
+            "high_confidence_wrong": 6,
+            "other_residual_or_context_mismatch": 7,
+            "missing": 8,
+        }
         return (order.get(value, len(order)), value)
     return (0, value)
+
+
+def write_pooled_mean_max_binary_f1_figure(analysis_config: ModelAnalysisConfig) -> None:
+    """Write a side heatmap of binary F1 by annual max and annual mean bins."""
+    phase2_config = analysis_config.phase2_report
+    if (
+        phase2_config is None
+        or phase2_config.pooled_context is None
+        or phase2_config.diagnostics_cache is None
+    ):
+        return
+    output_path = analysis_config.pooled_mean_max_binary_f1_figure
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    frame = pooled_mean_max_binary_frame(analysis_config)
+    if frame.empty:
+        write_placeholder_figure(output_path, "No pooled mean/max binary F1 rows")
+        return
+    rows = pooled_mean_max_binary_rows(frame)
+    if not rows:
+        write_placeholder_figure(output_path, "No pooled mean/max binary F1 rows")
+        return
+    max_bins = sorted(
+        {str(row["observed_annual_max_bin"]) for row in rows},
+        key=lambda value: pooled_context_value_sort_key("observed_annual_max_bin", value),
+    )
+    mean_bins = sorted(
+        {str(row["annual_mean_canopy_area_bin"]) for row in rows},
+        key=lambda value: pooled_context_value_sort_key("annual_mean_canopy_area_bin", value),
+    )
+    f1_matrix = np.full((len(mean_bins), len(max_bins)), math.nan, dtype=float)
+    row_lookup = {
+        (str(row["annual_mean_canopy_area_bin"]), str(row["observed_annual_max_bin"])): row
+        for row in rows
+    }
+    for y_index, mean_bin in enumerate(mean_bins):
+        for x_index, max_bin in enumerate(max_bins):
+            f1_matrix[y_index, x_index] = row_float(row_lookup.get((mean_bin, max_bin), {}), "f1")
+    fig, axis = plt.subplots(
+        figsize=(max(8.5, 1.25 * len(max_bins) + 3.0), max(5.0, 0.82 * len(mean_bins) + 2.2)),
+        constrained_layout=True,
+    )
+    color_map = plt.get_cmap("viridis").copy()
+    color_map.set_bad("#f0f0f0")
+    image = axis.imshow(np.ma.masked_invalid(f1_matrix), vmin=0.0, vmax=1.0, cmap=color_map)
+    for y_index, mean_bin in enumerate(mean_bins):
+        for x_index, max_bin in enumerate(max_bins):
+            row = row_lookup.get((mean_bin, max_bin), {})
+            if not row:
+                continue
+            f1 = row_float(row, "f1")
+            label = "n/a" if not np.isfinite(f1) else f"{f1:.2f}"
+            label = (
+                f"{label}\n"
+                f"{compact_count_label(row_int(row, 'observed_positive_count'))}/"
+                f"{compact_count_label(row_int(row, 'row_count'))}"
+            )
+            text_color = "white" if np.isfinite(f1) and f1 > 0.55 else "black"
+            axis.text(x_index, y_index, label, ha="center", va="center", fontsize=7, color=text_color)
+    axis.set_xticks(
+        np.arange(len(max_bins)),
+        [pooled_context_value_label("observed_annual_max_bin", value) for value in max_bins],
+        rotation=25,
+        ha="right",
+    )
+    axis.set_yticks(
+        np.arange(len(mean_bins)),
+        [pooled_context_value_label("annual_mean_canopy_area_bin", value) for value in mean_bins],
+    )
+    axis.set_xlabel("Observed annual max canopy bin")
+    axis.set_ylabel("Annual mean canopy bin")
+    axis.set_title(
+        "Binary F1 by annual max and annual mean canopy bins\n"
+        "cell text shows F1 and observed-positive/total rows"
+    )
+    colorbar = fig.colorbar(image, ax=axis)
+    colorbar.set_label("Binary F1")
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def pooled_mean_max_binary_frame(analysis_config: ModelAnalysisConfig) -> pd.DataFrame:
+    """Read cached pooled-context frames for the mean-vs-max binary F1 heatmap."""
+    phase2_config = analysis_config.phase2_report
+    if (
+        phase2_config is None
+        or phase2_config.pooled_context is None
+        or phase2_config.diagnostics_cache is None
+    ):
+        return pd.DataFrame()
+    try:
+        frames = read_pooled_context_frame_cache(
+            phase2_config.pooled_context,
+            phase2_config.diagnostics_cache.pooled_context_frame_dir,
+        )
+    except (FileNotFoundError, ValueError) as error:
+        LOGGER.warning("Could not read pooled-context frame cache for mean/max plot: %s", error)
+        return pd.DataFrame()
+    frames = [frame for frame in frames if not frame.empty]
+    if not frames:
+        return pd.DataFrame()
+    combined = cast(pd.DataFrame, pd.concat(frames, ignore_index=True, sort=False))
+    required = {
+        "training_regime",
+        "observed_annual_max_bin",
+        "annual_mean_canopy_area_bin",
+        "observed_binary_positive",
+        "predicted_binary_positive",
+    }
+    if not required.issubset(combined.columns):
+        missing = sorted(required.difference(combined.columns))
+        LOGGER.warning("Pooled-context frame cache is missing mean/max plot columns: %s", missing)
+        return pd.DataFrame()
+    return cast(
+        pd.DataFrame,
+        combined.loc[
+            combined["training_regime"].astype(str) == "pooled_monterey_big_sur",
+            sorted(required),
+        ].copy(),
+    )
+
+
+def pooled_mean_max_binary_rows(dataframe: pd.DataFrame) -> list[dict[str, object]]:
+    """Aggregate binary F1 by annual max bin crossed with annual mean bin."""
+    rows: list[dict[str, object]] = []
+    for (mean_bin, max_bin), group in dataframe.groupby(
+        ["annual_mean_canopy_area_bin", "observed_annual_max_bin"],
+        sort=False,
+        dropna=False,
+    ):
+        observed = group["observed_binary_positive"].fillna(False).astype(bool).to_numpy()
+        predicted = group["predicted_binary_positive"].fillna(False).astype(bool).to_numpy()
+        precision, recall, f1 = precision_recall_f1(observed, predicted)
+        rows.append(
+            {
+                "annual_mean_canopy_area_bin": str(mean_bin),
+                "observed_annual_max_bin": str(max_bin),
+                "row_count": int(len(group)),
+                "observed_positive_count": int(np.count_nonzero(observed)),
+                "predicted_positive_count": int(np.count_nonzero(predicted)),
+                "precision": precision,
+                "recall": recall,
+                "f1": f1,
+            }
+        )
+    return rows
+
+
+def write_placeholder_figure(output_path: Path, message: str) -> None:
+    """Write a small placeholder figure with a centered message."""
+    fig, axis = plt.subplots(figsize=(8, 4), constrained_layout=True)
+    axis.text(0.5, 0.5, message, ha="center", va="center")
+    axis.set_axis_off()
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
 
 
 def write_pooled_prediction_distribution_figure(
@@ -8945,10 +9342,12 @@ def phase2_pooled_context_diagnostics_markdown(
     lines = [
         (
             "The pooled context diagnostics are plotted rather than repeated as another "
-            "wide table. Each context family is expanded into bar charts by region and "
-            "model surface: binary panels show F1 by context value, while ridge and "
-            "expected-value hurdle panels show RMSE by context value. Undefined binary "
-            "F1 values are marked `n/a`."
+            "wide table. The main chart combines Big Sur and Monterey held-out rows for "
+            "the pooled Monterey+Big Sur training regime: binary panels show F1 by "
+            "context value, ridge panels show RMSE by context value, and the `Rows` "
+            "panel shows total rows plus observed-positive rows in each bin. The "
+            "detailed CSVs keep regional rows, binary-outcome partitions, and elevation "
+            "bins for audit. Undefined binary F1 values are marked `n/a`."
         )
     ]
     if analysis_config.pooled_context_metric_breakdown_figure.exists():
@@ -8958,6 +9357,24 @@ def phase2_pooled_context_diagnostics_markdown(
                 image_markdown(
                     "Pooled context metric breakdown",
                     analysis_config.pooled_context_metric_breakdown_figure,
+                    report_path,
+                ),
+            ]
+        )
+    if analysis_config.pooled_mean_max_binary_f1_figure.exists():
+        lines.extend(
+            [
+                "",
+                (
+                    "The side heatmap crosses observed annual max bins with annual mean "
+                    "canopy bins. It highlights short-duration high-peak cases where "
+                    "annual max is high but annual mean remains low; cell text is "
+                    "`F1` plus observed-positive/total rows."
+                ),
+                "",
+                image_markdown(
+                    "Pooled annual mean versus max binary F1",
+                    analysis_config.pooled_mean_max_binary_f1_figure,
                     report_path,
                 ),
             ]
@@ -9077,6 +9494,7 @@ def phase2_top_pooled_amount_context_rows(rows: list[dict[str, object]]) -> list
     """Pick the largest amount-under row per pooled context family and region."""
     context_types = {
         "observed_annual_max_bin",
+        "annual_mean_canopy_area_bin",
         "temporal_label_class",
         "previous_year_class",
         "crm_depth_m_bin",
@@ -9148,12 +9566,13 @@ def phase2_context_type_sort_key(context_type: str) -> int:
     """Return display order for pooled context families."""
     order = {
         "observed_annual_max_bin": 0,
-        "temporal_label_class": 1,
-        "previous_year_class": 2,
-        "crm_depth_m_bin": 3,
-        "elevation_bin": 4,
-        "binary_outcome": 5,
-        "component_failure_class": 6,
+        "annual_mean_canopy_area_bin": 1,
+        "temporal_label_class": 2,
+        "previous_year_class": 3,
+        "crm_depth_m_bin": 4,
+        "elevation_bin": 5,
+        "binary_outcome": 6,
+        "component_failure_class": 7,
     }
     return order.get(context_type, 99)
 
@@ -9173,6 +9592,7 @@ def phase2_context_type_label(context_type: str) -> str:
     """Return a readable label for a pooled context family."""
     labels = {
         "observed_annual_max_bin": "Observed canopy bin",
+        "annual_mean_canopy_area_bin": "Annual mean canopy bin",
         "temporal_label_class": "Quarterly persistence",
         "previous_year_class": "Previous-year class",
         "crm_depth_m_bin": "Fine CRM depth bin",
@@ -9357,6 +9777,10 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
                     (
                         "- Phase 2 pooled context metric-breakdown figure: "
                         f"`{analysis_config.pooled_context_metric_breakdown_figure}`"
+                    ),
+                    (
+                        "- Phase 2 pooled annual-mean-vs-max binary F1 figure: "
+                        f"`{analysis_config.pooled_mean_max_binary_f1_figure}`"
                     ),
                     (
                         "- Phase 2 pooled prediction-distribution figure: "
@@ -11326,6 +11750,9 @@ def write_manifest(
                 "pooled_context_metric_breakdown_figure": str(
                     analysis_config.pooled_context_metric_breakdown_figure
                 ),
+                "pooled_mean_max_binary_f1_figure": str(
+                    analysis_config.pooled_mean_max_binary_f1_figure
+                ),
                 "pooled_prediction_distribution_figure": str(
                     analysis_config.pooled_prediction_distribution_figure
                 ),
@@ -11475,6 +11902,9 @@ def phase2_manifest_payload(analysis_config: ModelAnalysisConfig) -> dict[str, o
                 ),
                 "pooled_context_metric_breakdown_figure": str(
                     analysis_config.pooled_context_metric_breakdown_figure
+                ),
+                "pooled_mean_max_binary_f1_figure": str(
+                    analysis_config.pooled_mean_max_binary_f1_figure
                 ),
                 "pooled_prediction_distribution_figure": str(
                     analysis_config.pooled_prediction_distribution_figure

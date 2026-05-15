@@ -111,6 +111,46 @@ description that confirms:
   fields or added to the pooled-context diagnostic builder;
 - whether the output is one large figure or multiple figures.
 
+## Design Note
+
+- Main chart context families: observed annual max canopy bin,
+  annual mean canopy bin, quarterly persistence, previous-year class, fine CRM
+  depth bin, and component failure class.
+- CSV-only audit context families: binary outcome remains too close to a
+  confusion-matrix partition to explain context, and elevation bin is coarser
+  and mostly redundant with fine CRM depth for this retained-domain question.
+  Keep both in detailed pooled-context CSVs, but omit them from the main
+  report figure.
+- Metric definitions: Binary F1 is recomputed from combined true-positive,
+  false-positive, and false-negative counts across the retained Big Sur plus
+  Monterey pooled-evaluation rows. Ridge RMSE is recomputed as
+  `sqrt(sum(row_count * rmse^2) / sum(row_count))` across those same combined
+  rows. The expected-value hurdle surface is excluded from this chart.
+- Y-axis orders:
+  - observed annual max canopy bin: `0`, `(0, 90)`, `[90, 225)`,
+    `[225, 450)`, `[450, 810)`, `[810, 900)`, `900`, `>900`,
+    `missing`;
+  - annual mean canopy bin: the same numeric low-to-high order;
+  - quarterly persistence: no quarter present, one-quarter spike,
+    intermittent, persistent, assumed/background, missing/unknown;
+  - previous-year class: stable zero/background, previous low canopy, lost
+    10 pct, new 10 pct, persistent 10 pct, missing/unknown;
+  - fine CRM depth bin: not subtidal/zero, 0-10 m, 10-20 m, 20-40 m,
+    40-60 m, >60 m, missing;
+  - component failure class: near correct, support miss, support leakage,
+    amount under, amount over low/zero, composition shrink, high-confidence
+    wrong, other/missing.
+- Region combination: the figure filters to
+  `training_regime = pooled_monterey_big_sur` and combines Big Sur plus
+  Monterey rows in the plotting layer from the count-bearing diagnostic CSV
+  rows. The underlying CSVs continue to carry regional rows for audit.
+- Annual mean canopy bin: derive from the existing quarterly-label context
+  field `annual_mean_canopy_area_bin` built by the component/pooled diagnostic
+  frame builder; no new label input is needed.
+- Output shape: keep one vertically stacked figure with two panels per context
+  family (`Binary F1`, `Ridge RMSE`) unless manual inspection shows it is too
+  dense.
+
 ## Required Plot Changes
 
 ### Combine Regions
@@ -295,6 +335,52 @@ Manually inspect:
 - The Markdown `Pooled Context Diagnostics` section.
 - The HTML rendering.
 - The pooled context figure(s).
+
+## Outcome
+
+Completed P2-11e with one vertically stacked main figure:
+
+- Added `annual_mean_canopy_area_bin` to pooled-context aggregation from the
+  existing quarterly-label annual mean field.
+- Re-labelled pooled annual-area bins with explicit threshold boundaries:
+  `(0, 90)` is below the `annual_max_ge_10pct` target and `[90, 225)` starts
+  at the binary-positive threshold.
+- Replaced the region-split/hurdle chart with combined Big Sur plus Monterey
+  bars for `Binary F1` and `Ridge RMSE`.
+- Added one `Rows` panel per context family with paired total-row and
+  observed-positive-row bars, using a log-scaled x-axis so rare positive bins
+  remain visible next to large background bins.
+- Added a side heatmap crossing observed annual max bins with annual mean
+  canopy bins. Heatmap color is combined pooled binary F1, and cell text shows
+  `F1` plus observed-positive/total rows so short-duration high-peak cases can
+  be compared against sustained-canopy cases.
+- Retained observed annual max, annual mean canopy, quarterly persistence,
+  previous-year class, fine CRM depth, and component failure in the main chart.
+  Kept binary outcome and elevation as detailed CSV audit contexts instead of
+  primary plot rows.
+- Shortened plotted component-failure labels and added explicit ordering tests
+  for area, previous-year, and component-failure context values.
+
+Regenerated artifacts:
+
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.md`
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.html`
+- `/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.pdf`
+- `/Volumes/x10pro/kelp_aef/interim/big_sur_model_analysis_manifest.json`
+- `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png`
+- `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_mean_max_binary_f1.png`
+- `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_phase2_diagnostics_cache_manifest.json`
+
+Validation passed:
+
+```bash
+uv run ruff check src/kelp_aef/evaluation/model_analysis.py src/kelp_aef/evaluation/pooled_context.py tests/test_model_analysis.py
+uv run pytest tests/test_model_analysis.py
+uv run kelp-aef build-phase2-diagnostics --config configs/big_sur_smoke.yaml
+uv run kelp-aef analyze-model --config configs/big_sur_smoke.yaml --reuse-phase2-diagnostics
+uv run mypy src
+git diff --check
+```
 
 ## Smoke-Test Region And Years
 

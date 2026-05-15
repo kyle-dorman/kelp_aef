@@ -16,6 +16,8 @@ from kelp_aef.evaluation.model_analysis import (
     build_binary_threshold_recommendation,
     build_class_balance_by_split,
     conditional_likely_positive_sampling_rows,
+    pooled_context_value_label,
+    pooled_context_value_sort_key,
     sampling_policy_comparison_markdown,
 )
 
@@ -395,14 +397,19 @@ def test_analyze_model_writes_pooled_context_outputs(tmp_path: Path) -> None:
     assert "Pooled Context Diagnostics" in report
     assert "![Pooled context metric breakdown]" in report
     assert "binary panels show F1" in report
-    assert "expected-value hurdle panels show RMSE" in report
+    assert "ridge panels show RMSE" in report
+    assert "observed-positive rows in each bin" in report
+    assert "expected-value hurdle panels show RMSE" not in report
     assert "Overall prediction-distribution summaries" not in report
     assert fixture["pooled_context_metric_breakdown_figure"].stat().st_size > 0
     assert fixture["pooled_prediction_distribution_figure"].stat().st_size > 0
     assert {"binary", "ridge", "hurdle_expected_value"} <= set(performance["model_surface"])
-    assert {"observed_annual_max_bin", "crm_depth_m_bin", "component_failure_class"} <= set(
-        amount["context_type"]
-    )
+    assert {
+        "observed_annual_max_bin",
+        "annual_mean_canopy_area_bin",
+        "crm_depth_m_bin",
+        "component_failure_class",
+    } <= set(amount["context_type"])
     overall_hurdle = amount.query(
         "context_type == 'overall' and model_surface == 'hurdle_expected_value'"
     ).iloc[0]
@@ -422,6 +429,44 @@ def test_analyze_model_writes_pooled_context_outputs(tmp_path: Path) -> None:
     assert (
         sidecar_manifest["definitions"]["amount_rate_denominator"]
         == "observed-positive rows where calibrated binary support is detected"
+    )
+
+
+def test_pooled_context_value_sort_key_uses_explicit_orders() -> None:
+    """Verify pooled-context plot labels do not fall back to alphabetical order."""
+    area_values = ["[225, 450)", "0", "900", "[90, 225)", "(0, 90)", "[810, 900)"]
+    assert sorted(
+        area_values,
+        key=lambda value: pooled_context_value_sort_key("observed_annual_max_bin", value),
+    ) == ["0", "(0, 90)", "[90, 225)", "[225, 450)", "[810, 900)", "900"]
+
+    previous_values = ["new_ge_10pct", "stable_zero_or_background", "lost_ge_10pct"]
+    assert sorted(
+        previous_values,
+        key=lambda value: pooled_context_value_sort_key("previous_year_class", value),
+    ) == ["stable_zero_or_background", "lost_ge_10pct", "new_ge_10pct"]
+
+    failure_values = [
+        "composition_shrinkage",
+        "near_correct",
+        "amount_underprediction_detected_positive",
+        "support_miss_positive",
+    ]
+    assert sorted(
+        failure_values,
+        key=lambda value: pooled_context_value_sort_key("component_failure_class", value),
+    ) == [
+        "near_correct",
+        "support_miss_positive",
+        "amount_underprediction_detected_positive",
+        "composition_shrinkage",
+    ]
+    assert (
+        pooled_context_value_label(
+            "component_failure_class",
+            "amount_underprediction_detected_positive",
+        )
+        == "amount under"
     )
 
 
@@ -469,7 +514,11 @@ def test_phase2_diagnostics_cache_preserves_report_rows(tmp_path: Path) -> None:
     )
 
     manifest = json.loads(fixture["manifest"].read_text())
+    report = fixture["report"].read_text()
     assert manifest["phase2"]["diagnostics_cache"]["status"] == "reused"
+    assert fixture["pooled_mean_max_binary_f1_figure"].stat().st_size > 0
+    assert "annual max bins with annual mean canopy bins" in report
+    assert "![Pooled annual mean versus max binary F1]" in report
     pd.testing.assert_frame_equal(
         component_summary,
         pd.read_csv(fixture["component_failure_summary"]),
@@ -1636,6 +1685,8 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/figures/model_analysis_residual_by_domain_context.png",
         "pooled_context_metric_breakdown_figure": tmp_path
         / "reports/figures/monterey_big_sur_pooled_context_metric_breakdown.png",
+        "pooled_mean_max_binary_f1_figure": tmp_path
+        / "reports/figures/monterey_big_sur_pooled_mean_max_binary_f1.png",
         "pooled_prediction_distribution_figure": tmp_path
         / "reports/figures/monterey_big_sur_pooled_prediction_distribution.png",
         "component_failure_summary": tmp_path
@@ -1715,6 +1766,10 @@ def config_text(
     pooled_context_metric_breakdown_output = (
         "    model_analysis_phase2_pooled_context_metric_breakdown_figure: "
         f"{paths['pooled_context_metric_breakdown_figure']}\n"
+    )
+    pooled_mean_max_binary_f1_output = (
+        "    model_analysis_phase2_pooled_mean_max_binary_f1_figure: "
+        f"{paths['pooled_mean_max_binary_f1_figure']}\n"
     )
     pooled_prediction_distribution_output = (
         "    model_analysis_phase2_pooled_prediction_distribution_figure: "
@@ -1812,7 +1867,7 @@ reports:
     model_analysis_class_balance_figure: {paths["class_balance_figure"]}
     model_analysis_binary_threshold_comparison_figure: {paths["binary_threshold_comparison_figure"]}
     model_analysis_residual_by_domain_context_figure: {paths["residual_domain_context_figure"]}
-{pooled_context_metric_breakdown_output}{pooled_prediction_distribution_output}
+{pooled_context_metric_breakdown_output}{pooled_mean_max_binary_f1_output}{pooled_prediction_distribution_output}
 """.lstrip()
 
 
