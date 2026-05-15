@@ -220,17 +220,27 @@ def test_analyze_model_writes_phase2_report_sections(tmp_path: Path) -> None:
         binary_predictions=binary_predictions,
         calibration_model=calibration_model,
     )
+    append_binary_hex_map_config(
+        fixture["config_path"],
+        paths=fixture,
+        binary_predictions=binary_predictions,
+        calibration_model=calibration_model,
+    )
 
     assert main(["analyze-model", "--config", str(fixture["config_path"])]) == 0
 
     report = fixture["report"].read_text()
     html_report = fixture["html_report"].read_text()
     binary_rows = pd.read_csv(binary_summary)
+    hex_rows = pd.read_csv(fixture["binary_hex_table"])
     manifest = json.loads(fixture["manifest"].read_text())
+    hex_manifest = json.loads(fixture["binary_hex_manifest"].read_text())
     assert "# Big Sur Phase 2 Model Analysis" in report
     assert "Phase 2 Training-Regime Answer" in report
     assert "Canopy Amount And Hurdle Calibration" in report
     assert "Binary Support Transfer" in report
+    assert "Pooled Binary Support Hex Map" in report
+    assert "Pooled binary presence 1 km hex map" in report
     assert "Kelpwatch-style annual maximum reproduction" in report
     assert "Phase 1 Closeout Decision" not in report
     assert "<title>Big Sur Phase 2 Model Analysis</title>" in html_report
@@ -241,8 +251,15 @@ def test_analyze_model_writes_phase2_report_sections(tmp_path: Path) -> None:
         "pooled_monterey_big_sur",
     }
     assert float(binary_rows.iloc[0]["f1"]) == 0.8
+    assert set(hex_rows["evaluation_region"]) == {"big_sur"}
+    assert fixture["binary_hex_figure"].stat().st_size > 0
+    assert hex_manifest["hex_definition"]["flat_to_flat_diameter_m"] == 1000.0
     assert manifest["phase2"]["outputs"]["binary_support_primary_summary"] == str(binary_summary)
+    assert manifest["phase2"]["outputs"]["pooled_binary_presence_hex_table"] == str(
+        fixture["binary_hex_table"]
+    )
     assert manifest["row_counts"]["phase2_binary_support"] == 6
+    assert manifest["row_counts"]["pooled_binary_presence_hex"] == len(hex_rows)
 
 
 def test_analyze_model_writes_component_failure_outputs(tmp_path: Path) -> None:
@@ -911,16 +928,17 @@ def write_phase2_training_regime_rows(path: Path) -> None:
 def write_phase2_binary_predictions(path: Path) -> None:
     """Write tiny binary full-grid predictions for Phase 2 support tests."""
     rows = [
-        phase2_binary_prediction_row(True, 0.90, "kelpwatch_station"),
-        phase2_binary_prediction_row(True, 0.60, "kelpwatch_station"),
-        phase2_binary_prediction_row(False, 0.70, "assumed_background"),
-        phase2_binary_prediction_row(False, 0.20, "assumed_background"),
+        phase2_binary_prediction_row(1, True, 0.90, "kelpwatch_station"),
+        phase2_binary_prediction_row(2, True, 0.60, "kelpwatch_station"),
+        phase2_binary_prediction_row(3, False, 0.70, "assumed_background"),
+        phase2_binary_prediction_row(4, False, 0.20, "assumed_background"),
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_parquet(path, index=False)
 
 
 def phase2_binary_prediction_row(
+    cell_id: int,
     observed: bool,
     probability: float,
     label_source: str,
@@ -929,7 +947,13 @@ def phase2_binary_prediction_row(
     return {
         "split": "test",
         "year": 2022,
+        "longitude": -122.0 + cell_id * 0.001,
+        "latitude": 36.0 + cell_id * 0.001,
+        "aef_grid_cell_id": cell_id,
+        "aef_grid_row": cell_id,
+        "aef_grid_col": cell_id,
         "label_source": label_source,
+        "is_plausible_kelp_domain": True,
         "binary_observed_y": observed,
         "pred_binary_probability": probability,
         "target_label": "annual_max_ge_10pct",
@@ -1091,6 +1115,39 @@ def append_pooled_context_config(
         binary_calibration_model: {calibration_model}
         hurdle_predictions: {hurdle_predictions}
         label_path: {label_path}
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        evaluation_region: big_sur
+        threshold_policy: validation_max_f1_calibrated
+        required: true
+"""
+        )
+
+
+def append_binary_hex_map_config(
+    config_path: Path,
+    *,
+    paths: dict[str, Path],
+    binary_predictions: Path,
+    calibration_model: Path,
+) -> None:
+    """Append a pooled binary hex-map diagnostic block to a synthetic config."""
+    with config_path.open("a") as file:
+        file.write(
+            f"""
+  pooled_binary_hex_map:
+    figure: {paths["binary_hex_figure"]}
+    table: {paths["binary_hex_table"]}
+    manifest: {paths["binary_hex_manifest"]}
+    source_crs: EPSG:4326
+    target_crs: EPSG:32610
+    hex_flat_diameter_m: 1000.0
+    rate_clip_quantile: 0.98
+    difference_clip_quantile: 0.98
+    inputs:
+      pooled_fixture_hex_context:
+        binary_predictions: {binary_predictions}
+        binary_calibration_model: {calibration_model}
         training_regime: pooled_monterey_big_sur
         model_origin_region: monterey_big_sur
         evaluation_region: big_sur
@@ -1453,6 +1510,12 @@ def output_paths(tmp_path: Path) -> dict[str, Path]:
         / "reports/tables/monterey_big_sur_pooled_prediction_distribution_by_context.csv",
         "pooled_context_manifest": tmp_path
         / "interim/monterey_big_sur_pooled_context_diagnostics_manifest.json",
+        "binary_hex_figure": tmp_path
+        / "reports/figures/monterey_big_sur_pooled_binary_presence_hex_1km.png",
+        "binary_hex_table": tmp_path
+        / "reports/tables/monterey_big_sur_pooled_binary_presence_hex_1km.csv",
+        "binary_hex_manifest": tmp_path
+        / "interim/monterey_big_sur_pooled_binary_presence_hex_manifest.json",
     }
 
 

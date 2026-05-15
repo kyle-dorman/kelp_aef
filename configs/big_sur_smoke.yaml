@@ -584,6 +584,36 @@ training_regime_comparison:
         evaluation_region: monterey
         threshold_policy: validation_max_f1_calibrated
         required: true
+  pooled_binary_hex_map:
+    figure: /Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_binary_presence_hex_1km.png
+    table: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_binary_presence_hex_1km.csv
+    manifest: /Volumes/x10pro/kelp_aef/interim/monterey_big_sur_pooled_binary_presence_hex_manifest.json
+    source_crs: EPSG:4326
+    target_crs: EPSG:32610
+    hex_flat_diameter_m: 1000.0
+    observed_column: binary_observed_y
+    probability_column: pred_binary_probability
+    rate_clip_quantile: 0.98
+    difference_clip_quantile: 0.98
+    background_color: "#dceff7"
+    hex_edge_color: "#f8fafc"
+    inputs:
+      pooled_monterey_big_sur_on_big_sur:
+        binary_predictions: /Volumes/x10pro/kelp_aef/processed/big_sur_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+        binary_calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/pooled_monterey_big_sur_logistic_annual_max_ge_10pct_calibration.big_sur_target.joblib
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        evaluation_region: big_sur
+        threshold_policy: validation_max_f1_calibrated
+        required: true
+      pooled_monterey_big_sur_on_monterey:
+        binary_predictions: /Volumes/x10pro/kelp_aef/processed/monterey_pooled_monterey_big_sur_binary_presence_full_grid_predictions.parquet
+        binary_calibration_model: /Volumes/x10pro/kelp_aef/models/binary_presence/pooled_monterey_big_sur_logistic_annual_max_ge_10pct_calibration.monterey_target.joblib
+        training_regime: pooled_monterey_big_sur
+        model_origin_region: monterey_big_sur
+        evaluation_region: monterey
+        threshold_policy: validation_max_f1_calibrated
+        required: true
   component_failure:
     summary: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_component_failure_summary.csv
     by_label_context: /Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_component_failure_by_label_context.csv

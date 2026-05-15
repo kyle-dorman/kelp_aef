@@ -53,6 +53,14 @@ from kelp_aef.evaluation.binary_presence import (
     binary_auprc,
     binary_auroc,
 )
+from kelp_aef.evaluation.binary_presence_hex import (
+    BinaryPresenceHexMapConfig,
+    BinaryPresenceHexMapTables,
+    binary_presence_hex_row_counts,
+    build_binary_presence_hex_map_tables,
+    load_binary_presence_hex_map_config,
+    write_binary_presence_hex_map_outputs,
+)
 from kelp_aef.evaluation.component_failure import (
     ComponentFailureConfig,
     ComponentFailureTables,
@@ -674,6 +682,7 @@ class Phase2ReportConfig:
     binary_support_primary_summary_path: Path
     binary_support_inputs: tuple[Phase2BinarySupportInput, ...]
     pooled_context: PooledContextDiagnosticsConfig | None
+    binary_hex_map: BinaryPresenceHexMapConfig | None
     component_failure: ComponentFailureConfig | None
     primary_split: str
     primary_year: int
@@ -831,6 +840,7 @@ class AnalysisTables:
     phase2_training_regime_primary: list[dict[str, object]]
     phase2_binary_support: list[dict[str, object]]
     pooled_context: PooledContextDiagnosticsTables | None
+    binary_hex_map: BinaryPresenceHexMapTables | None
     component_failure: ComponentFailureTables | None
 
 
@@ -1280,7 +1290,13 @@ def load_model_analysis_config(config_path: Path) -> ModelAnalysisConfig:
             DEFAULT_TOP_RESIDUAL_COUNT,
         ),
         domain_mask=domain_mask,
-        phase2_report=load_phase2_report_config(config, config_path, outputs, tables_dir),
+        phase2_report=load_phase2_report_config(
+            config,
+            config_path,
+            outputs,
+            figures_dir,
+            tables_dir,
+        ),
     )
 
 
@@ -1288,6 +1304,7 @@ def load_phase2_report_config(
     config: dict[str, Any],
     config_path: Path,
     outputs: dict[str, Any],
+    figures_dir: Path,
     tables_dir: Path,
 ) -> Phase2ReportConfig | None:
     """Load optional Phase 2 report comparison settings from config."""
@@ -1343,6 +1360,18 @@ def load_phase2_report_config(
         pooled_context=load_pooled_context_config(
             comparison,
             outputs,
+            tables_dir,
+            config_path,
+            primary_split=primary_split,
+            primary_year=primary_year,
+            primary_mask_status=primary_mask_status,
+            primary_evaluation_scope=primary_evaluation_scope,
+            primary_label_source=primary_label_source,
+        ),
+        binary_hex_map=load_binary_presence_hex_map_config(
+            comparison,
+            outputs,
+            figures_dir,
             tables_dir,
             config_path,
             primary_split=primary_split,
@@ -1889,6 +1918,12 @@ def build_analysis_tables(
         and analysis_config.phase2_report.pooled_context is not None
         else None
     )
+    binary_hex_map = (
+        build_binary_presence_hex_map_tables(analysis_config.phase2_report.binary_hex_map)
+        if analysis_config.phase2_report is not None
+        and analysis_config.phase2_report.binary_hex_map is not None
+        else None
+    )
     component_failure = (
         build_component_failure_tables(analysis_config.phase2_report.component_failure)
         if analysis_config.phase2_report is not None
@@ -1924,6 +1959,7 @@ def build_analysis_tables(
         phase2_training_regime_primary=phase2_training_regime_primary,
         phase2_binary_support=phase2_binary_support,
         pooled_context=pooled_context,
+        binary_hex_map=binary_hex_map,
         component_failure=component_failure,
     )
 
@@ -5165,6 +5201,14 @@ def write_analysis_tables(tables: AnalysisTables, analysis_config: ModelAnalysis
                 analysis_config.phase2_report.pooled_context,
             )
         if (
+            analysis_config.phase2_report.binary_hex_map is not None
+            and tables.binary_hex_map is not None
+        ):
+            write_binary_presence_hex_map_outputs(
+                tables.binary_hex_map,
+                analysis_config.phase2_report.binary_hex_map,
+            )
+        if (
             analysis_config.phase2_report.component_failure is not None
             and tables.component_failure is not None
         ):
@@ -5900,6 +5944,10 @@ def write_phase2_report(
         "",
         phase2_binary_support_markdown(tables, analysis_config),
         "",
+        "### Pooled Binary Support Hex Map",
+        "",
+        phase2_binary_hex_map_markdown(tables, analysis_config, output_path),
+        "",
         "### Pooled Phase 2 Context Diagnostics",
         "",
         phase2_pooled_context_markdown(tables, analysis_config),
@@ -5919,12 +5967,6 @@ def write_phase2_report(
             analysis_config.pixel_skill_area_calibration_figure,
             output_path,
         ),
-        "",
-        "### Big Sur Binary-Presence Diagnostic Map",
-        "",
-        binary_presence_decision_markdown(analysis_config),
-        "",
-        binary_presence_map_figure_markdown(analysis_config, output_path),
         "",
         "## Remaining Failure Modes",
         "",
@@ -7430,6 +7472,76 @@ def phase2_pooled_context_markdown(
     )
 
 
+def phase2_binary_hex_map_markdown(
+    tables: AnalysisTables,
+    analysis_config: ModelAnalysisConfig,
+    report_path: Path,
+) -> str:
+    """Build the Phase 2 pooled binary hex-map report section."""
+    phase2_config = analysis_config.phase2_report
+    if phase2_config is None or phase2_config.binary_hex_map is None:
+        return "Pooled binary hex-map diagnostics are not configured for this report run."
+    if tables.binary_hex_map is None or not tables.binary_hex_map.rows:
+        return "Pooled binary hex-map diagnostics are configured, but no rows were produced."
+    config = phase2_config.binary_hex_map
+    region_counts = binary_hex_region_counts(tables.binary_hex_map.rows)
+    lines = [
+        (
+            "The pooled binary-support map aggregates retained 30 m cells to flat-top "
+            f"`{format_decimal(config.hex_flat_diameter_m, 0)} m` across-flats hexes in "
+            f"`{config.target_crs}`. It uses `{config.observed_column}` as the observed "
+            f"`annual_max_ge_10pct` target, applies the configured binary calibration model "
+            f"to `{config.probability_column}`, and classifies support with the "
+            "`validation_max_f1_calibrated` threshold policy."
+        ),
+        (
+            f"Hex rows written: `{len(tables.binary_hex_map.rows)}` "
+            f"({', '.join(region_counts)}). The CSV keeps true rates, calibrated "
+            "probabilities, TP/FP/FN/TN counts, and projected hex geometry for audit."
+        ),
+    ]
+    if config.coastline_enabled and config.coastline_source_manifest_paths:
+        lines.append(
+            "The panel background is light water-blue and the dark line is the local "
+            "NOAA CUSP shoreline overlay, included only as visual context."
+        )
+    if config.figure_path.exists():
+        lines.extend(
+            [
+                "",
+                image_markdown(
+                    "Pooled binary presence 1 km hex map",
+                    config.figure_path,
+                    report_path,
+                ),
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            f"- Hex table: `{config.table_path}`",
+            f"- Hex manifest: `{config.manifest_path}`",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def binary_hex_region_counts(rows: list[dict[str, object]]) -> list[str]:
+    """Return compact region row-count labels for the hex-map section."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        region = str(row.get("evaluation_region", "unknown"))
+        counts[region] = counts.get(region, 0) + 1
+    region_order = {"monterey": 0, "big_sur": 1}
+    return [
+        f"{phase2_region_label(region)} `{count}`"
+        for region, count in sorted(
+            counts.items(),
+            key=lambda item: (region_order.get(item[0], 99), item[0]),
+        )
+    ]
+
+
 def phase2_component_failure_markdown(
     tables: AnalysisTables, analysis_config: ModelAnalysisConfig
 ) -> str:
@@ -7577,6 +7689,15 @@ def phase2_artifact_index_markdown(analysis_config: ModelAnalysisConfig) -> str:
                         f"`{pooled.prediction_distribution_path}`"
                     ),
                     f"- Phase 2 pooled context manifest: `{pooled.manifest_path}`",
+                ]
+            )
+        if phase2_config.binary_hex_map is not None:
+            hex_map = phase2_config.binary_hex_map
+            lines.extend(
+                [
+                    f"- Phase 2 pooled binary hex figure: `{hex_map.figure_path}`",
+                    f"- Phase 2 pooled binary hex table: `{hex_map.table_path}`",
+                    f"- Phase 2 pooled binary hex manifest: `{hex_map.manifest_path}`",
                 ]
             )
     return "\n".join(line for line in lines if line)
@@ -9505,6 +9626,7 @@ def write_manifest(
             "data_health": len(tables.data_health),
             "phase2_training_regime_primary": len(tables.phase2_training_regime_primary),
             "phase2_binary_support": len(tables.phase2_binary_support),
+            **binary_presence_hex_row_counts(tables.binary_hex_map),
         },
     }
     if (
@@ -9525,6 +9647,18 @@ def write_manifest(
         )
         cast(dict[str, object], payload["row_counts"]).update(
             pooled_context_row_counts(tables.pooled_context)
+        )
+    if (
+        analysis_config.phase2_report is not None
+        and analysis_config.phase2_report.binary_hex_map is not None
+    ):
+        hex_config = analysis_config.phase2_report.binary_hex_map
+        cast(dict[str, object], payload["outputs"]).update(
+            {
+                "pooled_binary_presence_hex_figure": str(hex_config.figure_path),
+                "pooled_binary_presence_hex_table": str(hex_config.table_path),
+                "pooled_binary_presence_hex_manifest": str(hex_config.manifest_path),
+            }
         )
     if (
         analysis_config.phase2_report is not None
@@ -9657,6 +9791,28 @@ def phase2_manifest_payload(analysis_config: ModelAnalysisConfig) -> dict[str, o
                     pooled.prediction_distribution_path
                 ),
                 "pooled_context_diagnostics_manifest": str(pooled.manifest_path),
+            }
+        )
+    if phase2_config.binary_hex_map is not None:
+        hex_map = phase2_config.binary_hex_map
+        cast(dict[str, object], payload["inputs"])["pooled_binary_hex_map"] = [
+            {
+                "context_id": input_config.context_id,
+                "training_regime": input_config.training_regime,
+                "model_origin_region": input_config.model_origin_region,
+                "evaluation_region": input_config.evaluation_region,
+                "binary_predictions": str(input_config.binary_predictions_path),
+                "binary_calibration_model": str(input_config.binary_calibration_model_path),
+                "threshold_policy": input_config.threshold_policy,
+                "required": input_config.required,
+            }
+            for input_config in hex_map.inputs
+        ]
+        cast(dict[str, object], payload["outputs"]).update(
+            {
+                "pooled_binary_presence_hex_figure": str(hex_map.figure_path),
+                "pooled_binary_presence_hex_table": str(hex_map.table_path),
+                "pooled_binary_presence_hex_manifest": str(hex_map.manifest_path),
             }
         )
     if phase2_config.component_failure is not None:

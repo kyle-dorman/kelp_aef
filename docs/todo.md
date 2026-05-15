@@ -385,7 +385,7 @@ Phase 2 non-goals:
     `0.763152`, expected-value hurdle area bias `-22.1988%`,
     amount-underprediction `53.7713%`, and composition shrink `9.2427%` on the
     same denominator.
-- [ ] P2-11b: Replace the binary-presence diagnostic map with 1 km hex
+- [x] P2-11b: Replace the binary-presence diagnostic map with 1 km hex
       summaries.
   - Goal: Make pooled binary support errors spatially readable by aggregating
     observed positive rate, predicted positive rate/probability, and residual
@@ -395,6 +395,19 @@ Phase 2 non-goals:
     Monterey are clearly separated, and the CSV preserves observed/predicted
     rates plus FP/FN counts for audit.
   - Plan: `tasks/57_hex_aggregate_binary_presence_map.md`.
+  - Completed: added a pooled binary hex diagnostic to `analyze-model`, using
+    calibrated pooled binary probabilities and `1,000 m` flat-top `EPSG:32610`
+    hexes. The regenerated Phase 2 report embeds
+    `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_binary_presence_hex_1km.png`
+    and links
+    `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_binary_presence_hex_1km.csv`
+    plus
+    `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_pooled_binary_presence_hex_manifest.json`.
+    The CSV has `1,058` hex rows across Big Sur and Monterey and aggregates
+    `698,670` retained 30 m cells while preserving observed/predicted rates,
+    mean calibrated probability, TP/FP/FN/TN counts, and projected hex WKT.
+    The figure uses Monterey above Big Sur, a light water-blue background, and
+    wider panel padding so the retained-mask edge is easier to read.
 - [ ] P2-11c: Simplify the Phase 2 report around pooled diagnostics.
   - Goal: Keep one compact six-context comparison at the top, then make the
     main body focus on pooled binary, ridge, and hurdle failure analysis with

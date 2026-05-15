@@ -85,6 +85,29 @@ the PR/commit message that confirms:
 - how Big Sur and Monterey panels are separated;
 - whether the old point-level map is retained as a legacy artifact.
 
+Implementation note:
+
+- Hex aggregation lives in `src/kelp_aef/evaluation/binary_presence_hex.py`,
+  with `src/kelp_aef/evaluation/model_analysis.py` only loading config,
+  writing outputs during `analyze-model`, and embedding the figure in the
+  Phase 2 report.
+- Hex construction uses projected `EPSG:32610` coordinates from
+  longitude/latitude via Rasterio; if input projected columns are added later,
+  the current explicit transform can be replaced without changing the CSV
+  contract.
+- Each hex is a deterministic flat-top regular hexagon with `1,000 m`
+  flat-to-flat diameter, side length `1,000 / sqrt(3) m`, global origin
+  `(0, 0)`, and cube-rounded axial assignment so each retained 30 m cell maps
+  to one hex.
+- The observed target is `binary_observed_y`; the probability input is raw
+  `pred_binary_probability`, converted through the configured binary
+  calibration payload, and the selected class is
+  `calibrated_probability >= validation_max_f1_calibrated threshold`.
+- Big Sur and Monterey are separate configured pooled inputs and appear as
+  separate figure rows plus `evaluation_region` CSV values.
+- The old point-level binary map is retained as a legacy same-region appendix
+  artifact, but the Phase 2 report body uses the 1 km pooled hex map.
+
 ## Required Analysis
 
 Build 1 km hex bins in projected meters:
@@ -183,3 +206,24 @@ inspect the report figure.
 - Do not download new basemap or source data.
 - Do not remove legacy point-level artifacts unless the existing report path
   requires replacement; demoting them to appendix/debug output is fine.
+
+## Outcome
+
+Completed with a Phase 2 `analyze-model` sidecar diagnostic. The regenerated
+report embeds the 1 km pooled binary hex figure and no longer uses the old
+Big Sur point-level binary map in the Phase 2 report body.
+
+Generated artifacts:
+
+- `/Volumes/x10pro/kelp_aef/reports/figures/monterey_big_sur_pooled_binary_presence_hex_1km.png`
+- `/Volumes/x10pro/kelp_aef/reports/tables/monterey_big_sur_pooled_binary_presence_hex_1km.csv`
+- `/Volumes/x10pro/kelp_aef/interim/monterey_big_sur_pooled_binary_presence_hex_manifest.json`
+
+Final artifact check: `1,058` hex rows, `698,670` retained 30 m cells, both
+`big_sur` and `monterey` present, nonblank `1800 x 2700` PNG, and
+`Pooled Binary Support Hex Map` present in
+`/Volumes/x10pro/kelp_aef/reports/model_analysis/big_sur_phase2_model_analysis.md`.
+Follow-up visual polish set Monterey above Big Sur, changed the panel
+background from white to light water-blue, removed the local NOAA CUSP
+shoreline overlay after review, and widened panel padding so the tall/narrow
+Monterey footprint does not look clipped.
